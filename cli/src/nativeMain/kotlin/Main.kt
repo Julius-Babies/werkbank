@@ -15,7 +15,9 @@ private val PrettyPrintJson = Json {
 fun main() {
     val message = Message(
         topic = "Kotlin/Native",
-        content = "Hello!"
+        content = "Hello from ${getPlatformName()}"
     )
     println(PrettyPrintJson.encodeToString(message))
 }
+
+expect fun getPlatformName(): String
