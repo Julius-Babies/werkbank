@@ -1,3 +1,4 @@
+import app.config.MainConfig
 import app.dependencies.openssl.OpensslHandler
 import es.jvbabi.kfile.File
 import kotlinx.coroutines.CoroutineScope
@@ -42,5 +43,8 @@ class Application(
         println("Openssl is required")
         assertTrue(openSslHandler.isOpensslAvailable.await())
         println("Openssl is available")
+
+        println(MainConfig().getConfig())
+        MainConfig().updateConfig { it }
     }
 }

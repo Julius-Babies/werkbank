@@ -113,7 +113,5 @@ class OpensslHandler {
                 +" in your browser or OS"
             }
         })
-
-        rootCaFile.delete()
     }
 }
