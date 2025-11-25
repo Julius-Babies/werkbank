@@ -1,23 +1,46 @@
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import app.dependencies.openssl.OpensslHandler
+import es.jvbabi.kfile.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
+import org.koin.core.context.startKoin
+import org.koin.core.module.Module
+import org.koin.dsl.module
+import kotlin.test.assertTrue
 
-@Serializable
-private data class Message(
-    val topic: String,
-    val content: String,
-)
-
-private val PrettyPrintJson = Json {
-    prettyPrint = true
-}
+expect val platformModule: Module
 
 fun main() {
-    val message = Message(
-        topic = "Kotlin/Native",
-        content = "Hello from ${getPlatformName()}"
-    )
-    println(PrettyPrintJson.encodeToString(message))
+    runBlocking {
+        startKoin koin@{
+            modules(
+                platformModule,
+                module {
+                    single<OpensslHandler> { OpensslHandler() }
+                }
+            )
+
+        }
+        Application(this).run()
+    }
 }
 
-expect fun getPlatformName(): String
+
+class Application(
+    private val coroutineScope: CoroutineScope
+): KoinComponent {
+
+    suspend fun run() {
+        val openSslHandler by inject<OpensslHandler>()
+        coroutineScope.launch { openSslHandler.initialize() }
+
+        println("Running in ${File.getWorkingDirectory().absolutePath}")
+        if (File.getWorkingDirectory().resolve("devmode").exists()) println("Dev mode")
+
+        println("Openssl is required")
+        assertTrue(openSslHandler.isOpensslAvailable.await())
+        println("Openssl is available")
+    }
+}

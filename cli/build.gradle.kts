@@ -16,7 +16,6 @@ kotlin {
         linuxX64(),
         macosArm64(),
         macosX64(),
-        mingwX64(),
     )
     applyDefaultHierarchyTemplate()
 
@@ -33,6 +32,11 @@ kotlin {
     sourceSets {
         nativeMain.dependencies {
             implementation(libs.kotlinxSerializationJson)
+            implementation("io.github.julius-babies:kfile:v0.0.4")
+            implementation("com.kgit2:kommand:2.3.0")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+            implementation("io.insert-koin:koin-core:4.1.0")
+
         }
     }
 }
