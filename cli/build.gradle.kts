@@ -33,6 +33,7 @@ kotlin {
         nativeMain.dependencies {
             implementation(libs.kotlinxSerializationJson)
             implementation(libs.kaml)
+            implementation(libs.clikt)
             implementation("io.github.julius-babies:kfile:v0.0.6")
             implementation("com.kgit2:kommand:2.3.0")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")

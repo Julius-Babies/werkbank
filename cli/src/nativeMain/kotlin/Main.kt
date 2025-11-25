@@ -1,6 +1,9 @@
 import app.config.MainConfig
 import app.dependencies.openssl.OpensslHandler
-import es.jvbabi.kfile.File
+import app.repository.ProjectRepository
+import app.storage.isDevMode
+import com.github.ajalt.clikt.command.main
+import commands.MainCommand
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -9,22 +12,27 @@ import org.koin.core.component.inject
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
 import org.koin.dsl.module
+import util.WARNING
+import util.buildStyledString
 import kotlin.test.assertTrue
 
 expect val platformModule: Module
 
-fun main() {
+fun main(args: Array<String>) {
     runBlocking {
         startKoin koin@{
             modules(
                 platformModule,
                 module {
                     single<OpensslHandler> { OpensslHandler() }
+                    single<MainConfig> { MainConfig() }
+
+                    single<ProjectRepository> { ProjectRepository() }
                 }
             )
 
         }
-        Application(this).run()
+        Application(this).run(args)
     }
 }
 
@@ -33,18 +41,17 @@ class Application(
     private val coroutineScope: CoroutineScope
 ): KoinComponent {
 
-    suspend fun run() {
+    suspend fun run(args: Array<String>) {
         val openSslHandler by inject<OpensslHandler>()
+
         coroutineScope.launch { openSslHandler.initialize() }
 
-        println("Running in ${File.getWorkingDirectory().absolutePath}")
-        if (File.getWorkingDirectory().resolve("devmode").exists()) println("Dev mode")
+        if (isDevMode) println(buildStyledString { yellow { +"$WARNING Running werkbank in development mode" } })
 
-        println("Openssl is required")
         assertTrue(openSslHandler.isOpensslAvailable.await())
-        println("Openssl is available")
+        inject<MainConfig>().value.updateConfig { it }
 
-        println(MainConfig().getConfig())
-        MainConfig().updateConfig { it }
+        MainCommand()
+            .main(args)
     }
 }
