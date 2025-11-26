@@ -1,9 +1,12 @@
+import app.SudoManager
 import app.config.MainConfig
 import app.dependencies.openssl.OpensslHandler
+import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import com.github.ajalt.clikt.command.main
 import commands.MainCommand
+import es.jvbabi.kfile.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -26,6 +29,8 @@ fun main(args: Array<String>) {
                 module {
                     single<OpensslHandler> { OpensslHandler() }
                     single<MainConfig> { MainConfig() }
+                    single<SudoManager> { SudoManager() }
+                    single<HostsManager> { HostsManager(File("/etc/hosts")) }
 
                     single<ProjectRepository> { ProjectRepository() }
                 }

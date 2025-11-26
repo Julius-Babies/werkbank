@@ -38,5 +38,7 @@ class ProjectRepository : KoinComponent {
                 projects = config.projects.orEmpty().filterNot { it.id == project.id } + newProject
             )
         }
+
+        project.updateHosts()
     }
 }
