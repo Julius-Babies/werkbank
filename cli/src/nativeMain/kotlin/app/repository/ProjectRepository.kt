@@ -20,7 +20,7 @@ class ProjectRepository : KoinComponent {
         }
     }
 
-    fun importProject(project: Project) {
+    suspend fun importProject(project: Project) {
         mainConfig.updateConfig { config ->
             val existingProject = config.projects.orEmpty().firstOrNull { it.id == project.id }
             val newProject = existingProject?.copy(
@@ -40,5 +40,6 @@ class ProjectRepository : KoinComponent {
         }
 
         project.updateHosts()
+        project.updateCertificates()
     }
 }
