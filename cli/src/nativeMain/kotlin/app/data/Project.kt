@@ -77,14 +77,17 @@ data class Project(
         traefikManager.initialize()
     }
 
-    fun getContainers(): List<DockerContainer> {
+    fun getContainers(): List<ProjectContainer> {
         return getConfig().containers.map { container ->
-            DockerContainer(
-                image = container.image,
-                name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
-                ports = container.ports,
-                volumes = container.volumes,
-                environment = container.environment
+            ProjectContainer(
+                name = container.name,
+                container = DockerContainer(
+                    image = container.image,
+                    name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
+                    ports = container.ports,
+                    volumes = container.volumes,
+                    environment = container.environment
+                )
             )
         }
     }
@@ -94,12 +97,12 @@ data class Project(
         getContainers().forEach { container ->
             val service = services.firstOrNull { service -> service.modes.docker?.container == container.name }
             if (service == null) {
-                if (container.getState() == DockerContainer.State.NotExisting) {
-                    println(buildStyledString { green { +"Creating container ${container.name}" } })
-                    container.create()
+                if (container.container.getState() == DockerContainer.State.NotExisting) {
+                    println(buildStyledString { green { +"Creating container ${container.name} (${container.container.name})" } })
+                    container.container.create()
                 }
-                println(buildStyledString { green { +"Starting container ${container.name}" } })
-                container.start()
+                println(buildStyledString { green { +"Starting container ${container.name} (${container.container.name})" } })
+                container.container.start()
                 return@forEach
             }
 
@@ -110,12 +113,17 @@ data class Project(
                 .first { service -> service.name == service.name }
                 .serviceState
             if (mode == WerkbankConfig.Project.Service.ServiceState.Docker) {
-                println(buildStyledString { green { +"Starting container ${container.name}" } })
-                container.start()
+                println(buildStyledString { green { +"Starting container ${container.name} (${container.container.name})" } })
+                container.container.start()
             } else {
-                println(buildStyledString { blue { +"Stopping container ${container.name}" } })
-                container.stop()
+                println(buildStyledString { blue { +"Stopping container ${container.name} (${container.container.name})" } })
+                container.container.stop()
             }
         }
     }
 }
+
+data class ProjectContainer(
+    val name: String,
+    val container: DockerContainer
+)
