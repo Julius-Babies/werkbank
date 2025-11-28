@@ -1,6 +1,7 @@
 package app.dependencies.openssl
 
 import app.SudoManager
+import app.storage.isDevMode
 import app.storage.storageRoot
 import com.kgit2.kommand.exception.KommandException
 import com.kgit2.kommand.process.Command
@@ -40,77 +41,87 @@ class OpensslHandler {
         if (!isRootCaSetUp()) createRootCa()
     }
 
-    val certificatesFolder = storageRoot.resolve("certificates").apply { if (!exists()) mkdir() }
+    val certificatesFolder = storageRoot.resolve("certificates").apply {
+        if (!exists()) mkdir()
+    }
+
     val rootCaFile = certificatesFolder.resolve("rootCA.crt")
     val rootKeyFile = certificatesFolder.resolve("rootCA.key")
 
     fun isRootCaSetUp(): Boolean {
         if (!rootCaFile.exists()) return false
         if (!rootKeyFile.exists()) return false
-
         return true
     }
 
-    fun createRootCa() {
-        println(buildStyledString { cyan { +"Creating root CA" } })
+    suspend fun createRootCa() {
+        println(buildStyledString {
+            cyan { +"Creating root CA certificate" }
+        })
+        println()
+
+        // Step 1: Generate private key
         println(buildStyledString {
             blue { +"Step 1" }
-            +": Generating private key"
+            +": Generating private key (4096-bit RSA)"
         })
         print(buildStyledString {
-            +"  $ "
-            gray {
-                +"openssl genrsa -out ${rootKeyFile.absolutePath} 4096"
-            }
+            +"   $ "
+            gray { +"openssl genrsa -out ${rootKeyFile.absolutePath} 4096" }
         })
+
         val keyFileResult = Command("openssl")
             .args("genrsa", "-out", rootKeyFile.absolutePath, "4096")
             .stdout(Stdio.Null)
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()
+
         if (keyFileResult.status != 0) {
             println()
             throw RuntimeException(
-                """Failed to create root CA key.
+                """Failed to create root CA private key.
                 |Status: ${keyFileResult.status}
                 |Output: ${keyFileResult.stdout}
                 |Error: ${keyFileResult.stderr}
-            """.trimMargin()
+                """.trimMargin()
             )
         }
 
         println(buildStyledString {
             +REPLACE_LINE
+            +"   "
+            green { +"$CHECK Private key generated" }
+        })
+        println()
+
+        // Step 2: Create certificate
+        println(buildStyledString {
             blue { +"Step 2" }
-            +": Certificate signing request"
+            +": Creating self-signed root certificate"
         })
+
+        val cn = if (isDevMode) "Werkbank Dev Root CA" else "Werkbank Root CA"
+
         print(buildStyledString {
-            +"  $ "
-            gray {
-                +"openssl req -x509 -new -nodes -key ${rootKeyFile.absolutePath} -sha256 -days 1024 -out ${rootCaFile.absolutePath} -subj \"/C=DE/ST=Berlin/L=Berlin/O=Werkbank/OU=Dev/CN=Werkbank Root CA\""
-            }
+            +"   $ "
+            gray { +"openssl req -x509 -new -nodes -key ${rootKeyFile.absolutePath} -sha256 -days 1024 -out ${rootCaFile.absolutePath}" }
         })
+
         val certFileResult = Command("openssl")
             .args(
-                "req",
-                "-x509",
-                "-new",
-                "-nodes",
-                "-key",
-                rootKeyFile.absolutePath,
+                "req", "-x509", "-new", "-nodes",
+                "-key", rootKeyFile.absolutePath,
                 "-sha256",
-                "-days",
-                "1024",
-                "-out",
-                rootCaFile.absolutePath,
-                "-subj",
-                "/C=DE/ST=Saxony/L=Dresden/O=Werkbank/OU=Dev/CN=Werkbank Root CA"
+                "-days", "1024",
+                "-out", rootCaFile.absolutePath,
+                "-subj", "/C=DE/ST=Saxony/L=Dresden/O=Werkbank/OU=Dev/CN=$cn"
             )
             .stdout(Stdio.Pipe)
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()
+
         if (certFileResult.status != 0) {
             println()
             throw RuntimeException(
@@ -118,26 +129,67 @@ class OpensslHandler {
                 |Status: ${certFileResult.status}
                 |Output: ${certFileResult.stdout}
                 |Error: ${certFileResult.stderr}
-            """.trimMargin()
+                """.trimMargin()
             )
         }
 
         println(buildStyledString {
             +REPLACE_LINE
+            +"   "
+            green { +"$CHECK Certificate created (valid for 1024 days)" }
+        })
+        println()
+
+        println(buildStyledString {
             green { +"$CHECK Root CA created successfully" }
         })
         println(buildStyledString {
-            yellow {
-                +"‣ You can now install the file located at "
-                bold {
-                    +rootCaFile.absolutePath
-                }
-                +" in your browser or OS"
-            }
+            yellow { +"   Certificate location: " }
+            bold { +rootCaFile.absolutePath }
         })
-        println("Do you want to install the root CA now? (y/n)")
+        println()
+
+        // Installation prompt
+        println(buildStyledString {
+            yellow { +"Do you want to install the root CA in your system now? (y/n)" }
+        })
         val response = readln()
-        if (response.lowercase() == "y") installRootCa(rootCaFile, SudoManager())
+
+        if (response.lowercase() == "y") {
+            println()
+            println(buildStyledString {
+                cyan { +"Installing root CA..." }
+            })
+
+            val installedCAs = getInstalledRootCAs(SudoManager())
+            val existingCa = installedCAs.firstOrNull { it.name == cn }
+
+            if (existingCa != null) {
+                println(buildStyledString {
+                    yellow { +"   Found existing CA installation: " }
+                    +cn
+                })
+                println(buildStyledString {
+                    yellow { +"   Removing old version (fingerprint: ${existingCa.fingerprint})" }
+                })
+                uninstallRootCa(existingCa.fingerprint, SudoManager())
+            }
+
+            installRootCa(rootCaFile, SudoManager())
+
+            println(buildStyledString {
+                green { +"$CHECK Root CA installed successfully" }
+            })
+        } else {
+            println(buildStyledString {
+                gray { +"   You can install the certificate later from:" }
+            })
+            println(buildStyledString {
+                gray { +"   " }
+                +rootCaFile.absolutePath
+            })
+        }
+        println()
     }
 
     @OptIn(ExperimentalUuidApi::class)
@@ -147,64 +199,91 @@ class OpensslHandler {
         mainDomain: String,
         altDomains: List<String> = emptyList()
     ) {
-
         if (certificateFile.exists()) certificateFile.delete()
         if (privateKeyFile.exists()) privateKeyFile.delete()
 
+        // Generate private key
         val privateKeyResult = Command("openssl")
             .args("genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:4096", "-out", privateKeyFile.absolutePath)
             .stdout(Stdio.Null)
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()
+
         if (privateKeyResult.status != 0) {
             throw RuntimeException(
                 """Failed to create private key for $mainDomain.
                 |Status: ${privateKeyResult.status}
                 |Output: ${privateKeyResult.stdout}
                 |Error: ${privateKeyResult.stderr}
-            """.trimMargin()
+                """.trimMargin()
             )
         }
 
+        // Create certificate signing request
         val signingRequestFile = privateKeyFile.parent!!.resolve("certificaterequest.${Uuid.random()}.csr")
         if (signingRequestFile.exists()) signingRequestFile.delete()
+
         val signingRequestResult = Command("openssl")
             .args("req", "-new", "-key", privateKeyFile.absolutePath, "-out", signingRequestFile.absolutePath, "-subj", "/CN=$mainDomain")
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()
 
-        val sanFile = privateKeyFile.parent!!.resolve("san.${Uuid.random()}.conf")
-        if (sanFile.exists()) sanFile.delete()
-        sanFile.writeText(generateSanConfig(alternativeNames = listOf(mainDomain) + altDomains))
-
         if (signingRequestResult.status != 0) {
             throw RuntimeException(
                 """Failed to create certificate signing request for $mainDomain.
-                    |Status: ${signingRequestResult.status}
-                    |Output: ${signingRequestResult.stdout}
-                    |Error: ${signingRequestResult.stderr}
+                |Status: ${signingRequestResult.status}
+                |Output: ${signingRequestResult.stdout}
+                |Error: ${signingRequestResult.stderr}
                 """.trimMargin()
             )
         }
 
+        // Create SAN configuration
+        val sanFile = privateKeyFile.parent!!.resolve("san.${Uuid.random()}.conf")
+        if (sanFile.exists()) sanFile.delete()
+        sanFile.writeText(generateSanConfig(alternativeNames = listOf(mainDomain) + altDomains))
+
+        // Sign certificate
         val certificateResult = Command("openssl")
-            .args("x509", "-req", "-in", signingRequestFile.absolutePath, "-CA", rootCaFile.absolutePath, "-CAkey", rootKeyFile.absolutePath, "-CAcreateserial", "-out", certificateFile.absolutePath, "-days", "365", "-sha256", "-extfile", sanFile.absolutePath)
+            .args(
+                "x509", "-req",
+                "-in", signingRequestFile.absolutePath,
+                "-CA", rootCaFile.absolutePath,
+                "-CAkey", rootKeyFile.absolutePath,
+                "-CAcreateserial",
+                "-out", certificateFile.absolutePath,
+                "-days", "365",
+                "-sha256",
+                "-extfile", sanFile.absolutePath
+            )
             .stdout(Stdio.Null)
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()
+
         if (certificateResult.status != 0) {
             throw RuntimeException(
                 """Failed to create certificate for $mainDomain.
                 |Status: ${certificateResult.status}
                 |Output: ${certificateResult.stdout}
                 |Error: ${certificateResult.stderr}
-            """.trimMargin()
+                """.trimMargin()
             )
         }
+
+        // Cleanup
+        signingRequestFile.delete()
+        sanFile.delete()
     }
 }
 
 expect fun installRootCa(rootCaFile: File, sudoManager: SudoManager)
+expect fun uninstallRootCa(fingerprint: String, sudoManager: SudoManager)
+expect suspend fun getInstalledRootCAs(sudoManager: SudoManager): List<InstalledRootCa>
+
+data class InstalledRootCa(
+    val fingerprint: String,
+    val name: String,
+)

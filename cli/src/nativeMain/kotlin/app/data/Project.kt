@@ -1,10 +1,10 @@
 package app.data
 
-import app.config.WerkbankConfig
 import app.dependencies.openssl.OpensslHandler
 import app.hosts.HostsManager
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
+import commands.setup.Werkbankfile
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -24,10 +24,10 @@ data class Project(
             .apply { mkdir(recursive = true) }
     }
 
-    fun getConfig(): WerkbankConfig {
+    fun getConfig(): Werkbankfile {
         val file = File(path)
         val data = file.readText()
-        val config = Yaml.default.decodeFromString(WerkbankConfig.serializer(), data)
+        val config = Yaml.default.decodeFromString(Werkbankfile.serializer(), data)
         return config
     }
 
