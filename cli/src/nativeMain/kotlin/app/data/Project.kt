@@ -1,6 +1,7 @@
 package app.data
 
 import app.dependencies.openssl.OpensslHandler
+import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
@@ -17,6 +18,8 @@ data class Project(
 ): KoinComponent {
     private val hostsManager by inject<HostsManager>()
     private val opensslHandler by inject<OpensslHandler>()
+    private val traefikManager by inject<TraefikManager>()
+
     private val getProjectStorage by lazy {
         storageRoot
             .resolve("projects")
@@ -24,9 +27,10 @@ data class Project(
             .apply { mkdir(recursive = true) }
     }
 
+    private val configFile = File(path).resolve("Werkbankfile.yaml")
+
     fun getConfig(): Werkbankfile {
-        val file = File(path)
-        val data = file.readText()
+        val data = configFile.readText()
         val config = Yaml.default.decodeFromString(Werkbankfile.serializer(), data)
         return config
     }
@@ -40,9 +44,21 @@ data class Project(
         assertTrue(opensslHandler.isOpensslAvailable.await())
         val certificateFile = getProjectStorage.resolve("certificate.pem")
         val privateKeyFile = getProjectStorage.resolve("private.key")
-        if (!certificateFile.exists() || !privateKeyFile.exists()) {
-            // Regenerate certificates
-            opensslHandler.createCertificatePair(certificateFile, privateKeyFile, id.lowercase() + ".werkbank.local")
-        }
+        val services = getConfig().services
+        // Regenerate certificates
+        opensslHandler.createCertificatePair(
+            certificateFile = certificateFile,
+            privateKeyFile = privateKeyFile,
+            mainDomain = id.lowercase() + ".werkbank.local",
+            altDomains = services
+                .flatMap { it.domains }
+                .distinct()
+                .map { "${it.lowercase()}.${id.lowercase()}.werkbank.local" }
+        )
+    }
+
+    suspend fun setupProxy() {
+        if (getConfig().services.isEmpty()) return
+        traefikManager.initialize()
     }
 }

@@ -41,5 +41,6 @@ class ProjectRepository : KoinComponent {
 
         project.updateHosts()
         project.updateCertificates()
+        project.setupProxy()
     }
 }

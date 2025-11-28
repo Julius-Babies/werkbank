@@ -1,11 +1,13 @@
 import app.SudoManager
 import app.config.MainConfig
 import app.dependencies.openssl.OpensslHandler
+import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import com.github.ajalt.clikt.command.main
 import commands.MainCommand
+import es.jvbabi.docker.kt.docker.DockerClient
 import es.jvbabi.kfile.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -14,6 +16,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
+import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import util.WARNING
 import util.buildStyledString
@@ -31,12 +34,15 @@ fun main(args: Array<String>) {
                     single<MainConfig> { MainConfig() }
                     single<SudoManager> { SudoManager() }
                     single<HostsManager> { HostsManager(File("/etc/hosts")) }
+                    single<DockerClient> { DockerClient() }
+                    singleOf(::TraefikManager)
 
                     single<ProjectRepository> { ProjectRepository() }
                 }
             )
 
         }
+
         Application(this).run(args)
     }
 }
@@ -47,16 +53,20 @@ class Application(
 ): KoinComponent {
 
     suspend fun run(args: Array<String>) {
-        val openSslHandler by inject<OpensslHandler>()
+        try {
+            val openSslHandler by inject<OpensslHandler>()
 
-        coroutineScope.launch { openSslHandler.initialize() }
+            coroutineScope.launch { openSslHandler.initialize() }
 
-        if (isDevMode) println(buildStyledString { yellow { +"$WARNING Running werkbank in development mode" } })
+            if (isDevMode) println(buildStyledString { yellow { +"$WARNING Running werkbank in development mode" } })
 
-        assertTrue(openSslHandler.isOpensslAvailable.await())
-        inject<MainConfig>().value.updateConfig { it }
+            assertTrue(openSslHandler.isOpensslAvailable.await())
+            inject<MainConfig>().value.updateConfig { it }
 
-        MainCommand()
-            .main(args)
+            MainCommand()
+                .main(args)
+        } finally {
+            inject<DockerClient>().value.close()
+        }
     }
 }
