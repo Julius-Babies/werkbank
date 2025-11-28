@@ -25,13 +25,49 @@ class ProjectRepository : KoinComponent {
             val existingProject = config.projects.orEmpty().firstOrNull { it.id == project.id }
             val newProject = existingProject?.copy(
                 path = project.path,
-                name = project.name
+                name = project.name,
+                services = existingProject
+                    .services
+                    .toMutableList()
+                    .let { services ->
+                        val providedServiceNames = project.getConfig().services.map { it.name }
+                        services.removeAll { it.name !in providedServiceNames }
+                        services.forEachIndexed { i, service ->
+                            val providedService = project.getConfig().services.first { it.name == service.name }
+                            val doesProvidedServiceSupportDocker = providedService.modes.docker != null
+                            val doesProvidedServiceSupportLocal = providedService.modes.local != null
+                            val currentServiceState = service.serviceState
+
+                            when (currentServiceState) {
+                                WerkbankConfig.Project.Service.ServiceState.Docker -> {
+                                    if (!doesProvidedServiceSupportDocker) {
+                                        if (doesProvidedServiceSupportLocal) services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Local)
+                                        else services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Disabled)
+                                    }
+                                }
+                                WerkbankConfig.Project.Service.ServiceState.Local -> {
+                                    if (!doesProvidedServiceSupportLocal) services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Disabled)
+                                }
+                                else -> Unit
+                            }
+                        }
+                        services
+                    }
             )
                 ?: WerkbankConfig.Project(
                     id = project.id,
                     name = project.name,
                     path = project.path,
-                    submodules = emptyList()
+                    submodules = emptyList(),
+                    services = project.getConfig().services.map { service ->
+                        WerkbankConfig.Project.Service(
+                            name = service.name,
+                            serviceState =
+                                if (service.modes.docker != null) WerkbankConfig.Project.Service.ServiceState.Docker
+                                else if (service.modes.local != null) WerkbankConfig.Project.Service.ServiceState.Local
+                                else WerkbankConfig.Project.Service.ServiceState.Disabled
+                        )
+                    }
                 )
 
             return@updateConfig config.copy(

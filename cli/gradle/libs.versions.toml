@@ -2,7 +2,7 @@
 clikt = "5.0.3"
 docker-kt = "v0.0.6"
 kaml = "0.104.0"
-kfile = "v0.0.6"
+kfile = "v0.0.7"
 koin = "4.1.0"
 kommand = "2.3.0"
 kotlin = "2.2.21"

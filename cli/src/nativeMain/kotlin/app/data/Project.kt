@@ -1,5 +1,7 @@
 package app.data
 
+import app.config.MainConfig
+import app.config.WerkbankConfig
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
@@ -9,6 +11,7 @@ import commands.setup.Werkbankfile
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import kotlin.getValue
 import kotlin.test.assertTrue
 
 data class Project(
@@ -19,6 +22,7 @@ data class Project(
     private val hostsManager by inject<HostsManager>()
     private val opensslHandler by inject<OpensslHandler>()
     private val traefikManager by inject<TraefikManager>()
+    private val mainConfig by inject<MainConfig>()
 
     private val getProjectStorage by lazy {
         storageRoot
@@ -33,6 +37,11 @@ data class Project(
         val data = configFile.readText()
         val config = Yaml.default.decodeFromString(Werkbankfile.serializer(), data)
         return config
+    }
+
+    fun getWerkbankConfig(): WerkbankConfig.Project {
+        mainConfig.getConfig().projects.orEmpty().firstOrNull { it.id == id }?.let { return it }
+        error("Project with id $id not found in config")
     }
 
     fun updateHosts() {
