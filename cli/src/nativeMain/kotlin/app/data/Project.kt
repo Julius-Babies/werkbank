@@ -2,15 +2,18 @@ package app.data
 
 import app.config.MainConfig
 import app.config.WerkbankConfig
+import app.dependencies.docker.DockerContainer
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
+import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
 import commands.setup.Werkbankfile
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import util.buildStyledString
 import kotlin.getValue
 import kotlin.test.assertTrue
 
@@ -72,5 +75,47 @@ data class Project(
     suspend fun setupProxy() {
         if (getConfig().services.isEmpty()) return
         traefikManager.initialize()
+    }
+
+    fun getContainers(): List<DockerContainer> {
+        return getConfig().containers.map { container ->
+            DockerContainer(
+                image = container.image,
+                name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
+                ports = container.ports,
+                volumes = container.volumes,
+                environment = container.environment
+            )
+        }
+    }
+
+    suspend fun start() {
+        val services = getConfig().services
+        getContainers().forEach { container ->
+            val service = services.firstOrNull { service -> service.modes.docker?.container == container.name }
+            if (service == null) {
+                if (container.getState() == DockerContainer.State.NotExisting) {
+                    println(buildStyledString { green { +"Creating container ${container.name}" } })
+                    container.create()
+                }
+                println(buildStyledString { green { +"Starting container ${container.name}" } })
+                container.start()
+                return@forEach
+            }
+
+            val mode = mainConfig.getConfig()
+                .projects.orEmpty()
+                .first { project -> project.name == this.name }
+                .services
+                .first { service -> service.name == service.name }
+                .serviceState
+            if (mode == WerkbankConfig.Project.Service.ServiceState.Docker) {
+                println(buildStyledString { green { +"Starting container ${container.name}" } })
+                container.start()
+            } else {
+                println(buildStyledString { blue { +"Stopping container ${container.name}" } })
+                container.stop()
+            }
+        }
     }
 }

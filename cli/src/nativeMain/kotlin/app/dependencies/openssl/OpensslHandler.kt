@@ -30,7 +30,7 @@ class OpensslHandler: KoinComponent {
         try {
             withContext(Dispatchers.IO) {
                 Command("openssl")
-                    .stdout(Stdio.Null)
+                    .stdout(Stdio.Pipe)
                     .stderr(Stdio.Pipe)
                     .spawn()
                     .wait()
@@ -78,7 +78,7 @@ class OpensslHandler: KoinComponent {
 
         val keyFileResult = Command("openssl")
             .args("genrsa", "-out", rootKeyFile.absolutePath, "4096")
-            .stdout(Stdio.Null)
+            .stdout(Stdio.Pipe)
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()
@@ -221,7 +221,7 @@ class OpensslHandler: KoinComponent {
         // Generate private key
         val privateKeyResult = Command("openssl")
             .args("genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:4096", "-out", privateKeyFile.absolutePath)
-            .stdout(Stdio.Null)
+            .stdout(Stdio.Pipe)
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()
@@ -274,7 +274,7 @@ class OpensslHandler: KoinComponent {
                 "-sha256",
                 "-extfile", sanFile.absolutePath
             )
-            .stdout(Stdio.Null)
+            .stdout(Stdio.Pipe)
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()

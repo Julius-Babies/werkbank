@@ -1,5 +1,6 @@
 import app.SudoManager
 import app.config.MainConfig
+import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
@@ -35,6 +36,7 @@ fun main(args: Array<String>) {
                     single<SudoManager> { SudoManager() }
                     single<HostsManager> { HostsManager(File("/etc/hosts")) }
                     single<DockerClient> { DockerClient() }
+                    single<DockerNetwork> { DockerNetwork() }
                     singleOf(::TraefikManager)
 
                     single<ProjectRepository> { ProjectRepository() }

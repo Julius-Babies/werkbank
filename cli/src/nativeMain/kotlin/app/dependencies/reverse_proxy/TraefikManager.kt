@@ -1,20 +1,16 @@
 package app.dependencies.reverse_proxy
 
 import app.config.WerkbankConfig
-import app.dependencies.docker.pullImageWithLogs
+import app.dependencies.docker.DockerContainer
 import app.dependencies.openssl.OpensslHandler
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
+import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
-import com.kgit2.kommand.process.Command
-import com.kgit2.kommand.process.Stdio
-import es.jvbabi.docker.kt.docker.DockerClient
 import es.jvbabi.docker.kt.docker.getSocketPath
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import platform.zlib.inflateGetHeader
-import util.throwError
 
 class TraefikManager : KoinComponent {
 
@@ -25,92 +21,28 @@ class TraefikManager : KoinComponent {
     val dynamicConfigFolder by lazy { traefikFileStorage.resolve("dynamic").apply { if (!exists()) mkdir() } }
     val dashboardCertificatesFolder by lazy { traefikFileStorage.resolve("dashboard-certificates").apply { if (!exists()) mkdir() } }
 
-    private val dockerClient by inject<DockerClient>()
     private val projectRepository by inject<ProjectRepository>()
     private val opensslHandler by inject<OpensslHandler>()
 
+    val container = DockerContainer(
+        image = this.traefikImage,
+        name = "werkbank-traefik",
+        ports = listOf("80:80", "443:443"),
+        volumes = listOf(
+            "${traefikFileStorage.absolutePath}:/etc/traefik:ro",
+            "${storageRoot.resolve("projects").absolutePath}:/projects",
+            "${dashboardCertificatesFolder.absolutePath}:/ssl/dashboard:ro",
+            "${getSocketPath()}:/var/run/docker.sock",
+        ),
+        environment = emptyMap()
+    )
+
     suspend fun initialize() {
-        if (dockerClient.images.getImages().none { it.repoTags.contains(traefikImage) }) pullImage()
         generateTraefikConfig()
         generateProxyConfig()
         createDashboardService()
         generateSslConfig()
-    }
-
-    private fun createContainer() {
-        val createResponse = Command("docker")
-            .args(
-                "create",
-                "--name",
-                "werkbank-traefik",
-                "--label",
-                "compose.project=werkbank",
-                "-p",
-                "80:80",
-                "-p",
-                "443:443",
-                "-v",
-                dashboardCertificatesFolder.absolutePath + ":/ssl/dashboard:ro",
-                "-v",
-                storageRoot.resolve("projects").absolutePath + ":/projects",
-                "-v",
-                traefikFileStorage.absolutePath + ":/etc/traefik:ro",
-                "-v",
-                getSocketPath() + ":/var/run/docker.sock",
-                traefikImage
-            )
-            .stderr(Stdio.Pipe)
-            .spawn()
-            .waitWithOutput()
-        if (createResponse.status != 0) createResponse.throwError("Failed to create container")
-    }
-
-    private fun getContainerId(): String? {
-        val psResponse = Command("docker")
-            .args("ps", "-aqf", "name=werkbank-traefik")
-            .stdout(Stdio.Null)
-            .stderr(Stdio.Pipe)
-            .spawn()
-            .waitWithOutput()
-        if (psResponse.status != 0) psResponse.throwError("Failed to get container id")
-        return psResponse.stdout?.trim()?.ifBlank { null }
-    }
-
-    private fun stopContainer() {
-        val containerId = getContainerId() ?: return
-        val stopResponse = Command("docker")
-            .args("stop", containerId)
-            .stdout(Stdio.Null)
-            .stderr(Stdio.Pipe)
-            .spawn()
-            .waitWithOutput()
-        if (stopResponse.status != 0) stopResponse.throwError("Failed to stop container")
-    }
-
-    private fun startContainer() {
-        val containerId = getContainerId() ?: return
-        val startResponse = Command("docker")
-            .args("start", containerId)
-            .stdout(Stdio.Null)
-            .stderr(Stdio.Pipe)
-            .spawn()
-            .waitWithOutput()
-        if (startResponse.status != 0) throw RuntimeException("Failed to start container, status ${startResponse.status}")
-    }
-
-    private fun deleteContainer() {
-        val containerId = getContainerId() ?: return
-        val rmResponse = Command("docker")
-            .args("rm", containerId)
-            .stdout(Stdio.Null)
-            .stderr(Stdio.Pipe)
-            .spawn()
-            .waitWithOutput()
-        if (rmResponse.status != 0) throw RuntimeException("Failed to remove container, status ${rmResponse.status}")
-    }
-
-    private suspend fun pullImage() {
-        dockerClient.pullImageWithLogs(traefikImage)
+        if (container.getState() == DockerContainer.State.NotExisting) container.create()
     }
 
     fun generateTraefikConfig() {
@@ -192,7 +124,8 @@ class TraefikManager : KoinComponent {
                     WerkbankConfig.Project.Service.ServiceState.Docker -> {
                         val container = service.modes.docker!!.container
                         val port = service.modes.docker.port
-                        "http://${container}-$serviceName:$port"
+                        val containerName = "werkbank${if (isDevMode) "-dev" else ""}-${project.project.id.lowercase()}-${container}"
+                        "http://${containerName}:$port"
                     }
                     WerkbankConfig.Project.Service.ServiceState.Local -> "http://host.docker.internal:${service.modes.local!!.port}"
                 }

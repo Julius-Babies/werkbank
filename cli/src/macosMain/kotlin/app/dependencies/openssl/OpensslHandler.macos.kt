@@ -51,7 +51,7 @@ actual suspend fun getInstalledRootCAs(sudoManager: SudoManager): List<Installed
                     awkStdin.writeLine(line)
                 }
             } finally {
-                if (stdinClosed.compareAndSet(false, true)) {
+                if (stdinClosed.compareAndSet(expectedValue = false, newValue = true)) {
                     awkStdin.close()
                 }
             }
