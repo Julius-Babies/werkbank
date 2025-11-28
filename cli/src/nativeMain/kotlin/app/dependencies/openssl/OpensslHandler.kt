@@ -1,6 +1,8 @@
 package app.dependencies.openssl
 
 import app.SudoManager
+import app.dependencies.reverse_proxy.TraefikManager
+import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
 import com.kgit2.kommand.exception.KommandException
@@ -11,13 +13,17 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import util.CHECK
 import util.REPLACE_LINE
 import util.buildStyledString
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-class OpensslHandler {
+class OpensslHandler: KoinComponent {
+    private val projectRepository by inject<ProjectRepository>()
+    private val traefikManager by inject<TraefikManager>()
     val isOpensslAvailable = CompletableDeferred<Boolean>()
 
     suspend fun initialize() {
@@ -148,6 +154,16 @@ class OpensslHandler {
             bold { +rootCaFile.absolutePath }
         })
         println()
+
+        println(buildStyledString { cyan { +"Deleting old leaf certificates if present" } })
+        projectRepository.getAllProjects().forEach { project ->
+            project.getProjectStorage.resolve("certificate.pem").delete()
+            project.getProjectStorage.resolve("private.key").delete()
+        }
+        if (traefikManager.traefikFileStorage.listFiles().isNotEmpty() && traefikManager.dashboardCertificatesFolder.listFiles().isNotEmpty()) {
+            traefikManager.dashboardCertificatesFolder.resolve("certificate.pem").delete()
+            traefikManager.dashboardCertificatesFolder.resolve("private.key").delete()
+        }
 
         // Installation prompt
         println(buildStyledString {

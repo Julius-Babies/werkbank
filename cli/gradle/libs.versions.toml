@@ -1,6 +1,7 @@
 [versions]
 clikt = "5.0.3"
 docker-kt = "v0.0.6"
+hash = "0.8.0"
 kaml = "0.104.0"
 kfile = "v0.0.7"
 koin = "4.1.0"
@@ -12,6 +13,9 @@ kotlinxSerialization = "1.9.0"
 [libraries]
 clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
 docker-kt = { module = "io.github.julius-babies:docker.kt", version.ref = "docker-kt" }
+
+hash-sha1 = { module = "org.kotlincrypto.hash:sha1", version.ref = "hash" }
+
 kaml = { module = "com.charleskorn.kaml:kaml", version.ref = "kaml" }
 kfile = { module = "io.github.julius-babies:kfile", version.ref = "kfile" }
 kommand = { module = "com.kgit2:kommand", version.ref = "kommand" }

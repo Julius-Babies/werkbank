@@ -14,6 +14,9 @@ import org.koin.core.component.inject
 import kotlin.getValue
 import kotlin.test.assertTrue
 
+/**
+ * @param path The path to the project directory containing the Werkbankfile.yaml
+ */
 data class Project(
     val id: String,
     val name: String,
@@ -24,7 +27,7 @@ data class Project(
     private val traefikManager by inject<TraefikManager>()
     private val mainConfig by inject<MainConfig>()
 
-    private val getProjectStorage by lazy {
+    val getProjectStorage by lazy {
         storageRoot
             .resolve("projects")
             .resolve(id)

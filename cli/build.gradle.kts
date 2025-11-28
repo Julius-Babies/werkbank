@@ -34,6 +34,9 @@ kotlin {
             implementation(libs.kaml)
             implementation(libs.clikt)
             implementation(libs.docker.kt)
+
+            implementation(libs.hash.sha1)
+
             implementation(libs.kfile)
             implementation(libs.kommand)
 
