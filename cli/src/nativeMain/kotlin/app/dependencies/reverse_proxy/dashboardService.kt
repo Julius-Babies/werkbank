@@ -26,6 +26,10 @@ http:
 """.trimIndent()
 
 fun updateDashboardServiceIfNecessary(file: File) {
+    if (!file.exists()) {
+        file.writeText(dashboardService)
+        return
+    }
     val currentContentHash = SHA1().apply { update(file.readText().toByteArray()) }.digest().contentHashCode()
     val newContentHash = SHA1().apply { update(dashboardService.toByteArray()) }.digest().contentHashCode()
     if (currentContentHash != newContentHash) file.writeText(dashboardService)

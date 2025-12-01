@@ -1,6 +1,7 @@
 package app.dependencies.docker
 
-import app.dependencies.cli.runCommand
+import es.jvbabi.docker.kt.api.container.ContainerState
+import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.docker.kt.docker.DockerClient
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -9,7 +10,7 @@ class DockerContainer(
     val image: String,
     val name: String,
     val ports: List<String>,
-    val volumes: List<String>,
+    val volumes: Map<VolumeBind, String>,
     val environment: Map<String, String>,
 ): KoinComponent {
     private val dockerClient by inject<DockerClient>()
@@ -19,57 +20,64 @@ class DockerContainer(
         Running, Stopped, NotExisting
     }
 
-    fun getId(): String? {
-        val psResponse = runCommand("docker", "ps", "-aqf", "name=$name")
-        return psResponse.stdout!!.trim().ifBlank { null }
+    suspend fun getId(): String? {
+        return dockerClient.containers
+            .getContainers(all = true)
+            .firstOrNull { it.names.contains("/$name") }
+            ?.id
     }
 
-    fun getState(): State {
+    suspend fun getState(): State {
         val id = getId() ?: return State.NotExisting
-        val inspectResponse = runCommand("docker", "inspect", "-f", "{{.State.Running}}", id)
-        return if (inspectResponse.stdout?.trim()?.toBoolean() == true) State.Running else State.Stopped
+        val container = dockerClient.containers.getContainers(all = true).firstOrNull { it.id == id } ?: return State.NotExisting
+        return when (container.state) {
+            ContainerState.DEAD -> State.Stopped
+            ContainerState.PAUSED -> State.Stopped
+            ContainerState.CREATED -> State.Stopped
+            ContainerState.RUNNING -> State.Running
+            ContainerState.REMOVING -> State.Stopped
+            ContainerState.EXITED -> State.Stopped
+            ContainerState.RESTARTING -> State.Running
+        }
     }
 
-    fun stop() {
+    suspend fun stop() {
         val state = getState()
         if (state != State.Running) return
-        runCommand("docker", "stop", getId()!!)
+        dockerClient.containers.stopContainer(getId()!!)
     }
 
-    fun start() {
+    suspend fun start() {
         val state = getState()
         if (state == State.Running) return
 
-        runCommand("docker", "start", getId()!!)
+        dockerClient.containers.startContainer(getId()!!)
     }
 
-    fun delete() {
+    suspend fun delete() {
         when (getState()) {
             State.Running -> { stop(); delete(); return }
             State.NotExisting -> return
             else -> Unit
         }
 
-        runCommand("docker", "volume", "rm", getId()!!)
+        dockerClient.containers.deleteContainer(getId()!!)
     }
 
     suspend fun create() {
         if (getState() != State.NotExisting) delete()
         if (dockerClient.images.getImages().none { it.repoTags.contains(this.image) }) dockerClient.pullImageWithLogs(this.image)
         dockerNetwork.initialize()
-        runCommand(
-            command = "docker",
-            "create",
-            "--name",
-            this.name,
-            "--network",
-            dockerNetwork.name,
-            "--label",
-            "compose.project=werkbank",
-            *ports.flatMap { listOf("-p", it) }.toTypedArray(),
-            *volumes.flatMap { listOf("-v", it) }.toTypedArray(),
-            *environment.flatMap { listOf("-e", "${it.key}=${it.value}") }.toTypedArray(),
-            this.image
+        dockerClient.containers.createContainer(
+            image = this.image,
+            name = this.name,
+            volumeBinds = this.volumes,
+            environment = this.environment,
+            ports = this.ports.associate { value ->
+                val (host, container) = value.split(":")
+                host.toInt() to container.toInt()
+            },
+            labels = mapOf("compose.project" to "werkbank")
         )
     }
 }

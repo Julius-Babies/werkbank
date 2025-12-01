@@ -10,6 +10,7 @@ import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
 import commands.setup.Werkbankfile
+import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -85,7 +86,7 @@ data class Project(
                     image = container.image,
                     name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
                     ports = container.ports,
-                    volumes = container.volumes,
+                    volumes = container.volumes.associate { VolumeBind.from(it) },
                     environment = container.environment
                 )
             )

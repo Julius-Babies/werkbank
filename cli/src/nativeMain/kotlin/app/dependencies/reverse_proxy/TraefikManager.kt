@@ -8,7 +8,7 @@ import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
-import es.jvbabi.docker.kt.docker.getSocketPath
+import es.jvbabi.docker.kt.api.container.VolumeBind
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -28,11 +28,11 @@ class TraefikManager : KoinComponent {
         image = this.traefikImage,
         name = "werkbank-traefik",
         ports = listOf("80:80", "443:443"),
-        volumes = listOf(
-            "${traefikFileStorage.absolutePath}:/etc/traefik:ro",
-            "${storageRoot.resolve("projects").absolutePath}:/projects",
-            "${dashboardCertificatesFolder.absolutePath}:/ssl/dashboard:ro",
-            "${getSocketPath()}:/var/run/docker.sock",
+        volumes = mapOf(
+            VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
+            VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",
+            VolumeBind.Host(dashboardCertificatesFolder.absolutePath, readOnly = true) to "/ssl/dashboard",
+            VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
         ),
         environment = emptyMap()
     )
@@ -117,10 +117,10 @@ class TraefikManager : KoinComponent {
                 println("$serviceName: ${domains.joinToString()} -> ${pathPrefixes.joinToString()}")
 
                 val serviceFile = dynamicConfigFolder.resolve("${serviceName}.user.service.yaml")
-                val serviceState = state.services.first { it.name == service.name }.serviceState
+                val serviceState = state.services.firstOrNull { it.name == service.name }?.serviceState
 
                 val url = when (serviceState) {
-                    WerkbankConfig.Project.Service.ServiceState.Disabled -> return@forEach
+                    WerkbankConfig.Project.Service.ServiceState.Disabled, null -> return@forEach
                     WerkbankConfig.Project.Service.ServiceState.Docker -> {
                         val container = service.modes.docker!!.container
                         val port = service.modes.docker.port
