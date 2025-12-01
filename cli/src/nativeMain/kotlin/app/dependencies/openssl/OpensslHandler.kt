@@ -5,7 +5,6 @@ import app.dependencies.reverse_proxy.TraefikManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
-import com.kgit2.kommand.exception.KommandException
 import com.kgit2.kommand.process.Command
 import com.kgit2.kommand.process.Stdio
 import es.jvbabi.kfile.File
@@ -27,22 +26,19 @@ class OpensslHandler: KoinComponent {
     val isOpensslAvailable = CompletableDeferred<Boolean>()
 
     suspend fun initialize() {
-        try {
-            withContext(Dispatchers.IO) {
-                Command("openssl")
-                    .stdout(Stdio.Pipe)
-                    .stderr(Stdio.Pipe)
-                    .spawn()
-                    .wait()
-            }
-            isOpensslAvailable.complete(true)
-        } catch (e: KommandException) {
-            if (e.message?.startsWith("No such file or directory") == true) {
-                isOpensslAvailable.complete(false)
-                return
-            }
-            throw e
+        val result = withContext(Dispatchers.IO) {
+            Command("which")
+                .args("openssl")
+                .stdout(Stdio.Pipe)
+                .stderr(Stdio.Pipe)
+                .spawn()
+                .wait()
         }
+        if (result != 0) {
+            isOpensslAvailable.complete(false)
+            return
+        }
+        isOpensslAvailable.complete(true)
 
         if (!isRootCaSetUp()) createRootCa()
     }
