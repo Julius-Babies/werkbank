@@ -1,12 +1,17 @@
 package app.dependencies.docker
 
-import app.dependencies.cli.runCommand
 import app.storage.isDevMode
+import es.jvbabi.docker.kt.api.network.NetworkDriver
+import es.jvbabi.docker.kt.docker.DockerClient
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
-class DockerNetwork {
+class DockerNetwork: KoinComponent {
+    private val dockerClient by inject<DockerClient>()
+
     val name = "werkbank" + if (isDevMode) "-dev" else ""
 
-    fun initialize() {
+    suspend fun initialize() {
         if (getStatus() == Status.Missing) create()
     }
 
@@ -14,32 +19,19 @@ class DockerNetwork {
         Created, Missing
     }
 
-    fun getStatus(): Status {
-        val response = runCommand(
-            command = "docker",
-            "network",
-            "ls",
-            "--filter",
-            "name=$name",
-            "--format",
-            "{{.Name}}"
-        )
-        val doesNetworkExist = response.stdout?.lines()?.firstOrNull()?.ifBlank { null } == name
-        return if (doesNetworkExist) Status.Created
-        else Status.Missing
+    suspend fun getStatus(): Status {
+        val networks = dockerClient.networks.getNetworks()
+        if (networks.any { it.name == name }) return Status.Created
+
+        return Status.Missing
     }
 
-    fun create() {
-        runCommand(
-            command = "docker",
-            "network",
-            "create",
-            "--driver",
-            "bridge",
-            "--attachable",
-            name,
-            "--label",
-            "compose.project=werkbank"
+    suspend fun create() {
+        dockerClient.networks.createNetwork(
+            name = name,
+            driver = NetworkDriver.Bridge,
+            attachable = true,
+            labels = mapOf("compose.project" to "werkbank")
         )
     }
 }

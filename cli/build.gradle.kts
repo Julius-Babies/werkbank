@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlinxSerialization)
 }
 
-group = "me.user"
+group = "es.jvbabi"
 version = "1.0-SNAPSHOT"
 
 repositories {
