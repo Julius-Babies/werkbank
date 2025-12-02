@@ -20,6 +20,10 @@ class ProjectRepository : KoinComponent {
         }
     }
 
+    fun getById(id: String): Project? {
+        return getAllProjects().firstOrNull { it.id == id }
+    }
+
     suspend fun importProject(project: Project) {
         mainConfig.updateConfig { config ->
             val existingProject = config.projects.orEmpty().firstOrNull { it.id == project.id }

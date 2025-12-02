@@ -1,10 +1,12 @@
 package commands
 
+import app.completion.setupCompletions
 import app.dependencies.openssl.OpensslHandler
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import commands.down.DownCommand
 import commands.poweroff.PoweroffCommand
 import commands.setup.SetupCommand
 import commands.up.UpCommand
@@ -24,6 +26,9 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
     override val invokeWithoutSubcommand: Boolean = true
 
     override suspend fun run() {
+        // Generate/update shell completions and set up watcher before invoking CLI
+        setupCompletions(this)
+
         if (regenerateRootCa) {
             assertTrue(opensslHandler.isOpensslAvailable.await())
             opensslHandler.createRootCa()
@@ -34,6 +39,7 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
         subcommands(
             SetupCommand(),
             UpCommand(),
+            DownCommand(),
             PoweroffCommand(),
         )
     }
