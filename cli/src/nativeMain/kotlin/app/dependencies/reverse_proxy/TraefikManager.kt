@@ -11,7 +11,6 @@ import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
 import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.VolumeBind
-import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -28,28 +27,34 @@ class TraefikManager : KoinComponent {
     private val projectRepository by inject<ProjectRepository>()
     private val opensslHandler by inject<OpensslHandler>()
 
-    val container = DockerContainer(
-        image = this.traefikImage,
-        name = "werkbank-traefik",
-        ports = listOf("80:80", "443:443"),
-        volumes = mapOf(
-            VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
-            VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",
-            VolumeBind.Host(dashboardCertificatesFolder.absolutePath, readOnly = true) to "/ssl/dashboard",
-            VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
-        ),
-        environment = emptyMap(),
-        networkConfigs = listOf(
-            NetworkConfig(networkId = runBlocking { dockerNetwork.getId()!! })
-        ),
-    )
+    private var dockerContainer: DockerContainer? = null
+    suspend fun getContainer(): DockerContainer {
+        dockerNetwork.initialize()
+        if (dockerContainer != null) return dockerContainer!!
+        dockerContainer = DockerContainer(
+            image = this.traefikImage,
+            name = "werkbank-traefik",
+            ports = listOf("80:80", "443:443"),
+            volumes = mapOf(
+                VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
+                VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",
+                VolumeBind.Host(dashboardCertificatesFolder.absolutePath, readOnly = true) to "/ssl/dashboard",
+                VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
+            ),
+            environment = emptyMap(),
+            networkConfigs = listOf(
+                NetworkConfig(networkId = dockerNetwork.getId()!!)
+            ),
+        )
+        return dockerContainer!!
+    }
 
     suspend fun initialize() {
         generateTraefikConfig()
         generateProxyConfig()
         createDashboardService()
         generateSslConfig()
-        if (container.getState() == DockerContainer.State.NotExisting) container.create()
+        if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
 
     fun generateTraefikConfig() {

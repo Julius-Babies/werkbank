@@ -16,7 +16,7 @@ class PoweroffCommand: SuspendingCliktCommand("poweroff"), KoinComponent {
 
     override suspend fun run() {
         coroutineScope {
-            launch { traefikManager.container.stop() }
+            launch { traefikManager.getContainer().stop() }
             launch { postgres18.container.stop() }
             projectRepository.getAllProjects().forEach { project ->
                 launch { project.stop() }

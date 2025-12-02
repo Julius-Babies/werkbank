@@ -12,7 +12,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.test.assertTrue
 
-class MainCommand : SuspendingCliktCommand("werkbank"), KoinComponent {
+class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
     private val opensslHandler by inject<OpensslHandler>()
 
     val regenerateRootCa by option(

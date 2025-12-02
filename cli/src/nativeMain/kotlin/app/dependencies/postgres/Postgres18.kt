@@ -9,10 +9,12 @@ import app.storage.storageRoot
 import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.docker.kt.docker.DockerClient
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.getValue
+import kotlin.time.Duration.Companion.seconds
 
 class Postgres18: KoinComponent {
     private val projectRepository by inject<ProjectRepository>()
@@ -47,15 +49,17 @@ class Postgres18: KoinComponent {
         ))
     )
 
-    suspend fun initialize() {
+    suspend fun initialize(start: Boolean = true) {
         if (!postgresRoot.exists()) postgresRoot.mkdir(recursive = true)
         if (container.getState() == DockerContainer.State.NotExisting) container.create()
+        if (start) container.start()
         createProjectDatabases()
         hostsManager.addHost(hostname)
     }
 
     suspend fun createProjectDatabases() {
         container.withRunning {
+            waitUntilReady()
             val databaseResult = dockerClient.containers.runCommand(
                 containerId = container.getId()!!,
                 environment = mapOf(
@@ -122,6 +126,24 @@ class Postgres18: KoinComponent {
                     )
                     require(result.exitCode == 0) { "Failed to drop database $dbname: ${result.output}" }
                 }
+        }
+    }
+
+    suspend fun waitUntilReady() {
+        require(container.getState() == DockerContainer.State.Running)
+        while (true) {
+            val result = dockerClient.containers.runCommand(
+                containerId = container.getId()!!,
+                environment = mapOf(
+                    "PGPASSWORD" to "werkbank"
+                ),
+                command = listOf(
+                    "pg_isready",
+                    "-U", "werkbank"
+                )
+            )
+            if (result.exitCode == 0) break
+            delay(1.seconds)
         }
     }
 }
