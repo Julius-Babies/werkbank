@@ -1,11 +1,15 @@
 package app.dependencies.postgres
 
 import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.DockerNetwork
+import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
+import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.docker.kt.docker.DockerClient
+import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.getValue
@@ -13,10 +17,14 @@ import kotlin.getValue
 class Postgres18: KoinComponent {
     private val projectRepository by inject<ProjectRepository>()
     private val dockerClient by inject<DockerClient>()
+    private val hostsManager by inject<HostsManager>()
+    private val dockerNetwork by inject<DockerNetwork>()
 
     private val postgresRoot = storageRoot
         .resolve("postgres")
         .resolve("data")
+
+    val hostname = "postgres18.werkbank.dev"
 
     val container = DockerContainer(
         image = "postgres:18.1-alpine3.22",
@@ -33,12 +41,17 @@ class Postgres18: KoinComponent {
             "POSTGRES_PASSWORD" to "werkbank",
             "POSTGRES_USER" to "werkbank",
         ),
+        networkConfigs = listOf(NetworkConfig(
+            networkId = runBlocking { dockerNetwork.getId()!! },
+            aliases = listOf(hostname)
+        ))
     )
 
     suspend fun initialize() {
         if (!postgresRoot.exists()) postgresRoot.mkdir(recursive = true)
         if (container.getState() == DockerContainer.State.NotExisting) container.create()
         createProjectDatabases()
+        hostsManager.addHost(hostname)
     }
 
     suspend fun createProjectDatabases() {

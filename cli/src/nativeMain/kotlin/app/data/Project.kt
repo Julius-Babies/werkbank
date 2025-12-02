@@ -3,6 +3,7 @@ package app.data
 import app.config.MainConfig
 import app.config.WerkbankConfig
 import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
@@ -10,6 +11,7 @@ import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
 import commands.setup.Werkbankfile
+import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
@@ -30,6 +32,7 @@ data class Project(
     private val opensslHandler by inject<OpensslHandler>()
     private val traefikManager by inject<TraefikManager>()
     private val mainConfig by inject<MainConfig>()
+    private val dockerNetwork by inject<DockerNetwork>()
 
     val getProjectStorage by lazy {
         storageRoot
@@ -78,7 +81,7 @@ data class Project(
         traefikManager.initialize()
     }
 
-    fun getContainers(): List<ProjectContainer> {
+    suspend fun getContainers(): List<ProjectContainer> {
         return getConfig().containers.map { container ->
             ProjectContainer(
                 name = container.name,
@@ -87,7 +90,10 @@ data class Project(
                     name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
                     ports = container.ports,
                     volumes = container.volumes.associate { VolumeBind.from(it) },
-                    environment = container.environment
+                    environment = container.environment,
+                    networkConfigs = listOf(
+                        NetworkConfig(networkId = dockerNetwork.getId()!!)
+                    ),
                 )
             )
         }

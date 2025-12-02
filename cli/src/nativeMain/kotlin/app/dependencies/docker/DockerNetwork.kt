@@ -34,4 +34,8 @@ class DockerNetwork: KoinComponent {
             labels = mapOf("compose.project" to "werkbank")
         )
     }
+
+    suspend fun getId(): String? {
+        return dockerClient.networks.getNetworks().firstOrNull { it.name == name }?.id
+    }
 }

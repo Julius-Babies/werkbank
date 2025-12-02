@@ -2,13 +2,16 @@ package app.dependencies.reverse_proxy
 
 import app.config.WerkbankConfig
 import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
+import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.VolumeBind
+import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -17,7 +20,8 @@ class TraefikManager : KoinComponent {
     val traefikImage = "traefik:v3.6.1"
 
     val traefikFileStorage by lazy { storageRoot.resolve("traefik").apply { if (!exists()) mkdir() } }
-    val hostsManager by inject<HostsManager>()
+    private val hostsManager by inject<HostsManager>()
+    private val dockerNetwork by inject<DockerNetwork>()
     val dynamicConfigFolder by lazy { traefikFileStorage.resolve("dynamic").apply { if (!exists()) mkdir() } }
     val dashboardCertificatesFolder by lazy { traefikFileStorage.resolve("dashboard-certificates").apply { if (!exists()) mkdir() } }
 
@@ -34,7 +38,10 @@ class TraefikManager : KoinComponent {
             VolumeBind.Host(dashboardCertificatesFolder.absolutePath, readOnly = true) to "/ssl/dashboard",
             VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
         ),
-        environment = emptyMap()
+        environment = emptyMap(),
+        networkConfigs = listOf(
+            NetworkConfig(networkId = runBlocking { dockerNetwork.getId()!! })
+        ),
     )
 
     suspend fun initialize() {
@@ -114,7 +121,6 @@ class TraefikManager : KoinComponent {
                     .distinct()
                 val pathPrefixes = service.pathPrefixes.ifEmpty { listOf("/") }
                 val serviceName = project.project.id.lowercase() + "-" + service.name.lowercase()
-                println("$serviceName: ${domains.joinToString()} -> ${pathPrefixes.joinToString()}")
 
                 val serviceFile = dynamicConfigFolder.resolve("${serviceName}.user.service.yaml")
                 val serviceState = state.services.firstOrNull { it.name == service.name }?.serviceState
