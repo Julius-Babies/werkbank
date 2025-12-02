@@ -6,8 +6,10 @@ import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import commands.completion.CompletionBaseCommand
 import commands.down.DownCommand
 import commands.poweroff.PoweroffCommand
+import commands.service.ServiceCommand
 import commands.setup.SetupCommand
 import commands.up.UpCommand
 import org.koin.core.component.KoinComponent
@@ -37,10 +39,12 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
 
     init {
         subcommands(
+            CompletionBaseCommand(),
             SetupCommand(),
             UpCommand(),
             DownCommand(),
             PoweroffCommand(),
+            ServiceCommand(),
         )
     }
 }

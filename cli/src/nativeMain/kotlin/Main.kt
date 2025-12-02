@@ -58,13 +58,17 @@ class Application(
 
     suspend fun run(args: Array<String>) {
         try {
-            val openSslHandler by inject<OpensslHandler>()
+            val isCompletion = args.getOrNull(0) == "completion"
+            if (!isCompletion) {
+                val openSslHandler by inject<OpensslHandler>()
 
-            coroutineScope.launch { openSslHandler.initialize() }
+                coroutineScope.launch { openSslHandler.initialize() }
 
-            if (isDevMode) println(buildStyledString { yellow { +"$WARNING Running werkbank in development mode" } })
+                if (isDevMode) println(buildStyledString { yellow { +"$WARNING Running werkbank in development mode" } })
 
-            assertTrue(openSslHandler.isOpensslAvailable.await())
+                assertTrue(openSslHandler.isOpensslAvailable.await())
+            }
+
             inject<MainConfig>().value.updateConfig { it }
 
             MainCommand()

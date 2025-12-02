@@ -55,6 +55,22 @@ class ProjectRepository : KoinComponent {
                                 else -> Unit
                             }
                         }
+
+                        val existingServiceNames = services.map { it.name }.toSet()
+                        project.getConfig().services.forEach { providedService ->
+                            if (providedService.name !in existingServiceNames) {
+                                services.add(
+                                    WerkbankConfig.Project.Service(
+                                        name = providedService.name,
+                                        serviceState =
+                                            if (providedService.modes.docker != null) WerkbankConfig.Project.Service.ServiceState.Docker
+                                            else if (providedService.modes.local != null) WerkbankConfig.Project.Service.ServiceState.Local
+                                            else WerkbankConfig.Project.Service.ServiceState.Disabled
+                                    )
+                                )
+                            }
+                        }
+
                         services
                     }
             )

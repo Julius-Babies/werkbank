@@ -17,6 +17,11 @@ import org.koin.core.component.inject
 class TraefikManager : KoinComponent {
 
     val traefikImage = "traefik:v3.6.1"
+    val name = buildString {
+        append("werkbank-")
+        if (isDevMode) append("dev-")
+        append("traefik")
+    }
 
     val traefikFileStorage by lazy { storageRoot.resolve("traefik").apply { if (!exists()) mkdir() } }
     private val hostsManager by inject<HostsManager>()
@@ -33,7 +38,7 @@ class TraefikManager : KoinComponent {
         if (dockerContainer != null) return dockerContainer!!
         dockerContainer = DockerContainer(
             image = this.traefikImage,
-            name = "werkbank-traefik",
+            name = this.name,
             ports = listOf("80:80", "443:443"),
             volumes = mapOf(
                 VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
@@ -121,8 +126,8 @@ class TraefikManager : KoinComponent {
         projects.forEach { (state, project) ->
             project.services.forEach { service ->
                 val domains = service.domains
-                    .map { "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.local" }
-                    .ifEmpty { listOf("${project.project.id.lowercase()}.werkbank.local") }
+                    .map { "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.space" }
+                    .ifEmpty { listOf("${project.project.id.lowercase()}.werkbank.space") }
                     .distinct()
                 val pathPrefixes = service.pathPrefixes.ifEmpty { listOf("/") }
                 val serviceName = project.project.id.lowercase() + "-" + service.name.lowercase()

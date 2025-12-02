@@ -17,7 +17,6 @@ import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
-import kotlin.getValue
 import kotlin.test.assertTrue
 
 /**
@@ -82,7 +81,8 @@ data class Project(
     }
 
     suspend fun getContainers(): List<ProjectContainer> {
-        return getConfig().containers.map { container ->
+        val config = getConfig()
+        return config.containers.map { container ->
             ProjectContainer(
                 name = container.name,
                 container = DockerContainer(
@@ -94,7 +94,8 @@ data class Project(
                     networkConfigs = listOf(
                         NetworkConfig(networkId = dockerNetwork.getId()!!)
                     ),
-                )
+                ),
+                type = if (container.type == Werkbankfile.Container.Type.Service) ProjectContainer.Type.Service else ProjectContainer.Type.Dependency
             )
         }
     }
@@ -129,6 +130,42 @@ data class Project(
         }
     }
 
+    suspend fun setServiceStateTo(serviceName: String, state: WerkbankConfig.Project.Service.ServiceState) {
+        val currentState = getWerkbankConfig().services.first { it.name == serviceName }.serviceState
+        if (currentState == state) return
+        val container = getContainers().firstOrNull { it.name == serviceName }
+        when (state) {
+            WerkbankConfig.Project.Service.ServiceState.Disabled -> {
+                container?.container?.stop()
+            }
+            WerkbankConfig.Project.Service.ServiceState.Docker -> {
+                if (getConfig().services.first { it.name == serviceName }.modes.docker == null) {
+                    error("Service $serviceName does not support Docker mode")
+                }
+                if (container?.container?.getState() == DockerContainer.State.NotExisting) {
+                    container.container.create()
+                }
+                container?.container?.start()
+            }
+            WerkbankConfig.Project.Service.ServiceState.Local -> {
+                if (getConfig().services.first { it.name == serviceName }.modes.local == null) {
+                    error("Service $serviceName does not support Local mode")
+                }
+                container?.container?.stop()
+            }
+        }
+        mainConfig.updateConfig { config ->
+            config.copy(
+                projects = config.projects.orEmpty().map { project ->
+                    if (project.name == this.name) project.copy(services = project.services.map { service ->
+                        if (service.name == serviceName) service.copy(serviceState = state) else service
+                    }) else project
+                }
+            )
+        }
+        traefikManager.generateProxyConfig()
+    }
+
     suspend fun stop() {
         getContainers().forEach { container ->
             if (container.container.getState() == DockerContainer.State.Running) {
@@ -141,5 +178,10 @@ data class Project(
 
 data class ProjectContainer(
     val name: String,
+    val type: Type,
     val container: DockerContainer
-)
+) {
+    enum class Type {
+        Service, Dependency
+    }
+}
