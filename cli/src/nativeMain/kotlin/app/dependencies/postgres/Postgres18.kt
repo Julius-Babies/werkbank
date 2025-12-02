@@ -24,7 +24,7 @@ class Postgres18: KoinComponent {
         .resolve("postgres")
         .resolve("data")
 
-    val hostname = "postgres18.werkbank.dev"
+    val hostname = "postgres18.werkbank.studio"
 
     val container = DockerContainer(
         image = "postgres:18.1-alpine3.22",

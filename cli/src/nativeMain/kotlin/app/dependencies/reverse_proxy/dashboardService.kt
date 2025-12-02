@@ -8,7 +8,7 @@ private val dashboardService = """
 http:
   routers:
     dashboard-api-router:
-      rule: "Host(`traefik.werkbank.dev`) && PathPrefix(`/api`)"
+      rule: "Host(`traefik.werkbank.studio`) && PathPrefix(`/api`)"
       entryPoints:
         - websecure
       service: api@internal
@@ -16,7 +16,7 @@ http:
         - dashboard_stripprefix@internal
       tls: true
     dashboard-router:
-      rule: "Host(`traefik.werkbank.dev`) && PathPrefix(`/`)"
+      rule: "Host(`traefik.werkbank.studio`) && PathPrefix(`/`)"
       entryPoints:
         - websecure
       service: dashboard@internal

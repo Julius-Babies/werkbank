@@ -55,7 +55,7 @@ data class Project(
     }
 
     fun updateHosts() {
-        val domain = id.lowercase() + ".werkbank.local"
+        val domain = id.lowercase() + ".werkbank.space"
         hostsManager.addHost(domain)
     }
 
@@ -68,11 +68,11 @@ data class Project(
         opensslHandler.createCertificatePair(
             certificateFile = certificateFile,
             privateKeyFile = privateKeyFile,
-            mainDomain = id.lowercase() + ".werkbank.local",
+            mainDomain = id.lowercase() + ".werkbank.space",
             altDomains = services
                 .flatMap { it.domains }
                 .distinct()
-                .map { "${it.lowercase()}.${id.lowercase()}.werkbank.local" }
+                .map { "${it.lowercase()}.${id.lowercase()}.werkbank.space" }
         )
     }
 

@@ -159,7 +159,7 @@ class TraefikManager : KoinComponent {
     }
 
     private fun createDashboardService() {
-        hostsManager.addHost("traefik.werkbank.dev")
+        hostsManager.addHost("traefik.werkbank.studio")
         val dashboardConfigFile = dynamicConfigFolder.resolve("dashboard.system.service.yaml")
         updateDashboardServiceIfNecessary(dashboardConfigFile)
         val dashboardCertificateFile = dashboardCertificatesFolder.resolve("certificate.pem")
@@ -168,7 +168,7 @@ class TraefikManager : KoinComponent {
             opensslHandler.createCertificatePair(
                 certificateFile = dashboardCertificateFile,
                 privateKeyFile = dashboardPrivateKeyFile,
-                mainDomain = "traefik.werkbank.dev",
+                mainDomain = "traefik.werkbank.studio",
             )
         }
     }
