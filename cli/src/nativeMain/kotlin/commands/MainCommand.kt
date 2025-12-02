@@ -5,6 +5,7 @@ import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import commands.poweroff.PoweroffCommand
 import commands.setup.SetupCommand
 import commands.up.UpCommand
 import org.koin.core.component.KoinComponent
@@ -30,6 +31,10 @@ class MainCommand : SuspendingCliktCommand("werkbank"), KoinComponent {
     }
 
     init {
-        subcommands(SetupCommand(), UpCommand())
+        subcommands(
+            SetupCommand(),
+            UpCommand(),
+            PoweroffCommand(),
+        )
     }
 }

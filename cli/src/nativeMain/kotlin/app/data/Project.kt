@@ -128,6 +128,15 @@ data class Project(
             }
         }
     }
+
+    suspend fun stop() {
+        getContainers().forEach { container ->
+            if (container.container.getState() == DockerContainer.State.Running) {
+                println(buildStyledString { blue { +"Stopping container ${container.name} (${container.container.name})" } })
+                container.container.stop()
+            }
+        }
+    }
 }
 
 data class ProjectContainer(
