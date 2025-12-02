@@ -1,5 +1,6 @@
 package commands.up
 
+import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
 import app.repository.ProjectRepository
 import com.charleskorn.kaml.Yaml
@@ -14,6 +15,8 @@ import util.buildStyledString
 
 class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
     private val traefikManager by inject<TraefikManager>()
+    private val postgres18 by inject<Postgres18>()
+
     private val projectRepository by inject<ProjectRepository>()
 
     val startInfrastructure by option("--start-infrastructure", help = "Starts the infrastructure")
@@ -31,6 +34,9 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         if (startInfrastructure) {
             traefikManager.initialize()
             traefikManager.container.start()
+
+            postgres18.initialize()
+            postgres18.container.start()
         }
 
         if (!werkbankfile.exists()) {
@@ -45,6 +51,11 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         if (project.getConfig().services.isNotEmpty()) {
             traefikManager.initialize()
             traefikManager.container.start()
+        }
+
+        if (project.getConfig().dependencies?.postgres?.postgres18 != null) {
+            postgres18.initialize()
+            postgres18.container.start()
         }
 
         project.start()

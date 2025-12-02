@@ -80,4 +80,14 @@ class DockerContainer(
             labels = mapOf("compose.project" to "werkbank")
         )
     }
+
+    suspend fun withRunning(block: suspend () -> Unit) {
+        val isRunning = getState() == State.Running
+        if (isRunning) block()
+        else {
+            start()
+            block()
+            stop()
+        }
+    }
 }

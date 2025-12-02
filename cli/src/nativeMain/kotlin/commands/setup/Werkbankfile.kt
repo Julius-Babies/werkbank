@@ -8,6 +8,7 @@ data class Werkbankfile(
     @SerialName("project") val project: Project,
     @SerialName("containers") val containers: List<Container> = emptyList(),
     @SerialName("services") val services: List<Service> = emptyList(),
+    @SerialName("dependencies") val dependencies: Dependencies? = null
 ) {
     @Serializable
     data class Project(
@@ -52,6 +53,22 @@ data class Werkbankfile(
             data class Docker(
                 @SerialName("container") val container: String,
                 @SerialName("port") val port: Int
+            )
+        }
+    }
+
+    @Serializable
+    data class Dependencies(
+        @SerialName("postgres") val postgres: Postgres? = null
+    ) {
+
+        @Serializable
+        data class Postgres(
+            @SerialName("18") val postgres18: Postgres18? = null
+        ) {
+            @Serializable
+            data class Postgres18(
+                @SerialName("databases") val databases: List<String> = emptyList()
             )
         }
     }

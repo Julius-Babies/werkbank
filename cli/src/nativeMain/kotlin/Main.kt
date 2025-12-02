@@ -2,6 +2,7 @@ import app.SudoManager
 import app.config.MainConfig
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
+import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
@@ -37,6 +38,7 @@ fun main(args: Array<String>) {
                     single<HostsManager> { HostsManager(File("/etc/hosts")) }
                     single<DockerClient> { DockerClient() }
                     single<DockerNetwork> { DockerNetwork() }
+                    singleOf(::Postgres18)
                     singleOf(::TraefikManager)
 
                     single<ProjectRepository> { ProjectRepository() }
