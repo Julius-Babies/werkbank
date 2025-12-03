@@ -131,8 +131,6 @@ data class Project(
     }
 
     suspend fun setServiceStateTo(serviceName: String, state: WerkbankConfig.Project.Service.ServiceState) {
-        val currentState = getWerkbankConfig().services.first { it.name == serviceName }.serviceState
-        if (currentState == state) return
         val container = getContainers().firstOrNull { it.name == serviceName }
         when (state) {
             WerkbankConfig.Project.Service.ServiceState.Disabled -> {
@@ -142,8 +140,11 @@ data class Project(
                 if (getConfig().services.first { it.name == serviceName }.modes.docker == null) {
                     error("Service $serviceName does not support Docker mode")
                 }
-                if (container?.container?.getState() == DockerContainer.State.NotExisting) {
-                    container.container.create()
+                val currentContainerState = container?.container?.getState()
+                when (currentContainerState) {
+                    DockerContainer.State.NotExisting -> container.container.create()
+                    DockerContainer.State.Running -> container.container.stop()
+                    else -> Unit
                 }
                 container?.container?.start()
             }
