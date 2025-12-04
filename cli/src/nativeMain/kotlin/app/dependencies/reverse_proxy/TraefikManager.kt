@@ -124,10 +124,14 @@ class TraefikManager : KoinComponent {
             .forEach { it.delete() }
 
         projects.forEach { (state, project) ->
+            val projectBaseDomain = "${project.project.id.lowercase()}.werkbank.space"
             project.services.forEach { service ->
                 val domains = service.domains
-                    .map { "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.space" }
-                    .ifEmpty { listOf("${project.project.id.lowercase()}.werkbank.space") }
+                    .map {
+                        if (it.isBlank()) projectBaseDomain
+                        else "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.space"
+                    }
+                    .ifEmpty { listOf(projectBaseDomain) }
                     .distinct()
                 val pathPrefixes = service.pathPrefixes.ifEmpty { listOf("/") }
                 val serviceName = project.project.id.lowercase() + "-" + service.name.lowercase()

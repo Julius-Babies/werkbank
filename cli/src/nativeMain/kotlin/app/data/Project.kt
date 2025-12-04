@@ -56,6 +56,12 @@ data class Project(
     fun updateHosts() {
         val domain = id.lowercase() + ".werkbank.space"
         hostsManager.addHost(domain)
+        getConfig().services
+            .flatMap { it.domains }
+            .filterNot { it.isBlank() }
+            .distinct()
+            .map { if (it.endsWith(".$domain")) it else "$it.$domain" }
+            .forEach { hostsManager.addHost(it) }
     }
 
     suspend fun updateCertificates() {
@@ -63,6 +69,7 @@ data class Project(
         val certificateFile = getProjectStorage.resolve("certificate.pem")
         val privateKeyFile = getProjectStorage.resolve("private.key")
         val services = getConfig().services
+        val mainDomain = id.lowercase() + ".werkbank.space"
         // Regenerate certificates
         opensslHandler.createCertificatePair(
             certificateFile = certificateFile,
@@ -70,8 +77,9 @@ data class Project(
             mainDomain = id.lowercase() + ".werkbank.space",
             altDomains = services
                 .flatMap { it.domains }
+                .filterNot { it.isBlank() }
                 .distinct()
-                .map { "${it.lowercase()}.${id.lowercase()}.werkbank.space" }
+                .map { if (it.endsWith(".$mainDomain")) it else "$it.$mainDomain" }
         )
     }
 
