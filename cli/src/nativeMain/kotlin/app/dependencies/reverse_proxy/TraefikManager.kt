@@ -150,24 +150,24 @@ class TraefikManager : KoinComponent {
                     WerkbankConfig.Project.Service.ServiceState.Local -> "http://host.docker.internal:${service.modes.local!!.port}"
                 }
 
-                serviceFile.writeText(
-                    """
-                    http:
-                      routers:
-                        ${serviceName}-router:
-                          rule: (${domains.joinToString(" || ") { "Host(`$it`)" }}) && (${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})
-                          service: ${serviceName}-service
-                          entryPoints:
-                            - "websecure"
-                          tls: {}
-                      services:
-                        ${serviceName}-service:
-                          loadBalancer:
-                            passHostHeader: true
-                            servers:
-                              - url: $url
-                """.trimIndent()
-                )
+                val serviceConfig = buildString {
+                    appendLine("http:")
+                    appendLine("  routers:")
+                    appendLine("    ${serviceName}-router:")
+                    appendLine("      rule: (${domains.joinToString(" || ") { "Host(`$it`)" }}) && (${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})")
+                    appendLine("      service: ${serviceName}-service")
+                    appendLine("      entryPoints: [\"websecure\"]")
+                    appendLine("      tls: {}")
+                    if (service.routingPriority != null) appendLine("      priority: ${service.routingPriority}")
+                    appendLine("  services:")
+                    appendLine("    ${serviceName}-service:")
+                    appendLine("      loadBalancer:")
+                    appendLine("        passHostHeader: true")
+                    appendLine("        servers:")
+                    appendLine("          - url: $url")
+                }
+
+                serviceFile.writeText(serviceConfig)
             }
         }
     }

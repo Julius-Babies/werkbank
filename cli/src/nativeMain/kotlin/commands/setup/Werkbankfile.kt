@@ -23,7 +23,7 @@ data class Werkbankfile(
         @SerialName("ports") val ports: List<String> = emptyList(),
         @SerialName("volumes") val volumes: List<String> = emptyList(),
         @SerialName("environment") val environment: Map<String, String> = emptyMap(),
-        @SerialName("type") val type: Type,
+        @SerialName("type") val type: Type
     ) {
         @Serializable
         enum class Type {
@@ -38,6 +38,7 @@ data class Werkbankfile(
         @SerialName("path_prefixes") val pathPrefixes: List<String> = listOf("/"),
         @SerialName("domains") val domains: List<String> = emptyList(),
         @SerialName("modes") val modes: Modes,
+        @SerialName("routing_priority") val routingPriority: Int? = null,
     ) {
         @Serializable
         data class Modes(
