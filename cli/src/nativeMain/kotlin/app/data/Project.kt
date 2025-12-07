@@ -180,6 +180,7 @@ data class Project(
             if (container.container.getState() == DockerContainer.State.Running) {
                 println(buildStyledString { blue { +"Stopping container ${container.name} (${container.container.name})" } })
                 container.container.stop()
+                container.container.delete()
             }
         }
     }
