@@ -49,9 +49,10 @@ class DockerContainer(
         dockerClient.containers.stopContainer(getId()!!)
     }
 
-    suspend fun start() {
+    suspend fun start(createIfNotExists: Boolean) {
         val state = getState()
         if (state == State.Running) return
+        if (state == State.NotExisting && createIfNotExists) create()
 
         dockerClient.containers.startContainer(getId()!!)
     }
@@ -88,7 +89,7 @@ class DockerContainer(
         val isRunning = getState() == State.Running
         if (isRunning) block()
         else {
-            start()
+            start(createIfNotExists = true)
             block()
             stop()
         }

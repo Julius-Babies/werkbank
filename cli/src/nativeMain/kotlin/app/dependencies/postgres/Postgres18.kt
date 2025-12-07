@@ -52,7 +52,7 @@ class Postgres18: KoinComponent {
     suspend fun initialize(start: Boolean = true) {
         if (!postgresRoot.exists()) postgresRoot.mkdir(recursive = true)
         if (container.getState() == DockerContainer.State.NotExisting) container.create()
-        if (start) container.start()
+        if (start) container.start(createIfNotExists = false)
         createProjectDatabases()
         hostsManager.addHost(hostname)
     }

@@ -118,7 +118,7 @@ data class Project(
                     container.container.create()
                 }
                 println(buildStyledString { green { +"Starting container ${container.name} (${container.container.name})" } })
-                container.container.start()
+                container.container.start(createIfNotExists = true)
                 return@forEach
             }
 
@@ -130,7 +130,7 @@ data class Project(
                 .serviceState
             if (mode == WerkbankConfig.Project.Service.ServiceState.Docker) {
                 println(buildStyledString { green { +"Starting container ${container.name} (${container.container.name})" } })
-                container.container.start()
+                container.container.start(createIfNotExists = true)
             } else {
                 println(buildStyledString { blue { +"Stopping container ${container.name} (${container.container.name})" } })
                 container.container.stop()
@@ -154,7 +154,7 @@ data class Project(
                     DockerContainer.State.Running -> container.container.stop()
                     else -> Unit
                 }
-                container?.container?.start()
+                container?.container?.start(createIfNotExists = true)
             }
             WerkbankConfig.Project.Service.ServiceState.Local -> {
                 if (getConfig().services.first { it.name == serviceName }.modes.local == null) {

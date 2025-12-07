@@ -33,10 +33,10 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
 
         if (startInfrastructure) {
             traefikManager.initialize()
-            traefikManager.getContainer().start()
+            traefikManager.getContainer().start(createIfNotExists = false)
 
             postgres18.initialize(true)
-            postgres18.container.start()
+            postgres18.container.start(createIfNotExists = false)
         }
 
         if (!werkbankfile.exists()) {
@@ -50,12 +50,12 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         val project = projectRepository.getAllProjects().firstOrNull { it.id == projectId } ?: error("Project with id $projectId not found")
         if (project.getConfig().services.isNotEmpty()) {
             traefikManager.initialize()
-            traefikManager.getContainer().start()
+            traefikManager.getContainer().start(createIfNotExists = false)
         }
 
         if (project.getConfig().dependencies?.postgres?.postgres18 != null) {
             postgres18.initialize(true)
-            postgres18.container.start()
+            postgres18.container.start(createIfNotExists = false)
         }
 
         project.start()
