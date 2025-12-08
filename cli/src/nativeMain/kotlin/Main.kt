@@ -5,6 +5,7 @@ import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.AppDependency
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
@@ -42,6 +43,9 @@ fun main(args: Array<String>) {
                     singleOf(::Postgres18)
                     singleOf(::TraefikManager)
                     singleOf(::Unbound)
+
+                    // Aggregate all AppDependencies for convenient injection as a list
+                    single<List<AppDependency>> { listOf(get<TraefikManager>(), get<Unbound>(), get<Postgres18>()) }
 
                     single<ProjectRepository> { ProjectRepository() }
                 }

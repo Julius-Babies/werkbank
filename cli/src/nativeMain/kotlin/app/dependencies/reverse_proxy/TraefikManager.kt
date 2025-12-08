@@ -1,6 +1,8 @@
 package app.dependencies.reverse_proxy
 
 import app.config.WerkbankConfig
+import app.data.Project
+import app.dependencies.AppDependency
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
@@ -14,8 +16,9 @@ import es.jvbabi.docker.kt.api.container.PortBinding
 import es.jvbabi.docker.kt.api.container.VolumeBind
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import util.buildStyledString
 
-class TraefikManager : KoinComponent {
+class TraefikManager : AppDependency, KoinComponent {
 
     val traefikImage = "traefik:v3.6.1"
     val name = buildString {
@@ -58,13 +61,30 @@ class TraefikManager : KoinComponent {
         return dockerContainer!!
     }
 
-    suspend fun initialize() {
+    override val key: String = "traefik"
+
+    override suspend fun initialize() {
         generateTraefikConfig()
         generateProxyConfig()
         createDashboardService()
         generateSslConfig()
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
+
+    override suspend fun start() {
+        val containerName = getContainer().name
+        println(buildStyledString { green { +"Starting Traefik ($containerName)" } })
+        getContainer().start(createIfNotExists = true)
+    }
+
+    override suspend fun stop() {
+        val containerName = getContainer().name
+        println(buildStyledString { blue { +"Stopping Traefik ($containerName)" } })
+        getContainer().stop()
+    }
+
+    override fun isRequiredFor(project: Project): Boolean = true
+    override fun isAlwaysRequired(): Boolean = true
 
     fun generateTraefikConfig() {
         val traefikConfigFile = traefikFileStorage.resolve("traefik.yaml")

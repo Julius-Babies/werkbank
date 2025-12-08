@@ -1,26 +1,27 @@
 package commands.poweroff
 
-import app.dependencies.android_dns.Unbound
-import app.dependencies.postgres.Postgres18
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.AppDependency
 import app.repository.ProjectRepository
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import util.buildStyledString
 
 class PoweroffCommand: SuspendingCliktCommand("poweroff"), KoinComponent {
-    private val traefikManager by inject<TraefikManager>()
-    private val postgres18 by inject<Postgres18>()
-    private val unbound by inject<Unbound>()
     private val projectRepository by inject<ProjectRepository>()
+    private val dependencies by inject<List<AppDependency>>()
 
     override suspend fun run() {
         coroutineScope {
-            launch { traefikManager.getContainer().stop() }
-            launch { postgres18.container.stop() }
-            launch { unbound.getContainer().stop() }
+            // Stop all registered dependencies
+            dependencies.forEach { dep ->
+                launch {
+                    println(buildStyledString { blue { +"Stopping dependency '${dep.key}'" } })
+                    dep.stop()
+                }
+            }
             projectRepository.getAllProjects().forEach { project ->
                 launch { project.stop() }
             }

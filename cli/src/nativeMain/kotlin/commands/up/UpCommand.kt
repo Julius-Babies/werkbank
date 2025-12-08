@@ -1,8 +1,6 @@
 package commands.up
 
-import app.dependencies.android_dns.Unbound
-import app.dependencies.postgres.Postgres18
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.AppDependency
 import app.repository.ProjectRepository
 import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
@@ -15,11 +13,8 @@ import org.koin.core.component.inject
 import util.buildStyledString
 
 class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
-    private val traefikManager by inject<TraefikManager>()
-    private val postgres18 by inject<Postgres18>()
-    private val unbound by inject<Unbound>()
-
     private val projectRepository by inject<ProjectRepository>()
+    private val dependencies by inject<List<AppDependency>>()
 
     val startInfrastructure by option("--start-infrastructure", help = "Starts the infrastructure")
         .flag()
@@ -34,14 +29,12 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         }
 
         if (startInfrastructure) {
-            traefikManager.initialize()
-            traefikManager.getContainer().start(createIfNotExists = false)
-
-            postgres18.initialize(true)
-            postgres18.container.start(createIfNotExists = false)
-
-            unbound.initialize()
-            unbound.getContainer().start(createIfNotExists = false)
+            println(buildStyledString { green { +"Starting core infrastructure" } })
+            // Initialize and start all registered dependencies
+            dependencies.forEach { dep ->
+                dep.initialize()
+                dep.start()
+            }
         }
 
         if (!werkbankfile.exists()) {
@@ -53,18 +46,15 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         val werkbankFile = Yaml.default.decodeFromString(Werkbankfile.serializer(), werkbankFileContent)
         val projectId = werkbankFile.project.id
         val project = projectRepository.getAllProjects().firstOrNull { it.id == projectId } ?: error("Project with id $projectId not found")
-        if (project.getConfig().services.isNotEmpty()) {
-            traefikManager.initialize()
-            traefikManager.getContainer().start(createIfNotExists = false)
-        }
 
-        if (project.getConfig().dependencies?.postgres?.postgres18 != null) {
-            postgres18.initialize(true)
-            postgres18.container.start(createIfNotExists = false)
+        // For the specific project: initialize + start only the required dependencies
+        dependencies.forEach { dep ->
+            if (dep.isAlwaysRequired() || dep.isRequiredFor(project)) {
+                println(buildStyledString { blue { +"Ensuring dependency '${dep.key}' is ready for project ${project.id}" } })
+                dep.initialize()
+                dep.start()
+            }
         }
-
-        unbound.initialize()
-        unbound.getContainer().start(createIfNotExists = false)
 
         project.start()
     }

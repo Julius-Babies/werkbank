@@ -1,11 +1,14 @@
 package app.dependencies.postgres
 
+import app.data.Project
+import app.dependencies.AppDependency
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
+import app.data.extensions.project.usesPostgres18
 import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.PortBinding
 import es.jvbabi.docker.kt.api.container.VolumeBind
@@ -16,8 +19,9 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.getValue
 import kotlin.time.Duration.Companion.seconds
+import util.buildStyledString
 
-class Postgres18: KoinComponent {
+class Postgres18: AppDependency, KoinComponent {
     private val projectRepository by inject<ProjectRepository>()
     private val dockerClient by inject<DockerClient>()
     private val hostsManager by inject<HostsManager>()
@@ -52,13 +56,26 @@ class Postgres18: KoinComponent {
         ))
     )
 
-    suspend fun initialize(start: Boolean = true) {
+    override val key: String = "postgres18"
+
+    override suspend fun initialize() {
         if (!postgresRoot.exists()) postgresRoot.mkdir(recursive = true)
         if (container.getState() == DockerContainer.State.NotExisting) container.create()
-        if (start) container.start(createIfNotExists = false)
         createProjectDatabases()
         hostsManager.addHost(hostname)
     }
+
+    override suspend fun start() {
+        println(buildStyledString { green { +"Starting Postgres 18 (${container.name})" } })
+        container.start(createIfNotExists = true)
+    }
+
+    override suspend fun stop() {
+        println(buildStyledString { blue { +"Stopping Postgres 18 (${container.name})" } })
+        container.stop()
+    }
+
+    override fun isRequiredFor(project: Project): Boolean = project.usesPostgres18()
 
     suspend fun createProjectDatabases() {
         container.withRunning {

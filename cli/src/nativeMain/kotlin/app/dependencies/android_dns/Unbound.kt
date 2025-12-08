@@ -1,6 +1,8 @@
 package app.dependencies.android_dns
 
 import app.data.extensions.project.getAllDomains
+import app.data.Project
+import app.dependencies.AppDependency
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.repository.ProjectRepository
@@ -12,8 +14,9 @@ import es.jvbabi.docker.kt.api.container.VolumeBind
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.getValue
+import util.buildStyledString
 
-class Unbound : KoinComponent {
+class Unbound : AppDependency, KoinComponent {
     private val dockerNetwork by inject<DockerNetwork>()
 
     private val name = buildString {
@@ -51,10 +54,27 @@ class Unbound : KoinComponent {
 
     private val projectRepository by inject<ProjectRepository>()
 
-    suspend fun initialize() {
+    override val key: String = "unbound"
+
+    override suspend fun initialize() {
         writeConfigFile()
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
+
+    override suspend fun start() {
+        val containerName = getContainer().name
+        println(buildStyledString { green { +"Starting Unbound ($containerName)" } })
+        getContainer().start(createIfNotExists = true)
+    }
+
+    override suspend fun stop() {
+        val containerName = getContainer().name
+        println(buildStyledString { blue { +"Stopping Unbound ($containerName)" } })
+        getContainer().stop()
+    }
+
+    override fun isRequiredFor(project: Project): Boolean = true
+    override fun isAlwaysRequired(): Boolean = true
 
     fun writeConfigFile() {
         val domains = projectRepository
