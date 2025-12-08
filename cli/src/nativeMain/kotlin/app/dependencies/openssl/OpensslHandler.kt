@@ -110,20 +110,24 @@ class OpensslHandler : KoinComponent {
 
         val cn = if (isDevMode) "Werkbank Dev Root CA" else "Werkbank Root CA"
 
+        val tmpCsrRequestFile = File.getTempDirectory().resolve("root-csr.csr")
+        tmpCsrRequestFile.writeText(csrRequestConfigFileContent(cn))
+
+        val certFileArgs = listOf("req", "-x509", "-new", "-nodes",
+            "-key", rootKeyFile.absolutePath,
+            "-sha256",
+            "-days", "1024",
+            "-out", rootCaFile.absolutePath,
+            "-config", tmpCsrRequestFile.absolutePath,
+            "-extensions", "v3_req")
+
         print(buildStyledString {
             +"   $ "
-            gray { +"openssl req -x509 -new -nodes -key ${rootKeyFile.absolutePath} -sha256 -days 1024 -out ${rootCaFile.absolutePath}" }
+            gray { +"openssl ${certFileArgs.joinToString(" ")}" }
         })
 
         val certFileResult = Command("openssl")
-            .args(
-                "req", "-x509", "-new", "-nodes",
-                "-key", rootKeyFile.absolutePath,
-                "-sha256",
-                "-days", "1024",
-                "-out", rootCaFile.absolutePath,
-                "-subj", "/C=DE/ST=Saxony/L=Dresden/O=Werkbank/OU=Dev/CN=$cn"
-            )
+            .args(certFileArgs)
             .stdout(Stdio.Pipe)
             .stderr(Stdio.Pipe)
             .spawn()
@@ -150,16 +154,22 @@ class OpensslHandler : KoinComponent {
         println(buildStyledString {
             green { +"$CHECK Root CA created successfully" }
         })
+
         println(buildStyledString {
             yellow { +"   Certificate location: " }
             bold { +rootCaFile.absolutePath }
+            +"\n"
+            yellow { +"   Key location: " }
+            bold { +rootKeyFile.absolutePath }
         })
         println()
 
         println(buildStyledString { cyan { +"Deleting old leaf certificates if present" } })
         projectRepository.getAllProjects().forEach { project ->
-            project.getProjectStorage.resolve("certificate.pem").delete()
-            project.getProjectStorage.resolve("private.key").delete()
+            val projectPemFile = project.getProjectStorage.resolve("certificate.pem")
+            val projectKeyFile = project.getProjectStorage.resolve("private.key")
+            if (projectPemFile.exists()) projectPemFile.delete()
+            if (projectKeyFile.exists()) projectKeyFile.delete()
         }
 
         // Installation prompt
@@ -324,8 +334,8 @@ class OpensslHandler : KoinComponent {
         }
 
         // Cleanup
-        signingRequestFile.delete()
-        sanFile.delete()
+        if (signingRequestFile.exists()) signingRequestFile.delete()
+        if (sanFile.exists()) sanFile.delete()
     }
 }
 
