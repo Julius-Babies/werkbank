@@ -6,6 +6,7 @@ import app.dependencies.openssl.OpensslHandler
 import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
 import app.dependencies.AppDependency
+import app.dependencies.mongodb.MongoDb
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
@@ -43,9 +44,15 @@ fun main(args: Array<String>) {
                     singleOf(::Postgres18)
                     singleOf(::TraefikManager)
                     singleOf(::Unbound)
+                    singleOf(::MongoDb)
 
                     // Aggregate all AppDependencies for convenient injection as a list
-                    single<List<AppDependency>> { listOf(get<TraefikManager>(), get<Unbound>(), get<Postgres18>()) }
+                    single<List<AppDependency>> { listOf(
+                        get<TraefikManager>(),
+                        get<Unbound>(),
+                        get<Postgres18>(),
+                        get<MongoDb>(),
+                    ) }
 
                     single<ProjectRepository> { ProjectRepository() }
                 }

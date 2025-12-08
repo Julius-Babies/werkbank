@@ -9,6 +9,7 @@ import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
 import app.data.extensions.project.usesPostgres18
+import app.dependencies.ReverseProxyRecord
 import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.PortBinding
 import es.jvbabi.docker.kt.api.container.VolumeBind
@@ -166,4 +167,7 @@ class Postgres18: AppDependency, KoinComponent {
             delay(1.seconds)
         }
     }
+
+    override val reverseProxyRecords: List<ReverseProxyRecord> = emptyList()
+    override val webfacingDomains: List<String> = emptyList()
 }

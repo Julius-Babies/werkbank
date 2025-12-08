@@ -1,7 +1,7 @@
 package app.dependencies.openssl
 
 import app.SudoManager
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.AppDependency
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
@@ -20,10 +20,13 @@ import util.buildStyledString
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-class OpensslHandler: KoinComponent {
+class OpensslHandler : KoinComponent {
+    private val dependencies by inject<List<AppDependency>>()
     private val projectRepository by inject<ProjectRepository>()
-    private val traefikManager by inject<TraefikManager>()
     val isOpensslAvailable = CompletableDeferred<Boolean>()
+    val internalCertificateDirectory = storageRoot
+        .resolve("certificates")
+        .resolve("internal")
 
     suspend fun initialize() {
         val result = withContext(Dispatchers.IO) {
@@ -38,9 +41,11 @@ class OpensslHandler: KoinComponent {
             isOpensslAvailable.complete(false)
             return
         }
-        isOpensslAvailable.complete(true)
 
         if (!isRootCaSetUp()) createRootCa()
+        createInternalCertificates()
+
+        isOpensslAvailable.complete(true)
     }
 
     val certificatesFolder = storageRoot.resolve("certificates").apply {
@@ -156,10 +161,6 @@ class OpensslHandler: KoinComponent {
             project.getProjectStorage.resolve("certificate.pem").delete()
             project.getProjectStorage.resolve("private.key").delete()
         }
-        if (traefikManager.traefikFileStorage.listFiles().isNotEmpty() && traefikManager.dashboardCertificatesFolder.listFiles().isNotEmpty()) {
-            traefikManager.dashboardCertificatesFolder.resolve("certificate.pem").delete()
-            traefikManager.dashboardCertificatesFolder.resolve("private.key").delete()
-        }
 
         // Installation prompt
         println(buildStyledString {
@@ -204,6 +205,26 @@ class OpensslHandler: KoinComponent {
         println()
     }
 
+    fun createInternalCertificates() {
+        if (!internalCertificateDirectory.exists()) internalCertificateDirectory.mkdir(recursive = true)
+
+        dependencies
+            .filter { it.webfacingDomains.isNotEmpty() }
+            .forEach { dependency ->
+                val keyFile = internalCertificateDirectory.resolve("${dependency.key}.key")
+                val certFile = internalCertificateDirectory.resolve("${dependency.key}.crt")
+
+                if (keyFile.exists() && certFile.exists()) return@forEach
+
+                createCertificatePair(
+                    certificateFile = certFile,
+                    privateKeyFile = keyFile,
+                    mainDomain = dependency.webfacingDomains.first(),
+                    altDomains = dependency.webfacingDomains.drop(1)
+                )
+            }
+    }
+
     @OptIn(ExperimentalUuidApi::class)
     fun createCertificatePair(
         certificateFile: File,
@@ -216,7 +237,15 @@ class OpensslHandler: KoinComponent {
 
         // Generate private key
         val privateKeyResult = Command("openssl")
-            .args("genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:4096", "-out", privateKeyFile.absolutePath)
+            .args(
+                "genpkey",
+                "-algorithm",
+                "RSA",
+                "-pkeyopt",
+                "rsa_keygen_bits:4096",
+                "-out",
+                privateKeyFile.absolutePath
+            )
             .stdout(Stdio.Pipe)
             .stderr(Stdio.Pipe)
             .spawn()
@@ -237,7 +266,16 @@ class OpensslHandler: KoinComponent {
         if (signingRequestFile.exists()) signingRequestFile.delete()
 
         val signingRequestResult = Command("openssl")
-            .args("req", "-new", "-key", privateKeyFile.absolutePath, "-out", signingRequestFile.absolutePath, "-subj", "/CN=$mainDomain")
+            .args(
+                "req",
+                "-new",
+                "-key",
+                privateKeyFile.absolutePath,
+                "-out",
+                signingRequestFile.absolutePath,
+                "-subj",
+                "/CN=$mainDomain"
+            )
             .stderr(Stdio.Pipe)
             .spawn()
             .waitWithOutput()

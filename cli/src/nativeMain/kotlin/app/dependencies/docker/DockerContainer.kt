@@ -1,5 +1,6 @@
 package app.dependencies.docker
 
+import app.storage.isDevMode
 import es.jvbabi.docker.kt.api.container.ContainerState
 import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.PortBinding
@@ -80,7 +81,10 @@ class DockerContainer(
             environment = this.environment,
             cmd = this.cmd,
             ports = this.ports,
-            labels = mapOf("compose.project" to "werkbank"),
+            labels = mapOf("com.docker.compose.project" to buildString {
+                append("werkbank")
+                if (isDevMode) append("-dev")
+            }),
             networkConfigs = this.networkConfigs,
         )
     }

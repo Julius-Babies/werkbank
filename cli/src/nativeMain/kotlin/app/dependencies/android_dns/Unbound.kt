@@ -3,6 +3,7 @@ package app.dependencies.android_dns
 import app.data.extensions.project.getAllDomains
 import app.data.Project
 import app.dependencies.AppDependency
+import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.repository.ProjectRepository
@@ -75,6 +76,9 @@ class Unbound : AppDependency, KoinComponent {
 
     override fun isRequiredFor(project: Project): Boolean = true
     override fun isAlwaysRequired(): Boolean = true
+
+    override val reverseProxyRecords: List<ReverseProxyRecord> = emptyList()
+    override val webfacingDomains: List<String> = emptyList()
 
     fun writeConfigFile() {
         val domains = projectRepository

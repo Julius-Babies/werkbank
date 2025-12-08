@@ -3,6 +3,7 @@ package app.dependencies.reverse_proxy
 import app.config.WerkbankConfig
 import app.data.Project
 import app.dependencies.AppDependency
+import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
@@ -14,6 +15,7 @@ import com.charleskorn.kaml.Yaml
 import es.jvbabi.docker.kt.api.container.NetworkConfig
 import es.jvbabi.docker.kt.api.container.PortBinding
 import es.jvbabi.docker.kt.api.container.VolumeBind
+import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
@@ -27,11 +29,12 @@ class TraefikManager : AppDependency, KoinComponent {
         append("traefik")
     }
 
+    val traefikDomain = "traefik.werkbank.studio"
+    private val dependencies by inject<List<AppDependency>>()
     val traefikFileStorage by lazy { storageRoot.resolve("traefik").apply { if (!exists()) mkdir() } }
     private val hostsManager by inject<HostsManager>()
     private val dockerNetwork by inject<DockerNetwork>()
     val dynamicConfigFolder by lazy { traefikFileStorage.resolve("dynamic").apply { if (!exists()) mkdir() } }
-    val dashboardCertificatesFolder by lazy { traefikFileStorage.resolve("dashboard-certificates").apply { if (!exists()) mkdir() } }
 
     private val projectRepository by inject<ProjectRepository>()
     private val opensslHandler by inject<OpensslHandler>()
@@ -50,7 +53,7 @@ class TraefikManager : AppDependency, KoinComponent {
             volumes = mapOf(
                 VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
                 VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",
-                VolumeBind.Host(dashboardCertificatesFolder.absolutePath, readOnly = true) to "/ssl/dashboard",
+                VolumeBind.Host(opensslHandler.internalCertificateDirectory.absolutePath, readOnly = true) to "/ssl/internal",
                 VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
             ),
             environment = emptyMap(),
@@ -64,9 +67,11 @@ class TraefikManager : AppDependency, KoinComponent {
     override val key: String = "traefik"
 
     override suspend fun initialize() {
+        opensslHandler.isOpensslAvailable.await().let { require(it) { "OpenSSL is not available"} }
         generateTraefikConfig()
         generateProxyConfig()
         createDashboardService()
+        createInternalServices()
         generateSslConfig()
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
@@ -120,15 +125,15 @@ class TraefikManager : AppDependency, KoinComponent {
     fun generateSslConfig() {
         val config = TraefikTlsConfig(
             tls = TraefikTlsConfig.Tls(
-                certificates = listOf(
-                    TraefikTlsConfig.Tls.Certificate(
-                        certFile = "/ssl/dashboard/certificate.pem",
-                        keyFile = "/ssl/dashboard/private.key"
-                    )
-                ) + projectRepository.getAllProjects().map { project ->
+                certificates = projectRepository.getAllProjects().map { project ->
                     TraefikTlsConfig.Tls.Certificate(
                         certFile = "/projects/${project.id}/certificate.pem",
                         keyFile = "/projects/${project.id}/private.key"
+                    )
+                } + dependencies.filter { it.webfacingDomains.isNotEmpty() }.map { dependency ->
+                    TraefikTlsConfig.Tls.Certificate(
+                        certFile = "/ssl/internal/${dependency.key}.crt",
+                        keyFile = "/ssl/internal/${dependency.key}.key"
                     )
                 }
             )
@@ -174,40 +179,80 @@ class TraefikManager : AppDependency, KoinComponent {
                     WerkbankConfig.Project.Service.ServiceState.Local -> "http://host.docker.internal:${service.modes.local!!.port}"
                 }
 
-                val serviceConfig = buildString {
-                    appendLine("http:")
-                    appendLine("  routers:")
-                    appendLine("    ${serviceName}-router:")
-                    appendLine("      rule: (${domains.joinToString(" || ") { "Host(`$it`)" }}) && (${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})")
-                    appendLine("      service: ${serviceName}-service")
-                    appendLine("      entryPoints: [\"websecure\"]")
-                    appendLine("      tls: {}")
-                    if (service.routingPriority != null) appendLine("      priority: ${service.routingPriority}")
-                    appendLine("  services:")
-                    appendLine("    ${serviceName}-service:")
-                    appendLine("      loadBalancer:")
-                    appendLine("        passHostHeader: true")
-                    appendLine("        servers:")
-                    appendLine("          - url: $url")
-                }
+                val rule = "(${domains.joinToString(" || ") { "Host(`$it`)" }}) && (${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})"
 
-                serviceFile.writeText(serviceConfig)
+                generateServiceConfig(
+                    serviceFile = serviceFile,
+                    serviceName = serviceName,
+                    rule = rule,
+                    url = url,
+                    priority = service.routingPriority
+                )
             }
         }
     }
 
     private fun createDashboardService() {
-        hostsManager.addHost("traefik.werkbank.studio")
+        hostsManager.addHost(traefikDomain)
         val dashboardConfigFile = dynamicConfigFolder.resolve("dashboard.system.service.yaml")
         updateDashboardServiceIfNecessary(dashboardConfigFile)
-        val dashboardCertificateFile = dashboardCertificatesFolder.resolve("certificate.pem")
-        val dashboardPrivateKeyFile = dashboardCertificatesFolder.resolve("private.key")
-        if (!dashboardCertificateFile.exists() || !dashboardPrivateKeyFile.exists()) {
-            opensslHandler.createCertificatePair(
-                certificateFile = dashboardCertificateFile,
-                privateKeyFile = dashboardPrivateKeyFile,
-                mainDomain = "traefik.werkbank.studio",
-            )
-        }
     }
+
+    private fun createInternalServices() {
+        dynamicConfigFolder.listFiles().filter { it.name.endsWith(".internal.service.yaml") }.forEach { it.delete() }
+        dependencies
+            .associate { it.key to it.reverseProxyRecords }
+            .forEach { (dependencyKey, records) ->
+                records.forEach { record ->
+                    generateInternalServiceConfig(dependencyKey, record)
+                }
+            }
+    }
+
+    private fun generateInternalServiceConfig(dependencyKey: String, record: ReverseProxyRecord) {
+        hostsManager.addHost(record.domain)
+
+        val serviceName = "${dependencyKey}-${record.domain.replace(".", "-")}"
+        val serviceFile = dynamicConfigFolder.resolve("${serviceName}.internal.service.yaml")
+        val url = "http://${record.containerName}:${record.port}"
+        val rule = "Host(`${record.domain}`)"
+
+        generateServiceConfig(
+            serviceFile = serviceFile,
+            serviceName = serviceName,
+            rule = rule,
+            url = url,
+            priority = null
+        )
+    }
+
+    private fun generateServiceConfig(
+        serviceFile: File,
+        serviceName: String,
+        rule: String,
+        url: String,
+        priority: Int?
+    ) {
+        val serviceConfig = buildString {
+            appendLine("http:")
+            appendLine("  routers:")
+            appendLine("    ${serviceName}-router:")
+            appendLine("      rule: $rule")
+            appendLine("      service: ${serviceName}-service")
+            appendLine("      entryPoints: [\"websecure\"]")
+            appendLine("      tls: {}")
+            if (priority != null) appendLine("      priority: $priority")
+            appendLine("  services:")
+            appendLine("    ${serviceName}-service:")
+            appendLine("      loadBalancer:")
+            appendLine("        passHostHeader: true")
+            appendLine("        servers:")
+            appendLine("          - url: $url")
+        }
+
+        serviceFile.writeText(serviceConfig)
+    }
+
+    override val reverseProxyRecords: List<ReverseProxyRecord> = emptyList()
+    override val webfacingDomains: List<String> = listOf(traefikDomain)
 }
