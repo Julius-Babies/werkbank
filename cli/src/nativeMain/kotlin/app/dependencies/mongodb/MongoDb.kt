@@ -1,6 +1,7 @@
 package app.dependencies.mongodb
 
 import app.data.Project
+import app.data.extensions.project.usesMongo
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.DockerContainer
@@ -15,7 +16,6 @@ import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
-import kotlin.getValue
 
 class MongoDb: AppDependency, KoinComponent {
     private val hostsManager by inject<HostsManager>()
@@ -107,7 +107,5 @@ class MongoDb: AppDependency, KoinComponent {
 
     override val webfacingDomains: List<String> = listOf(mongoExpressDomain)
 
-    override fun isRequiredFor(project: Project): Boolean {
-        return true
-    }
+    override fun isRequiredFor(project: Project): Boolean = project.usesMongo()
 }

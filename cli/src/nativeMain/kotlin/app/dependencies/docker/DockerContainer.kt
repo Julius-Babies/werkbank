@@ -89,12 +89,12 @@ class DockerContainer(
         )
     }
 
-    suspend fun withRunning(block: suspend () -> Unit) {
+    suspend fun withRunning(block: suspend (container: DockerContainer) -> Unit) {
         val isRunning = getState() == State.Running
-        if (isRunning) block()
+        if (isRunning) block(this)
         else {
             start(createIfNotExists = true)
-            block()
+            block(this)
             stop()
         }
     }

@@ -60,7 +60,8 @@ data class Werkbankfile(
 
     @Serializable
     data class Dependencies(
-        @SerialName("postgres") val postgres: Postgres? = null
+        @SerialName("postgres") val postgres: Postgres? = null,
+        @SerialName("mongodb") val mongodb: MongoDb? = null
     ) {
 
         @Serializable
@@ -72,5 +73,10 @@ data class Werkbankfile(
                 @SerialName("databases") val databases: List<String> = emptyList()
             )
         }
+
+        @Serializable
+        data class MongoDb(
+            @SerialName("databases") val databases: List<String> = emptyList()
+        )
     }
 }
