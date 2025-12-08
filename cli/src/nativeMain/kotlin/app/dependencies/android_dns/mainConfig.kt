@@ -68,15 +68,11 @@ fun updateUnboundConfigIfNecessary(file: File, domains: List<String>) {
 
     if (!file.exists()) {
         file.writeText(content)
-        println("write1")
         return
     }
     val currentContentHash = SHA1().apply { update(file.readText().toByteArray()) }.digest().contentHashCode()
     val newContentHash = SHA1().apply { update(content.toByteArray()) }.digest().contentHashCode()
-    println(currentContentHash)
-    println(newContentHash)
     if (currentContentHash != newContentHash) {
-        println("write2")
         file.writeText(content)
     }
 }
