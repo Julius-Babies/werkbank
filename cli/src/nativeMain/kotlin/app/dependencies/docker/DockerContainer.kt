@@ -2,6 +2,7 @@ package app.dependencies.docker
 
 import es.jvbabi.docker.kt.api.container.ContainerState
 import es.jvbabi.docker.kt.api.container.NetworkConfig
+import es.jvbabi.docker.kt.api.container.PortBinding
 import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.docker.kt.docker.DockerClient
 import org.koin.core.component.KoinComponent
@@ -10,10 +11,11 @@ import org.koin.core.component.inject
 class DockerContainer(
     val image: String,
     val name: String,
-    val ports: List<String>,
+    val ports: List<PortBinding>,
     val volumes: Map<VolumeBind, String>,
     val environment: Map<String, String>,
     val networkConfigs: List<NetworkConfig>,
+    val cmd: List<String>? = null,
 ): KoinComponent {
     private val dockerClient by inject<DockerClient>()
     private val dockerNetwork by inject<DockerNetwork>()
@@ -76,10 +78,8 @@ class DockerContainer(
             name = this.name,
             volumeBinds = this.volumes,
             environment = this.environment,
-            ports = this.ports.associate { value ->
-                val (host, container) = value.split(":")
-                host.toInt() to container.toInt()
-            },
+            cmd = this.cmd,
+            ports = this.ports,
             labels = mapOf("compose.project" to "werkbank"),
             networkConfigs = this.networkConfigs,
         )

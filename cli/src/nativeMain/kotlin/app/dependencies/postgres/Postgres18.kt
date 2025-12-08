@@ -7,6 +7,7 @@ import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
 import es.jvbabi.docker.kt.api.container.NetworkConfig
+import es.jvbabi.docker.kt.api.container.PortBinding
 import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.docker.kt.docker.DockerClient
 import kotlinx.coroutines.delay
@@ -35,7 +36,9 @@ class Postgres18: KoinComponent {
             if (isDevMode) append("dev-")
             append("postgres-18")
         },
-        ports = listOf("5432:5432"),
+        ports = listOf(
+            PortBinding(5432, 5432, PortBinding.Protocol.TCP)
+        ),
         volumes = mapOf(
             VolumeBind.Host(postgresRoot.absolutePath) to "/var/lib/postgresql/data",
         ),

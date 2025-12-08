@@ -1,5 +1,6 @@
 package commands.poweroff
 
+import app.dependencies.android_dns.Unbound
 import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
 import app.repository.ProjectRepository
@@ -12,12 +13,14 @@ import org.koin.core.component.inject
 class PoweroffCommand: SuspendingCliktCommand("poweroff"), KoinComponent {
     private val traefikManager by inject<TraefikManager>()
     private val postgres18 by inject<Postgres18>()
+    private val unbound by inject<Unbound>()
     private val projectRepository by inject<ProjectRepository>()
 
     override suspend fun run() {
         coroutineScope {
             launch { traefikManager.getContainer().stop() }
             launch { postgres18.container.stop() }
+            launch { unbound.getContainer().stop() }
             projectRepository.getAllProjects().forEach { project ->
                 launch { project.stop() }
             }

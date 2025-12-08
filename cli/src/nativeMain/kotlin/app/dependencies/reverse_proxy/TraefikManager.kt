@@ -10,6 +10,7 @@ import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
 import es.jvbabi.docker.kt.api.container.NetworkConfig
+import es.jvbabi.docker.kt.api.container.PortBinding
 import es.jvbabi.docker.kt.api.container.VolumeBind
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -39,7 +40,10 @@ class TraefikManager : KoinComponent {
         dockerContainer = DockerContainer(
             image = this.traefikImage,
             name = this.name,
-            ports = listOf("80:80", "443:443"),
+            ports = listOf(
+                PortBinding(80, 80, PortBinding.Protocol.TCP),
+                PortBinding(443, 443, PortBinding.Protocol.TCP)
+            ),
             volumes = mapOf(
                 VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
                 VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",

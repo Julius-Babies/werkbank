@@ -12,6 +12,7 @@ import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
 import commands.setup.Werkbankfile
 import es.jvbabi.docker.kt.api.container.NetworkConfig
+import es.jvbabi.docker.kt.api.container.PortBinding
 import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
@@ -96,7 +97,7 @@ data class Project(
                 container = DockerContainer(
                     image = container.image,
                     name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
-                    ports = container.ports,
+                    ports = container.ports.map { PortBinding.from(it) },
                     volumes = container.volumes.associate { VolumeBind.from(it) },
                     environment = container.environment,
                     networkConfigs = listOf(

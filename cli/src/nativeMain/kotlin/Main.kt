@@ -1,5 +1,6 @@
 import app.SudoManager
 import app.config.MainConfig
+import app.dependencies.android_dns.Unbound
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.postgres.Postgres18
@@ -40,6 +41,7 @@ fun main(args: Array<String>) {
                     single<DockerNetwork> { DockerNetwork() }
                     singleOf(::Postgres18)
                     singleOf(::TraefikManager)
+                    singleOf(::Unbound)
 
                     single<ProjectRepository> { ProjectRepository() }
                 }

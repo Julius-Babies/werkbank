@@ -1,5 +1,6 @@
 package commands.up
 
+import app.dependencies.android_dns.Unbound
 import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
 import app.repository.ProjectRepository
@@ -16,6 +17,7 @@ import util.buildStyledString
 class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
     private val traefikManager by inject<TraefikManager>()
     private val postgres18 by inject<Postgres18>()
+    private val unbound by inject<Unbound>()
 
     private val projectRepository by inject<ProjectRepository>()
 
@@ -37,6 +39,9 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
 
             postgres18.initialize(true)
             postgres18.container.start(createIfNotExists = false)
+
+            unbound.initialize()
+            unbound.getContainer().start(createIfNotExists = false)
         }
 
         if (!werkbankfile.exists()) {
@@ -57,6 +62,9 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
             postgres18.initialize(true)
             postgres18.container.start(createIfNotExists = false)
         }
+
+        unbound.initialize()
+        unbound.getContainer().start(createIfNotExists = false)
 
         project.start()
     }
