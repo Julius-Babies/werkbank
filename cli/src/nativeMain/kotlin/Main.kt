@@ -7,6 +7,7 @@ import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
 import app.dependencies.AppDependency
 import app.dependencies.mongodb.MongoDb
+import app.dependencies.rabbitmq.RabbitMq
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
@@ -45,6 +46,7 @@ fun main(args: Array<String>) {
                     singleOf(::TraefikManager)
                     singleOf(::Unbound)
                     singleOf(::MongoDb)
+                    singleOf(::RabbitMq)
 
                     // Aggregate all AppDependencies for convenient injection as a list
                     single<List<AppDependency>> { listOf(
@@ -52,6 +54,7 @@ fun main(args: Array<String>) {
                         get<Unbound>(),
                         get<Postgres18>(),
                         get<MongoDb>(),
+                        get<RabbitMq>(),
                     ) }
 
                     single<ProjectRepository> { ProjectRepository() }
