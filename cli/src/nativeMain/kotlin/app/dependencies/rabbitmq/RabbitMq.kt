@@ -100,6 +100,14 @@ class RabbitMq : AppDependency, KoinComponent {
                     command = listOf("rabbitmqctl", "add_vhost", missingVhost)
                 )
                 require(createResult.exitCode == 0) { "Failed to create vhost $missingVhost: ${createResult.output}" }
+
+                val permissionsResult = dockerClient.containers.runCommand(
+                    containerId = rabbitMqContainer.getId()!!,
+                    command = listOf(
+                        "rabbitmqctl", "set_permissions", "-p", missingVhost, "werkbank", ".*", ".*", ".*"
+                    )
+                )
+                require(permissionsResult.exitCode == 0) { "Failed to set permissions for vhost $missingVhost: ${permissionsResult.output}" }
             }
         }
     }
