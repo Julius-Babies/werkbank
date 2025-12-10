@@ -100,7 +100,7 @@ data class Project(
                         .associate { Container.VolumeBind.from(it) }
                         .plus(Container.VolumeBind.Host(opensslHandler.keyStoreFile.absolutePath, readOnly = true) to "/ssl/keystore.jks"),
                     environment = container.environment
-                        .plus("KEYSTORE_PATH" to "/ssl/keystore.jks")
+                        .plus("KEYSTORE_PATH" to "/ssl/")
                         .plus("KEYSTORE_PASSWORD" to opensslHandler.keyStorePassword),
                     networkConfigs = listOf(
                         Container.NetworkConfig(networkId = dockerNetwork.getId()!!)
