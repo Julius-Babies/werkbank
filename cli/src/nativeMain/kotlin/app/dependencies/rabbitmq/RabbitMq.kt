@@ -46,7 +46,7 @@ class RabbitMq : AppDependency, KoinComponent {
         ),
         healthcheck = Container.Healthcheck(
             test = listOf("CMD-SHELL", "rabbitmqctl status"),
-            interval = 1.seconds,
+            interval = 5.seconds,
             timeout = 5.seconds,
             startPeriod = 1.seconds,
         ),
