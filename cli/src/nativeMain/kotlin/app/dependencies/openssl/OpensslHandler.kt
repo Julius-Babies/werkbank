@@ -54,10 +54,13 @@ class OpensslHandler : KoinComponent {
 
     val rootCaFile = certificatesFolder.resolve("rootCA.crt")
     val rootKeyFile = certificatesFolder.resolve("rootCA.key")
+    val keyStoreFile = certificatesFolder.resolve("keystore.jks")
+    val keyStorePassword = "changeit"
 
     fun isRootCaSetUp(): Boolean {
         if (!rootCaFile.exists()) return false
         if (!rootKeyFile.exists()) return false
+        if (!keyStoreFile.exists()) return false
         return true
     }
 
@@ -149,6 +152,53 @@ class OpensslHandler : KoinComponent {
             +"   "
             green { +"$CHECK Certificate created (valid for 1024 days)" }
         })
+
+        // Step 3: Create keystore
+        println(buildStyledString {
+            blue { +"Step 3" }
+            +": Creating keystore"
+        })
+        val createKeystoreArgs = listOf(
+            "pkcs12",
+            "-export",
+            "-in",
+            rootCaFile.absolutePath,
+            "-inkey",
+            rootKeyFile.absolutePath,
+            "-out",
+            keyStoreFile.absolutePath,
+            "-name", cn,
+            "-password", "pass:$keyStorePassword"
+        )
+        print(buildStyledString {
+            +"   $ "
+            gray { +"openssl ${createKeystoreArgs.joinToString(" ")}" }
+        })
+
+        val createKeystoreResult = Command("openssl")
+            .args(createKeystoreArgs)
+            .stdout(Stdio.Pipe)
+            .stderr(Stdio.Pipe)
+            .spawn()
+            .waitWithOutput()
+
+        if (createKeystoreResult.status != 0) {
+            println()
+            throw RuntimeException(
+                """Failed to create Keystore file.
+                |Status: ${certFileResult.status}
+                |Output: ${certFileResult.stdout}
+                |Error: ${certFileResult.stderr}
+                """.trimMargin()
+            )
+        }
+
+        println(buildStyledString {
+            +REPLACE_LINE
+            +"   "
+            green { +"$CHECK Keystore created" }
+        })
+
         println()
 
         println(buildStyledString {
@@ -161,6 +211,10 @@ class OpensslHandler : KoinComponent {
             +"\n"
             yellow { +"   Key location: " }
             bold { +rootKeyFile.absolutePath }
+            +"\n"
+            yellow { +"   Keystore location: " }
+            bold { +keyStoreFile.absolutePath }
+            aqua { +" (Password: $keyStorePassword)" }
         })
         println()
 

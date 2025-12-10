@@ -98,8 +98,12 @@ data class Project(
                     image = container.image,
                     name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
                     ports = container.ports.map { PortBinding.from(it) },
-                    volumes = container.volumes.associate { VolumeBind.from(it) },
-                    environment = container.environment,
+                    volumes = container.volumes
+                        .associate { VolumeBind.from(it) }
+                        .plus(VolumeBind.Host(opensslHandler.keyStoreFile.absolutePath, readOnly = true) to "/ssl/keystore.jks"),
+                    environment = container.environment
+                        .plus("KEYSTORE_PATH" to "/ssl/keystore.jks")
+                        .plus("KEYSTORE_PASSWORD" to opensslHandler.keyStorePassword),
                     networkConfigs = listOf(
                         NetworkConfig(networkId = dockerNetwork.getId()!!)
                     ),
