@@ -1,21 +1,23 @@
 package app.dependencies.docker
 
 import app.storage.isDevMode
+import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.docker.kt.api.container.ContainerState
-import es.jvbabi.docker.kt.api.container.NetworkConfig
-import es.jvbabi.docker.kt.api.container.PortBinding
-import es.jvbabi.docker.kt.api.container.VolumeBind
 import es.jvbabi.docker.kt.docker.DockerClient
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
 class DockerContainer(
     val image: String,
     val name: String,
-    val ports: List<PortBinding>,
-    val volumes: Map<VolumeBind, String>,
+    val ports: List<Container.PortBinding>,
+    val volumes: Map<Container.VolumeBind, String>,
+    val healthcheck: Container.Healthcheck? = null,
     val environment: Map<String, String>,
-    val networkConfigs: List<NetworkConfig>,
+    val networkConfigs: List<Container.NetworkConfig>,
     val cmd: List<String>? = null,
 ): KoinComponent {
     private val dockerClient by inject<DockerClient>()
@@ -79,6 +81,7 @@ class DockerContainer(
             name = this.name,
             volumeBinds = this.volumes,
             environment = this.environment,
+            healthCheck = this.healthcheck,
             cmd = this.cmd,
             ports = this.ports,
             labels = mapOf("com.docker.compose.project" to buildString {
@@ -89,13 +92,27 @@ class DockerContainer(
         )
     }
 
-    suspend fun withRunning(block: suspend (container: DockerContainer) -> Unit) {
+    suspend fun withRunning(
+        requireHealthy: Boolean = false,
+        block: suspend (container: DockerContainer) -> Unit
+    ) {
         val isRunning = getState() == State.Running
-        if (isRunning) block(this)
-        else {
-            start(createIfNotExists = true)
-            block(this)
-            stop()
+        if (!isRunning) start(createIfNotExists = true)
+        if (requireHealthy) coroutineScope {
+            withTimeoutOrNull(10000) { while (!isHealthy()) delay(50) }
         }
+
+        block(this)
+        if (!isRunning) stop()
+    }
+
+    suspend fun isHealthy(): Boolean {
+        val state = dockerClient.containers
+            .inspectContainer(this.getId()!!)
+            .state
+            .health
+            ?.status
+
+        return state == "healthy"
     }
 }

@@ -10,9 +10,7 @@ import app.storage.isDevMode
 import app.storage.storageRoot
 import app.data.extensions.project.usesPostgres18
 import app.dependencies.ReverseProxyRecord
-import es.jvbabi.docker.kt.api.container.NetworkConfig
-import es.jvbabi.docker.kt.api.container.PortBinding
-import es.jvbabi.docker.kt.api.container.VolumeBind
+import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.docker.kt.docker.DockerClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -42,19 +40,21 @@ class Postgres18: AppDependency, KoinComponent {
             append("postgres-18")
         },
         ports = listOf(
-            PortBinding(5432, 5432, PortBinding.Protocol.TCP)
+            Container.PortBinding(5432, 5432, Container.PortBinding.Protocol.TCP)
         ),
         volumes = mapOf(
-            VolumeBind.Host(postgresRoot.absolutePath) to "/var/lib/postgresql/data",
+            Container.VolumeBind.Host(postgresRoot.absolutePath) to "/var/lib/postgresql/data",
         ),
         environment = mapOf(
             "POSTGRES_PASSWORD" to "werkbank",
             "POSTGRES_USER" to "werkbank",
         ),
-        networkConfigs = listOf(NetworkConfig(
-            networkId = runBlocking { dockerNetwork.getId()!! },
-            aliases = listOf(hostname)
-        ))
+        networkConfigs = listOf(
+            Container.NetworkConfig(
+                networkId = runBlocking { dockerNetwork.getId()!! },
+                aliases = listOf(hostname)
+            )
+        )
     )
 
     override val key: String = "postgres18"

@@ -10,14 +10,13 @@ import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
-import es.jvbabi.docker.kt.api.container.NetworkConfig
-import es.jvbabi.docker.kt.api.container.PortBinding
-import es.jvbabi.docker.kt.api.container.VolumeBind
+import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.docker.kt.docker.DockerClient
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
+import kotlin.time.Duration.Companion.seconds
 
 class RabbitMq : AppDependency, KoinComponent {
     override val key: String = "rabbitmq"
@@ -40,17 +39,23 @@ class RabbitMq : AppDependency, KoinComponent {
             append("rabbitmq")
         },
         ports = listOf(
-            PortBinding(5672, 5672, PortBinding.Protocol.TCP),
+            Container.PortBinding(5672, 5672, Container.PortBinding.Protocol.TCP),
         ),
         volumes = mapOf(
-            VolumeBind.Host(rabbitRoot.absolutePath) to "/var/lib/rabbitmq"
+            Container.VolumeBind.Host(rabbitRoot.absolutePath) to "/var/lib/rabbitmq"
+        ),
+        healthcheck = Container.Healthcheck(
+            test = listOf("CMD-SHELL", "rabbitmqctl status"),
+            interval = 1.seconds,
+            timeout = 5.seconds,
+            startPeriod = 1.seconds,
         ),
         environment = mapOf(
             "RABBITMQ_DEFAULT_USER" to "werkbank",
             "RABBITMQ_DEFAULT_PASS" to "werkbank"
         ),
         networkConfigs = listOf(
-            NetworkConfig(
+            Container.NetworkConfig(
                 networkId = runBlocking { dockerNetwork.getId()!! },
                 aliases = listOf(rabbitMqHostname)
             )
@@ -67,7 +72,7 @@ class RabbitMq : AppDependency, KoinComponent {
             .filter { it.usesRabbit() }
             .map { it.getConfig() }
 
-        if (projects.isNotEmpty()) rabbitMqContainer.withRunning { rabbitMqContainer ->
+        if (projects.isNotEmpty()) rabbitMqContainer.withRunning(requireHealthy = true) { rabbitMqContainer ->
             val existingVhostsResult = dockerClient.containers.runCommand(
                 containerId = rabbitMqContainer.getId()!!,
                 command = listOf(
@@ -76,13 +81,15 @@ class RabbitMq : AppDependency, KoinComponent {
                 )
             )
             require(existingVhostsResult.exitCode == 0) { "Failed to list existing vhosts: ${existingVhostsResult.output}" }
-            val existingVHosts = existingVhostsResult.output.lines()
+            val existingVhosts = existingVhostsResult.output.lines()
+                .asSequence()
                 .drop(1) // "Listing vhosts ..."
                 .drop(1) // name
                 .map { it.trim().substringAfter("/") }
                 .filter { it.isNotBlank() }
+                .toSet()
 
-            val requiredVHosts = projects
+            val requiredVhosts = projects
                 .flatMap { project ->
                     project.dependencies?.rabbitmq?.vhosts
                         .orEmpty()
@@ -93,7 +100,7 @@ class RabbitMq : AppDependency, KoinComponent {
                 }
                 .toSet()
 
-            val missingVhosts = requiredVHosts - existingVHosts
+            val missingVhosts = requiredVhosts - existingVhosts
             missingVhosts.forEach { missingVhost ->
                 val createResult = dockerClient.containers.runCommand(
                     containerId = rabbitMqContainer.getId()!!,

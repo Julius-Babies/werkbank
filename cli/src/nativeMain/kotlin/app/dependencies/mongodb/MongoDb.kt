@@ -9,9 +9,7 @@ import app.dependencies.docker.DockerNetwork
 import app.hosts.HostsManager
 import app.storage.isDevMode
 import app.storage.storageRoot
-import es.jvbabi.docker.kt.api.container.NetworkConfig
-import es.jvbabi.docker.kt.api.container.PortBinding
-import es.jvbabi.docker.kt.api.container.VolumeBind
+import es.jvbabi.docker.kt.api.container.Container
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -35,19 +33,21 @@ class MongoDb: AppDependency, KoinComponent {
             append("mongodb")
         },
         ports = listOf(
-            PortBinding(27017, 27017, PortBinding.Protocol.TCP)
+            Container.PortBinding(27017, 27017, Container.PortBinding.Protocol.TCP)
         ),
         volumes = mapOf(
-            VolumeBind.Host(mongoRoot.absolutePath) to "/data/db"
+            Container.VolumeBind.Host(mongoRoot.absolutePath) to "/data/db"
         ),
         environment = mapOf(
             "MONGO_INITDB_ROOT_USERNAME" to "werkbank",
             "MONGO_INITDB_ROOT_PASSWORD" to "werkbank"
         ),
-        networkConfigs = listOf(NetworkConfig(
-            networkId = runBlocking { dockerNetwork.getId()!! },
-            aliases = listOf(mongoDatabaseHostname)
-        ))
+        networkConfigs = listOf(
+            Container.NetworkConfig(
+                networkId = runBlocking { dockerNetwork.getId()!! },
+                aliases = listOf(mongoDatabaseHostname)
+            )
+        )
     )
 
     val mongoExpressDomain = "mongo-express.werkbank.studio"
@@ -67,10 +67,12 @@ class MongoDb: AppDependency, KoinComponent {
             "ME_CONFIG_MONGODB_SERVER" to mongoDatabaseHostname
         ),
         volumes = emptyMap(),
-        networkConfigs = listOf(NetworkConfig(
-            networkId = runBlocking { dockerNetwork.getId()!! },
-            aliases = listOf(mongoExpressDomain)
-        ))
+        networkConfigs = listOf(
+            Container.NetworkConfig(
+                networkId = runBlocking { dockerNetwork.getId()!! },
+                aliases = listOf(mongoExpressDomain)
+            )
+        )
     )
 
     override val key: String = "mongodb"

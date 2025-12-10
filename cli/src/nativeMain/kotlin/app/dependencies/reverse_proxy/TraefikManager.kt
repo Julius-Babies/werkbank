@@ -12,9 +12,7 @@ import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
-import es.jvbabi.docker.kt.api.container.NetworkConfig
-import es.jvbabi.docker.kt.api.container.PortBinding
-import es.jvbabi.docker.kt.api.container.VolumeBind
+import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -47,18 +45,18 @@ class TraefikManager : AppDependency, KoinComponent {
             image = this.traefikImage,
             name = this.name,
             ports = listOf(
-                PortBinding(80, 80, PortBinding.Protocol.TCP),
-                PortBinding(443, 443, PortBinding.Protocol.TCP)
+                Container.PortBinding(80, 80, Container.PortBinding.Protocol.TCP),
+                Container.PortBinding(443, 443, Container.PortBinding.Protocol.TCP)
             ),
             volumes = mapOf(
-                VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
-                VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",
-                VolumeBind.Host(opensslHandler.internalCertificateDirectory.absolutePath, readOnly = true) to "/ssl/internal",
-                VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
+                Container.VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
+                Container.VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",
+                Container.VolumeBind.Host(opensslHandler.internalCertificateDirectory.absolutePath, readOnly = true) to "/ssl/internal",
+                Container.VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
             ),
             environment = emptyMap(),
             networkConfigs = listOf(
-                NetworkConfig(networkId = dockerNetwork.getId()!!)
+                Container.NetworkConfig(networkId = dockerNetwork.getId()!!)
             ),
         )
         return dockerContainer!!

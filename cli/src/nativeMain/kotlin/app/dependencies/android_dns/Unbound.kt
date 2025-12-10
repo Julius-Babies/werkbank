@@ -9,9 +9,7 @@ import app.dependencies.docker.DockerNetwork
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
-import es.jvbabi.docker.kt.api.container.NetworkConfig
-import es.jvbabi.docker.kt.api.container.PortBinding
-import es.jvbabi.docker.kt.api.container.VolumeBind
+import es.jvbabi.docker.kt.api.container.Container
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.getValue
@@ -31,15 +29,15 @@ class Unbound : AppDependency, KoinComponent {
             image = "ghcr.io/zyrakq/unbound:latest",
             name = this.name,
             ports = listOf(
-                PortBinding(53, 53, PortBinding.Protocol.UDP),
-                PortBinding(53, 53, PortBinding.Protocol.TCP),
+                Container.PortBinding(53, 53, Container.PortBinding.Protocol.UDP),
+                Container.PortBinding(53, 53, Container.PortBinding.Protocol.TCP),
             ),
             volumes = mapOf(
-                VolumeBind.Host(configFile.absolutePath, readOnly = true) to "/etc/unbound/unbound.conf",
+                Container.VolumeBind.Host(configFile.absolutePath, readOnly = true) to "/etc/unbound/unbound.conf",
             ),
             environment = emptyMap(),
             networkConfigs = listOf(
-                NetworkConfig(networkId = dockerNetwork.getId()!!)
+                Container.NetworkConfig(networkId = dockerNetwork.getId()!!)
             ),
             cmd = listOf("-d", "-vvv", "-c", "/etc/unbound/unbound.conf")
         )

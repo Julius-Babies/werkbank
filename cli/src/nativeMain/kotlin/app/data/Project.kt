@@ -11,9 +11,7 @@ import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
 import commands.setup.Werkbankfile
-import es.jvbabi.docker.kt.api.container.NetworkConfig
-import es.jvbabi.docker.kt.api.container.PortBinding
-import es.jvbabi.docker.kt.api.container.VolumeBind
+import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -97,15 +95,15 @@ data class Project(
                 container = DockerContainer(
                     image = container.image,
                     name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
-                    ports = container.ports.map { PortBinding.from(it) },
+                    ports = container.ports.map { Container.PortBinding.from(it) },
                     volumes = container.volumes
-                        .associate { VolumeBind.from(it) }
-                        .plus(VolumeBind.Host(opensslHandler.keyStoreFile.absolutePath, readOnly = true) to "/ssl/keystore.jks"),
+                        .associate { Container.VolumeBind.from(it) }
+                        .plus(Container.VolumeBind.Host(opensslHandler.keyStoreFile.absolutePath, readOnly = true) to "/ssl/keystore.jks"),
                     environment = container.environment
                         .plus("KEYSTORE_PATH" to "/ssl/keystore.jks")
                         .plus("KEYSTORE_PASSWORD" to opensslHandler.keyStorePassword),
                     networkConfigs = listOf(
-                        NetworkConfig(networkId = dockerNetwork.getId()!!)
+                        Container.NetworkConfig(networkId = dockerNetwork.getId()!!)
                     ),
                 ),
                 type = if (container.type == Werkbankfile.Container.Type.Service) ProjectContainer.Type.Service else ProjectContainer.Type.Dependency
