@@ -113,7 +113,16 @@ data class Project(
                         .plus("KEYSTORE_PATH" to "/ssl/")
                         .plus("KEYSTORE_PASSWORD" to opensslHandler.keyStorePassword),
                     networkConfigs = listOf(
-                        NetworkConfig(network = dockerNetwork)
+                        NetworkConfig(
+                            network = dockerNetwork,
+                            aliases = listOf(buildString {
+                                append("werkbank-")
+                                if (isDevMode) append("dev-")
+                                append(this@Project.id)
+                                append("-")
+                                append(container.name)
+                            })
+                        )
                     ),
                 ),
                 type = if (container.type == Werkbankfile.Container.Type.Service) ProjectContainer.Type.Service else ProjectContainer.Type.Dependency
