@@ -6,6 +6,7 @@ import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
+import app.dependencies.docker.NetworkConfig
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
@@ -24,7 +25,7 @@ class Unbound : AppDependency, KoinComponent {
         append("unbound")
     }
 
-    suspend fun getContainer(): DockerContainer {
+    fun getContainer(): DockerContainer {
         return DockerContainer(
             image = "ghcr.io/zyrakq/unbound:latest",
             name = this.name,
@@ -37,7 +38,7 @@ class Unbound : AppDependency, KoinComponent {
             ),
             environment = emptyMap(),
             networkConfigs = listOf(
-                Container.NetworkConfig(networkId = dockerNetwork.getId()!!)
+                NetworkConfig(network = dockerNetwork)
             ),
             cmd = listOf("-d", "-vvv", "-c", "/etc/unbound/unbound.conf")
         )

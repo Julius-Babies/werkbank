@@ -23,6 +23,7 @@ import org.koin.core.component.inject
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import util.WARNING
 import util.buildStyledString
@@ -49,7 +50,7 @@ fun main(args: Array<String>) {
                     singleOf(::RabbitMq)
 
                     // Aggregate all AppDependencies for convenient injection as a list
-                    single<List<AppDependency>> { listOf(
+                    single<List<AppDependency>>(named("Dependencies")) { listOf(
                         get<TraefikManager>(),
                         get<Unbound>(),
                         get<Postgres18>(),

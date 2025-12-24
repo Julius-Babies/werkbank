@@ -39,3 +39,5 @@ class DockerNetwork: KoinComponent {
         return dockerClient.networks.getNetworks().firstOrNull { it.name == name }?.id
     }
 }
+
+class NetworkNotFoundException(networkName: String) : Exception("Docker network '$networkName' not found.")

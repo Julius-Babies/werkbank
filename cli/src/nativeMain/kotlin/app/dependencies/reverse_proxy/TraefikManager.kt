@@ -6,6 +6,7 @@ import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
+import app.dependencies.docker.NetworkConfig
 import app.dependencies.openssl.OpensslHandler
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
@@ -16,6 +17,7 @@ import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import org.koin.core.qualifier.named
 import util.buildStyledString
 
 class TraefikManager : AppDependency, KoinComponent {
@@ -28,7 +30,7 @@ class TraefikManager : AppDependency, KoinComponent {
     }
 
     val traefikDomain = "traefik.werkbank.studio"
-    private val dependencies by inject<List<AppDependency>>()
+    private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
     val traefikFileStorage by lazy { storageRoot.resolve("traefik").apply { if (!exists()) mkdir() } }
     private val hostsManager by inject<HostsManager>()
     private val dockerNetwork by inject<DockerNetwork>()
@@ -56,7 +58,7 @@ class TraefikManager : AppDependency, KoinComponent {
             ),
             environment = emptyMap(),
             networkConfigs = listOf(
-                Container.NetworkConfig(networkId = dockerNetwork.getId()!!)
+                NetworkConfig(dockerNetwork)
             ),
         )
         return dockerContainer!!

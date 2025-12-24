@@ -6,11 +6,11 @@ import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
+import app.dependencies.docker.NetworkConfig
 import app.hosts.HostsManager
 import app.storage.isDevMode
 import app.storage.storageRoot
 import es.jvbabi.docker.kt.api.container.Container
-import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
@@ -43,8 +43,8 @@ class MongoDb: AppDependency, KoinComponent {
             "MONGO_INITDB_ROOT_PASSWORD" to "werkbank"
         ),
         networkConfigs = listOf(
-            Container.NetworkConfig(
-                networkId = runBlocking { dockerNetwork.getId()!! },
+            NetworkConfig(
+                network = dockerNetwork,
                 aliases = listOf(mongoDatabaseHostname)
             )
         )
@@ -68,8 +68,8 @@ class MongoDb: AppDependency, KoinComponent {
         ),
         volumes = emptyMap(),
         networkConfigs = listOf(
-            Container.NetworkConfig(
-                networkId = runBlocking { dockerNetwork.getId()!! },
+            NetworkConfig(
+                network = dockerNetwork,
                 aliases = listOf(mongoExpressDomain)
             )
         )

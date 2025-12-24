@@ -10,11 +10,12 @@ import commands.setup.Werkbankfile
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import org.koin.core.qualifier.named
 import util.buildStyledString
 
 class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
     private val projectRepository by inject<ProjectRepository>()
-    private val dependencies by inject<List<AppDependency>>()
+    private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
 
     val startInfrastructure by option("--start-infrastructure", help = "Starts the infrastructure")
         .flag()

@@ -10,10 +10,10 @@ import app.storage.isDevMode
 import app.storage.storageRoot
 import app.data.extensions.project.usesPostgres18
 import app.dependencies.ReverseProxyRecord
+import app.dependencies.docker.NetworkConfig
 import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.docker.kt.docker.DockerClient
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.getValue
@@ -50,8 +50,8 @@ class Postgres18: AppDependency, KoinComponent {
             "POSTGRES_USER" to "werkbank",
         ),
         networkConfigs = listOf(
-            Container.NetworkConfig(
-                networkId = runBlocking { dockerNetwork.getId()!! },
+            NetworkConfig(
+                network = dockerNetwork,
                 aliases = listOf(hostname)
             )
         )

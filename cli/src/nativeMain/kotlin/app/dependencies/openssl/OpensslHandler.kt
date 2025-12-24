@@ -14,6 +14,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import org.koin.core.qualifier.named
 import util.CHECK
 import util.REPLACE_LINE
 import util.buildStyledString
@@ -21,7 +22,7 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 class OpensslHandler : KoinComponent {
-    private val dependencies by inject<List<AppDependency>>()
+    private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
     private val projectRepository by inject<ProjectRepository>()
     val isOpensslAvailable = CompletableDeferred<Boolean>()
     val internalCertificateDirectory = storageRoot

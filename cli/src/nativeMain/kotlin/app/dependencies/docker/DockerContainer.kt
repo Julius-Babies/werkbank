@@ -17,7 +17,7 @@ class DockerContainer(
     val volumes: Map<Container.VolumeBind, String>,
     val healthcheck: Container.Healthcheck? = null,
     val environment: Map<String, String>,
-    val networkConfigs: List<Container.NetworkConfig>,
+    val networkConfigs: List<NetworkConfig>,
     val cmd: List<String>? = null,
 ): KoinComponent {
     private val dockerClient by inject<DockerClient>()
@@ -88,7 +88,12 @@ class DockerContainer(
                 append("werkbank")
                 if (isDevMode) append("-dev")
             }),
-            networkConfigs = this.networkConfigs,
+            networkConfigs = this.networkConfigs.map {
+                Container.NetworkConfig(
+                    networkId = it.network.getId() ?: throw NetworkNotFoundException(it.network.name),
+                    aliases = it.aliases
+                )
+            },
         )
     }
 
@@ -116,3 +121,9 @@ class DockerContainer(
         return state == "healthy"
     }
 }
+
+
+data class NetworkConfig(
+    val network: DockerNetwork,
+    val aliases: List<String> = emptyList()
+)

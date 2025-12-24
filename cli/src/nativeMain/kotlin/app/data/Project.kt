@@ -4,6 +4,7 @@ import app.config.MainConfig
 import app.config.WerkbankConfig
 import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
+import app.dependencies.docker.NetworkConfig
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
@@ -87,7 +88,7 @@ data class Project(
         traefikManager.initialize()
     }
 
-    suspend fun getContainers(): List<ProjectContainer> {
+    fun getContainers(): List<ProjectContainer> {
         val config = getConfig()
         return config.containers.map { container ->
             ProjectContainer(
@@ -103,7 +104,7 @@ data class Project(
                         .plus("KEYSTORE_PATH" to "/ssl/")
                         .plus("KEYSTORE_PASSWORD" to opensslHandler.keyStorePassword),
                     networkConfigs = listOf(
-                        Container.NetworkConfig(networkId = dockerNetwork.getId()!!)
+                        NetworkConfig(network = dockerNetwork)
                     ),
                 ),
                 type = if (container.type == Werkbankfile.Container.Type.Service) ProjectContainer.Type.Service else ProjectContainer.Type.Dependency
