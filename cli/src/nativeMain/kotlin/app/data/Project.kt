@@ -98,7 +98,16 @@ data class Project(
                     name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
                     ports = container.ports.map { Container.PortBinding.from(it) },
                     volumes = container.volumes
-                        .associate { Container.VolumeBind.from(it) }
+                        .associate {
+                            val bind = Container.VolumeBind.from(it)
+                            val source = bind.first
+                            if (source is Container.VolumeBind.Host) {
+                                val path = source.path
+                                if (File.isPathAbsolute(path)) return@associate bind
+                                val absolutePath = File(this.path).resolve(path).absolutePath
+                                Container.VolumeBind.Host(absolutePath, source.readOnly) to bind.second
+                            } else bind
+                        }
                         .plus(Container.VolumeBind.Host(opensslHandler.keyStoreFile.absolutePath, readOnly = true) to "/ssl/keystore.jks"),
                     environment = container.environment
                         .plus("KEYSTORE_PATH" to "/ssl/")
