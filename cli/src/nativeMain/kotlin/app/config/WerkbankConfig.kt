@@ -5,7 +5,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class WerkbankConfig(
-    @SerialName("projects") val projects: List<Project>? = null
+    @SerialName("projects") val projects: List<Project>? = null,
+    @SerialName("android-dns") val androidDns: AndroidDnsConfig = AndroidDnsConfig(),
 ) {
     @Serializable
     data class Project(
@@ -34,4 +35,9 @@ data class WerkbankConfig(
             }
         }
     }
+
+    @Serializable
+    data class AndroidDnsConfig(
+        @SerialName("enabled") val enabled: Boolean = true
+    )
 }

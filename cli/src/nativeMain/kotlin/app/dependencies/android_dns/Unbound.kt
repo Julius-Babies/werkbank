@@ -1,7 +1,8 @@
 package app.dependencies.android_dns
 
-import app.data.extensions.project.getAllDomains
+import app.config.MainConfig
 import app.data.Project
+import app.data.extensions.project.getAllDomains
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.DockerContainer
@@ -13,11 +14,11 @@ import app.storage.storageRoot
 import es.jvbabi.docker.kt.api.container.Container
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import kotlin.getValue
 import util.buildStyledString
 
 class Unbound : AppDependency, KoinComponent {
     private val dockerNetwork by inject<DockerNetwork>()
+    private val mainConfig by inject<MainConfig>()
 
     private val name = buildString {
         append("werkbank-")
@@ -57,11 +58,25 @@ class Unbound : AppDependency, KoinComponent {
     override val key: String = "unbound"
 
     override suspend fun initialize() {
+        val isEnabled = mainConfig.getConfig().androidDns.enabled
+        if (!isEnabled) {
+            println(buildStyledString {
+                gray { +"Skipping Unbound as it is disabled" }
+            })
+            return
+        }
         writeConfigFile()
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
 
     override suspend fun start() {
+        val isEnabled = mainConfig.getConfig().androidDns.enabled
+        if (!isEnabled) {
+            println(buildStyledString {
+                gray { +"Skipping Unbound as it is disabled" }
+            })
+            return
+        }
         val containerName = getContainer().name
         println(buildStyledString { green { +"Starting Unbound ($containerName)" } })
         getContainer().start(createIfNotExists = true)
