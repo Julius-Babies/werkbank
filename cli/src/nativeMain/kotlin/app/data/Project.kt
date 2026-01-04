@@ -150,7 +150,7 @@ data class Project(
                 .services
                 .first { service -> service.name == service.name }
                 .serviceState
-            if (mode == WerkbankConfig.Project.Service.ServiceState.Docker) {
+            if (mode == WerkbankConfig.Project.Service.ServiceState.Docker || container.type == ProjectContainer.Type.Dependency) {
                 println(buildStyledString { green { +"Starting container ${container.name} (${container.container.name})" } })
                 container.container.start(createIfNotExists = true)
             } else {
