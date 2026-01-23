@@ -1,5 +1,6 @@
 package app.dependencies.docker
 
+import app.dependencies.openssl.OpensslHandler
 import app.storage.isDevMode
 import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.docker.kt.api.container.ContainerState
@@ -14,7 +15,7 @@ class DockerContainer(
     val image: String,
     val name: String,
     val ports: List<Container.PortBinding>,
-    val volumes: Map<Container.VolumeBind, String>,
+    volumes: Map<Container.VolumeBind, String>,
     val healthcheck: Container.Healthcheck? = null,
     val environment: Map<String, String>,
     val networkConfigs: List<NetworkConfig>,
@@ -22,6 +23,9 @@ class DockerContainer(
 ): KoinComponent {
     private val dockerClient by inject<DockerClient>()
     private val dockerNetwork by inject<DockerNetwork>()
+    private val opensslHandler by inject<OpensslHandler>()
+
+    val volumes = volumes + (Container.VolumeBind.Host(opensslHandler.rootCaFile.absolutePath) to "/etc/ssl/certs/werkbank-root-ca.crt")
 
     enum class State {
         Running, Stopped, NotExisting
@@ -61,6 +65,14 @@ class DockerContainer(
         if (state == State.NotExisting && createIfNotExists) create()
 
         dockerClient.containers.startContainer(getId()!!)
+
+        this.withRunning {
+            val id = getId() ?: return@withRunning
+            dockerClient.containers.runCommand(
+                containerId = id,
+                command = listOf("sh", "-lc", "if command -v update-ca-certificates >/dev/null 2>&1; then update-ca-certificates; fi")
+            )
+        }
     }
 
     suspend fun delete() {
