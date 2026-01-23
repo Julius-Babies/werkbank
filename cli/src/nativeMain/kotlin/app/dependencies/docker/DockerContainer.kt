@@ -54,7 +54,8 @@ class DockerContainer(
         dockerClient.containers.stopContainer(getId()!!)
     }
 
-    suspend fun start(createIfNotExists: Boolean) {
+    suspend fun start(createIfNotExists: Boolean, rebuildIfNotMatching: Boolean = true) {
+        if (rebuildIfNotMatching && needsRebuild()) delete()
         val state = getState()
         if (state == State.Running) return
         if (state == State.NotExisting && createIfNotExists) create()
@@ -119,6 +120,21 @@ class DockerContainer(
             ?.status
 
         return state == "healthy"
+    }
+
+    suspend fun needsRebuild(): Boolean {
+        val id = getId() ?: return true
+        val inspect = dockerClient.containers.inspectContainer(id)
+
+        this.networkConfigs.forEach { networkConfig ->
+            val networkId = dockerClient.networks.getNetworks().firstOrNull { it.name == networkConfig.network.name }?.id ?: return true
+            val existingNetwork = inspect.networkSettings.networks[networkId] ?: return true
+            networkConfig.aliases.forEach { requiredAlias ->
+                if (requiredAlias !in existingNetwork.aliases.orEmpty()) return true
+            }
+        }
+
+        return false
     }
 }
 

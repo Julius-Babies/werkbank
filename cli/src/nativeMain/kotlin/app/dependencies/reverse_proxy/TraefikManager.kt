@@ -19,6 +19,12 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.qualifier.named
 import util.buildStyledString
+import kotlin.collections.component1
+import kotlin.collections.component2
+import kotlin.collections.distinct
+import kotlin.collections.ifEmpty
+import kotlin.text.isBlank
+import kotlin.text.lowercase
 
 class TraefikManager : AppDependency, KoinComponent {
 
@@ -58,7 +64,10 @@ class TraefikManager : AppDependency, KoinComponent {
             ),
             environment = emptyMap(),
             networkConfigs = listOf(
-                NetworkConfig(dockerNetwork)
+                NetworkConfig(
+                    network = dockerNetwork,
+                    aliases = listOf(traefikDomain) + getAllDomainsFromProjects()
+                )
             ),
         )
         return dockerContainer!!
@@ -79,13 +88,29 @@ class TraefikManager : AppDependency, KoinComponent {
     override suspend fun start() {
         val containerName = getContainer().name
         println(buildStyledString { green { +"Starting Traefik ($containerName)" } })
-        getContainer().start(createIfNotExists = true)
+        getContainer().start(createIfNotExists = true, rebuildIfNotMatching = false)
     }
 
     override suspend fun stop() {
         val containerName = getContainer().name
         println(buildStyledString { blue { +"Stopping Traefik ($containerName)" } })
         getContainer().stop()
+    }
+
+    private fun getAllDomainsFromProjects(): List<String> {
+        val projects = projectRepository.getAllProjects().map { it.getConfig() }
+        return projects.flatMap { project ->
+            val projectBaseDomain = "${project.project.id.lowercase()}.werkbank.space"
+            project.services.flatMap { service ->
+                service.domains
+                    .map {
+                        if (it.isBlank()) projectBaseDomain
+                        else "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.space"
+                    }
+                    .ifEmpty { listOf(projectBaseDomain) }
+                    .distinct()
+            }
+        }.distinct()
     }
 
     override fun isRequiredFor(project: Project): Boolean = true
