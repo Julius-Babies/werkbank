@@ -1,12 +1,12 @@
 [versions]
-clikt = "5.0.3"
-docker-kt = "v0.4.1"
+clikt = "5.1.0"
+docker-kt = "v0.4.2"
 hash = "0.8.0"
 kaml = "0.104.0"
 kfile = "v0.0.8"
 koin = "4.1.0"
 kommand = "2.3.0"
-kotlin = "2.3.0"
+kotlin = "2.3.20"
 kotlinxCoroutines = "1.10.2"
 kotlinxSerialization = "1.10.0"
 
