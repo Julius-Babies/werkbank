@@ -64,6 +64,7 @@ data class Werkbankfile(
         @SerialName("mongodb") val mongodb: MongoDb? = null,
         @SerialName("rabbitmq") val rabbitmq: RabbitMq? = null,
         @SerialName("androiddns") val androidDns: Boolean = false,
+        @SerialName("jaeger") val jaeger: Boolean = false,
     ) {
 
         @Serializable
