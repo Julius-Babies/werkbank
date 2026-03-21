@@ -88,8 +88,10 @@ class Unbound : AppDependency, KoinComponent {
         getContainer().stop()
     }
 
-    override fun isRequiredFor(project: Project): Boolean = true
-    override fun isAlwaysRequired(): Boolean = true
+    override fun isRequiredFor(project: Project): Boolean =
+        project.getConfig().dependencies?.androidDns ?: false
+
+    override fun isAlwaysRequired(): Boolean = false
 
     override val reverseProxyRecords: List<ReverseProxyRecord> = emptyList()
     override val webfacingDomains: List<String> = emptyList()

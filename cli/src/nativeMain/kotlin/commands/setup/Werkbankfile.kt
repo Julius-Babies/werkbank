@@ -62,7 +62,8 @@ data class Werkbankfile(
     data class Dependencies(
         @SerialName("postgres") val postgres: Postgres? = null,
         @SerialName("mongodb") val mongodb: MongoDb? = null,
-        @SerialName("rabbitmq") val rabbitmq: RabbitMq? = null
+        @SerialName("rabbitmq") val rabbitmq: RabbitMq? = null,
+        @SerialName("androiddns") val androidDns: Boolean = false,
     ) {
 
         @Serializable
