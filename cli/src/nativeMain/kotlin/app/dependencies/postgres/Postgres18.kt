@@ -43,7 +43,7 @@ class Postgres18: AppDependency, KoinComponent {
             Container.PortBinding(5432, 5432, Container.PortBinding.Protocol.TCP)
         ),
         volumes = mapOf(
-            Container.VolumeBind.Host(postgresRoot.absolutePath) to "/var/lib/postgresql/data",
+            Container.VolumeBind.Host(postgresRoot.absolutePath) to "/var/lib/postgresql",
         ),
         environment = mapOf(
             "POSTGRES_PASSWORD" to "werkbank",
