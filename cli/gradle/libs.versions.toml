@@ -9,7 +9,7 @@ kommand = "2.3.0"
 kotlin = "2.3.20"
 kotlinxCoroutines = "1.10.2"
 kotlinxSerialization = "1.10.0"
-table-tui = "0.1.0"
+table-tui = "0.1.1"
 
 [libraries]
 clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
