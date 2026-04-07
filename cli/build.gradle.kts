@@ -44,6 +44,8 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
 
             implementation(libs.koin.core)
+
+            implementation(libs.table.tui)
         }
     }
 }

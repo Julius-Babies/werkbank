@@ -30,6 +30,8 @@ class Postgres18: AppDependency, KoinComponent {
         .resolve("postgres")
         .resolve("data")
 
+    val postgresPort = 5432
+
     val hostname = "postgres18.werkbank.studio"
 
     val container = DockerContainer(
@@ -40,7 +42,7 @@ class Postgres18: AppDependency, KoinComponent {
             append("postgres-18")
         },
         ports = listOf(
-            Container.PortBinding(5432, 5432, Container.PortBinding.Protocol.TCP)
+            Container.PortBinding(postgresPort, 5432, Container.PortBinding.Protocol.TCP)
         ),
         volumes = mapOf(
             Container.VolumeBind.Host(postgresRoot.absolutePath) to "/var/lib/postgresql",

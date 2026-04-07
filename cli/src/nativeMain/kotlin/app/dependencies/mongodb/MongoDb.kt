@@ -23,6 +23,7 @@ class MongoDb: AppDependency, KoinComponent {
         .resolve("mongodb")
         .resolve("data")
 
+    val mongoDbPort = 27017
 
     val mongoDatabaseHostname = "mongodb.werkbank.studio"
     val mongoDatabaseContainer = DockerContainer(
@@ -33,7 +34,7 @@ class MongoDb: AppDependency, KoinComponent {
             append("mongodb")
         },
         ports = listOf(
-            Container.PortBinding(27017, 27017, Container.PortBinding.Protocol.TCP)
+            Container.PortBinding(mongoDbPort, 27017, Container.PortBinding.Protocol.TCP)
         ),
         volumes = mapOf(
             Container.VolumeBind.Host(mongoRoot.absolutePath) to "/data/db"

@@ -30,6 +30,8 @@ class RabbitMq : AppDependency, KoinComponent {
         .resolve("rabbitmq")
         .resolve("data")
 
+    val rabbitMqPort = 5672
+
     val rabbitMqHostname = "rabbitmq.werkbank.studio"
     val rabbitMqContainer = DockerContainer(
         image = "rabbitmq:4-management-alpine",
@@ -39,7 +41,7 @@ class RabbitMq : AppDependency, KoinComponent {
             append("rabbitmq")
         },
         ports = listOf(
-            Container.PortBinding(5672, 5672, Container.PortBinding.Protocol.TCP),
+            Container.PortBinding(rabbitMqPort, 5672, Container.PortBinding.Protocol.TCP),
         ),
         volumes = mapOf(
             Container.VolumeBind.Host(rabbitRoot.absolutePath) to "/var/lib/rabbitmq"

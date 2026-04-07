@@ -35,15 +35,11 @@ class Jaeger: AppDependency, KoinComponent {
             image = "jaegertracing/all-in-one:1.76.0",
             name = this.name,
             ports = listOf(
-                Container.PortBinding(4317, 4317, Container.PortBinding.Protocol.UDP),
                 Container.PortBinding(4317, 4317, Container.PortBinding.Protocol.TCP),
-                Container.PortBinding(4318, 4318, Container.PortBinding.Protocol.UDP),
                 Container.PortBinding(4318, 4318, Container.PortBinding.Protocol.TCP),
                 Container.PortBinding(14250, 14250, Container.PortBinding.Protocol.UDP),
                 Container.PortBinding(14250, 14250, Container.PortBinding.Protocol.TCP),
-                Container.PortBinding(14268, 14268, Container.PortBinding.Protocol.UDP),
                 Container.PortBinding(14268, 14268, Container.PortBinding.Protocol.TCP),
-                Container.PortBinding(9411, 9411, Container.PortBinding.Protocol.UDP),
                 Container.PortBinding(9411, 9411, Container.PortBinding.Protocol.TCP),
             ),
             volumes = mapOf(

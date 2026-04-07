@@ -89,6 +89,10 @@ class ConsoleStyle(
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BOLD).apply(block)))
     }
 
+    fun italic(block: ConsoleStyle.() -> Unit) {
+        parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + ITALIC).apply(block)))
+    }
+
     fun underline(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + UNDERLINE).apply(block)))
     }
@@ -106,6 +110,7 @@ class ConsoleStyle(
         const val WHITE = "\u001B[37m"
         const val GRAY = "\u001B[90m"
         const val BOLD = "\u001B[1m"
+        const val ITALIC = "\u001B[3m"
         const val UNDERLINE = "\u001B[4m"
     }
 
