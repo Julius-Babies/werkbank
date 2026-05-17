@@ -50,6 +50,11 @@ server:
 
 remote-control:
     control-enable: yes
+    
+    server-cert-file: /etc/unbound/unbound_server.pem
+    server-key-file: /etc/unbound/unbound_server.key
+    control-cert-file: /etc/unbound/unbound_control.pem
+    control-key-file: /etc/unbound/unbound_control.key
 
 forward-zone:
     name: "."

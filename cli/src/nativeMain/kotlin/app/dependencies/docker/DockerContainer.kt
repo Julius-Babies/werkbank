@@ -19,6 +19,7 @@ class DockerContainer(
     val healthcheck: Container.Healthcheck? = null,
     val environment: Map<String, String>,
     val networkConfigs: List<NetworkConfig>,
+    val entrypoint: String? = null,
     val cmd: List<String>? = null,
 ): KoinComponent {
     private val dockerClient by inject<DockerClient>()
@@ -95,6 +96,7 @@ class DockerContainer(
             volumeBinds = this.volumes,
             environment = this.environment,
             healthCheck = this.healthcheck,
+            entrypoint = this.entrypoint?.let { listOf(it) },
             cmd = this.cmd,
             ports = this.ports,
             labels = mapOf("com.docker.compose.project" to buildString {

@@ -12,13 +12,18 @@ import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
 import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.docker.DockerClient
+import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
+import kotlin.getValue
+import kotlin.uuid.Uuid
 
 class Unbound : AppDependency, KoinComponent {
     private val dockerNetwork by inject<DockerNetwork>()
     private val mainConfig by inject<MainConfig>()
+    private val dockerClient by inject<DockerClient>()
 
     private val name = buildString {
         append("werkbank-")
@@ -35,7 +40,7 @@ class Unbound : AppDependency, KoinComponent {
                 Container.PortBinding(53, 53, Container.PortBinding.Protocol.TCP),
             ),
             volumes = mapOf(
-                Container.VolumeBind.Host(configFile.absolutePath, readOnly = true) to "/etc/unbound/unbound.conf",
+                Container.VolumeBind.Host(unboundStorageRoot.absolutePath, readOnly = true) to "/etc/unbound/",
             ),
             environment = emptyMap(),
             networkConfigs = listOf(
@@ -65,8 +70,39 @@ class Unbound : AppDependency, KoinComponent {
             })
             return
         }
+
         writeConfigFile()
-        if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
+
+        if (!hasAllRemoteControlKeys()) {
+            val keyInitId = Uuid.random()
+            val unboundTmpDir = File.getTempDirectory().resolve("unbound-key-init-$keyInitId").apply { mkdir(true) }
+
+            val keyGenerator = DockerContainer(
+                image = "ghcr.io/zyrakq/unbound:latest",
+                volumes = mapOf(
+                    Container.VolumeBind.Host(unboundTmpDir.absolutePath, readOnly = false) to "/etc/unbound/",
+                ),
+                entrypoint = "unbound-control-setup",
+                cmd = listOf(""),
+                name = "unbound-keygen-$keyInitId",
+                ports = emptyList(),
+                environment = emptyMap(),
+                networkConfigs = listOf(),
+            )
+            keyGenerator.create()
+            keyGenerator.start(false, false)
+            keyGenerator.stop()
+            keyGenerator.delete()
+            unboundRemoteControlKeyFileNames.forEach { fileName ->
+                val sourceFile = unboundTmpDir.resolve(fileName)
+                val destination = unboundStorageRoot.resolve(fileName)
+                sourceFile.copy(destination)
+            }
+        }
+
+        if (getContainer().getState() == DockerContainer.State.NotExisting) {
+            getContainer().create()
+        }
     }
 
     override suspend fun start() {
@@ -104,5 +140,16 @@ class Unbound : AppDependency, KoinComponent {
             .plus("pgadmin.werkbank.studio")
             .distinct()
         updateUnboundConfigIfNecessary(configFile, domains)
+    }
+
+    private val unboundRemoteControlKeyFileNames = listOf(
+        "unbound_control.key",
+        "unbound_control.pem",
+        "unbound_server.key",
+        "unbound_server.pem",
+    )
+
+    private fun hasAllRemoteControlKeys(): Boolean {
+        return unboundRemoteControlKeyFileNames.all { unboundStorageRoot.resolve(it).exists() }
     }
 }

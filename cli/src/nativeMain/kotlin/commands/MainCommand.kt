@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import commands.completion.CompletionBaseCommand
 import commands.config.ConfigCommand
+import commands.dependencies.DependenciesCommand
 import commands.down.DownCommand
 import commands.exposed.ExposedCommand
 import commands.poweroff.PoweroffCommand
@@ -49,6 +50,7 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
             ServiceCommand(),
             ConfigCommand(),
             ExposedCommand(),
+            DependenciesCommand(),
         )
     }
 }
