@@ -17,10 +17,6 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
     override suspend fun run() {
         if (currentContext.invokedSubcommand != null) return
 
-        unbound.writeConfigFile()
-
-        println("Unbound DNS config rebuilt.")
-
         if (recreate) {
             if (unbound.getContainer().getState() == DockerContainer.State.Running) {
                 println("Stopping Unbound...")
@@ -33,12 +29,15 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
             }
 
             println("Recreating Unbound container...")
+            unbound.unboundStorageRoot.listFiles().forEach { it.delete(true) }
             unbound.initialize()
             unbound.start()
         } else {
             if (unbound.getContainer().getState() == DockerContainer.State.Running) {
                 println("Restarting Unbound...")
                 unbound.stop()
+                unbound.writeConfigFile()
+                println("Unbound DNS config rebuilt.")
                 unbound.start()
                 println("Unbound restarted.")
             }

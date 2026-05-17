@@ -29,6 +29,10 @@ class OpensslHandler : KoinComponent {
         .resolve("certificates")
         .resolve("internal")
 
+    val externalCertificateDirectory = storageRoot
+        .resolve("certificates")
+        .resolve("external")
+
     suspend fun initialize() {
         val result = withContext(Dispatchers.IO) {
             Command("which")
@@ -272,6 +276,7 @@ class OpensslHandler : KoinComponent {
 
     fun createInternalCertificates() {
         if (!internalCertificateDirectory.exists()) internalCertificateDirectory.mkdir(recursive = true)
+        if (!externalCertificateDirectory.exists()) externalCertificateDirectory.mkdir(recursive = true)
 
         dependencies
             .filter { it.webfacingDomains.isNotEmpty() }

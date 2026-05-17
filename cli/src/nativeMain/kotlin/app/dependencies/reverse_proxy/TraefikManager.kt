@@ -18,6 +18,7 @@ import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.qualifier.named
+import platform.posix.open
 import util.buildStyledString
 import kotlin.collections.component1
 import kotlin.collections.component2
@@ -60,6 +61,7 @@ class TraefikManager : AppDependency, KoinComponent {
                 Container.VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
                 Container.VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",
                 Container.VolumeBind.Host(opensslHandler.internalCertificateDirectory.absolutePath, readOnly = true) to "/ssl/internal",
+                Container.VolumeBind.Host(opensslHandler.externalCertificateDirectory.absolutePath, readOnly = true) to "/ssl/external",
                 Container.VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
             ),
             environment = emptyMap(),
@@ -160,6 +162,11 @@ class TraefikManager : AppDependency, KoinComponent {
                         certFile = "/ssl/internal/${dependency.key}.crt",
                         keyFile = "/ssl/internal/${dependency.key}.key"
                     )
+                } + opensslHandler.externalCertificateDirectory.listFiles().map { it.nameWithoutExtension }.distinct().map { domain ->
+                    TraefikTlsConfig.Tls.Certificate(
+                        certFile = "/ssl/external/${domain}.crt",
+                        keyFile = "/ssl/external/${domain}.key"
+                    )
                 }
             )
         )
@@ -178,14 +185,14 @@ class TraefikManager : AppDependency, KoinComponent {
             .forEach { it.delete() }
 
         projects.forEach { (state, project) ->
-            val projectBaseDomain = "${project.project.id.lowercase()}.werkbank.space"
+            val projectBaseDomains = listOfNotNull("${project.project.id.lowercase()}.werkbank.space", project.project.externalDomain)
             project.services.forEach { service ->
                 val domains = service.domains
-                    .map {
-                        if (it.isBlank()) projectBaseDomain
-                        else "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.space"
+                    .flatMap {
+                        if (it.isBlank()) projectBaseDomains
+                        else projectBaseDomains.map { baseDomain -> "${it.lowercase()}.${project.project.id.lowercase()}.$baseDomain" }
                     }
-                    .ifEmpty { listOf(projectBaseDomain) }
+                    .ifEmpty { projectBaseDomains }
                     .distinct()
                 val pathPrefixes = service.pathPrefixes.ifEmpty { listOf("/") }
                 val serviceName = project.project.id.lowercase() + "-" + service.name.lowercase()

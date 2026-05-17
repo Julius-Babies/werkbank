@@ -14,6 +14,7 @@ data class Werkbankfile(
     data class Project(
         @SerialName("name") val name: String,
         @SerialName("id") val id: String,
+        @SerialName("external_domain") val externalDomain: String? = null,
     )
 
     @Serializable
