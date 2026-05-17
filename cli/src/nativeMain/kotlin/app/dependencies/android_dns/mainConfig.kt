@@ -47,6 +47,10 @@ server:
     val-clean-additional: yes
     LOCAL_ZONES
 
+
+remote-control:
+    control-enable: yes
+
 forward-zone:
     name: "."
     forward-tls-upstream: no
