@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 data class WerkbankConfig(
     @SerialName("projects") val projects: List<Project>? = null,
     @SerialName("android-dns") val androidDns: AndroidDnsConfig = AndroidDnsConfig(),
+    @SerialName("keycloak") val keycloak: KeycloakConfig = KeycloakConfig(),
 ) {
     @Serializable
     data class Project(
@@ -40,4 +41,13 @@ data class WerkbankConfig(
     data class AndroidDnsConfig(
         @SerialName("enabled") val enabled: Boolean = true
     )
+
+    @Serializable
+    data class KeycloakConfig(
+        @SerialName("image") val image: String = KEYCLOAK_DEFAULT_IMAGE,
+    ) {
+        companion object {
+            const val KEYCLOAK_DEFAULT_IMAGE = "quay.io/keycloak/keycloak:26.6"
+        }
+    }
 }

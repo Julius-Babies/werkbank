@@ -7,6 +7,7 @@ import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
 import app.dependencies.AppDependency
 import app.dependencies.jaeger.Jaeger
+import app.dependencies.keycloak.Keycloak
 import app.dependencies.mongodb.MongoDb
 import app.dependencies.rabbitmq.RabbitMq
 import app.hosts.HostsManager
@@ -50,6 +51,7 @@ fun main(args: Array<String>) {
                     singleOf(::MongoDb)
                     singleOf(::RabbitMq)
                     singleOf(::Jaeger)
+                    singleOf(::Keycloak)
 
                     // Aggregate all AppDependencies for convenient injection as a list
                     single<List<AppDependency>>(named("Dependencies")) { listOf(
@@ -59,6 +61,7 @@ fun main(args: Array<String>) {
                         get<MongoDb>(),
                         get<RabbitMq>(),
                         get<Jaeger>(),
+                        get<Keycloak>(),
                     ) }
 
                     single<ProjectRepository> { ProjectRepository() }

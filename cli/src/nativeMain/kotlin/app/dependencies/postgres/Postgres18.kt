@@ -132,7 +132,7 @@ class Postgres18: AppDependency, KoinComponent {
                 require(result.exitCode == 0) { "Failed to create database $dbname: ${result.output}" }
             }
 
-            val protectedDatabases = setOf("postgres", "template0", "template1", "werkbank")
+            val protectedDatabases = setOf("postgres", "template0", "template1", "werkbank", "keycloak")
             (existingDatabases - desiredDatabases)
                 .filter { it !in protectedDatabases }
                 .forEach { dbname ->

@@ -1,17 +1,21 @@
 package commands.setup
 
 import app.data.Project
+import app.dependencies.AppDependency
+import app.dependencies.keycloak.Keycloak
 import app.repository.ProjectRepository
 import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import org.koin.core.qualifier.named
 import util.buildStyledString
 
 class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
 
     private val projectRepository by inject<ProjectRepository>()
+    private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
 
     override val invokeWithoutSubcommand: Boolean = true
     override suspend fun run() {
@@ -49,5 +53,16 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
         ))
 
         println(buildStyledString { green { +"Project ${werkbankFile.project.name} successfully imported" } })
+
+        if (werkbankFile.dependencies?.keycloak == true) {
+            val keycloak = dependencies.filterIsInstance<Keycloak>().firstOrNull()
+                ?: error("Keycloak dependency not found")
+            keycloak.initialize()
+            keycloak.start()
+            keycloak.ensureRealm(
+                projectId = werkbankFile.project.id,
+                projectName = werkbankFile.project.name
+            )
+        }
     }
 }

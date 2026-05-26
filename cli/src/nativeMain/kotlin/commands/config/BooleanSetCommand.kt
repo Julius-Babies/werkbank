@@ -7,7 +7,7 @@ import util.buildStyledString
 
 class BooleanSetCommand(
     private val key: String,
-    private val set: (value: Boolean) -> Unit,
+    private val set: suspend (value: Boolean) -> Unit,
 ): SuspendingCliktCommand("set") {
     val value by argument(
         name = "value",
@@ -20,7 +20,7 @@ class BooleanSetCommand(
             "true" -> true
             "false" -> false
             else -> {
-                println(buildStyledString {
+                echo(buildStyledString {
                     red {
                         +"The value must be either true or false - got $value"
                     }
@@ -29,7 +29,7 @@ class BooleanSetCommand(
             }
         }
         set(booleanValue)
-        println(buildStyledString {
+        echo(buildStyledString {
             green { +key }
             +" is set to "
             blue { +value }
