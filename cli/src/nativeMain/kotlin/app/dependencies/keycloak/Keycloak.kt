@@ -83,7 +83,7 @@ class Keycloak : AppDependency, KoinComponent {
         postgres18.initialize()
         postgres18.start()
         ensureKeycloakDatabase()
-        getContainer().create()
+        if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
 
     private suspend fun ensureKeycloakDatabase() {
