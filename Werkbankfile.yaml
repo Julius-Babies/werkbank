@@ -1,0 +1,31 @@
+project:
+  name: "Werkbank"
+  id: "werkbank"
+
+services:
+  - name: "api"
+    modes:
+      local:
+        port: 8080
+
+  - name: "ui"
+    modes:
+      local:
+        port: 5173
+
+http:
+  - path_prefixes:
+      - /api
+      - /oauth
+    external_domains:
+      - "**.werkbank.werkbank.space"
+    target_service: api
+  - path_prefixes:
+      - /
+    external_domains:
+      - "**.werkbank.werkbank.space"
+    target_service: ui
+
+dependencies:
+  postgres:
+    18:

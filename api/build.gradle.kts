@@ -13,21 +13,29 @@ application {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(26)
+    compilerOptions {
+        freeCompilerArgs.add("-Xskip-prerelease-check")
+    }
 }
 dependencies {
     implementation(ktorLibs.serialization.kotlinx.json)
     implementation(ktorLibs.server.contentNegotiation)
     implementation(ktorLibs.server.core)
     implementation(ktorLibs.server.netty)
+    implementation(ktorLibs.client.core)
+    implementation(ktorLibs.client.cio)
+    implementation(ktorLibs.client.contentNegotiation)
     implementation(libs.exposed.core)
-    implementation(libs.exposed.r2dbc)
-    implementation(libs.h2database.h2)
-    implementation(libs.h2database.r2dbc)
+    implementation(libs.exposed.jdbc)
+    implementation(libs.exposed.dao)
+    implementation(libs.exposed.kotlinx.datetime)
     implementation(libs.koin.ktor)
     implementation(libs.koin.loggerSlf4j)
     implementation(libs.logback.classic)
     implementation(libs.postgresql)
+    implementation(libs.kommand)
+    implementation(libs.authentikt)
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.server.testHost)
