@@ -17,6 +17,7 @@ import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
+import kotlin.system.exitProcess
 import kotlin.test.assertTrue
 
 /**
@@ -44,7 +45,12 @@ data class Project(
 
     fun getConfig(): Werkbankfile {
         val data = configFile.readText()
-        val config = Yaml.default.decodeFromString(Werkbankfile.serializer(), data)
+        val config = try {
+            Yaml.default.decodeFromString(Werkbankfile.serializer(), data)
+        } catch (e: Exception) {
+            println(buildStyledString { red { +"Error parsing ${configFile.absolutePath}: ${e.message}" } })
+            exitProcess(1)
+        }
         return config
     }
 
@@ -56,7 +62,7 @@ data class Project(
     fun updateHosts() {
         val domain = id.lowercase() + ".werkbank.space"
         hostsManager.addHost(domain)
-        getConfig().services
+        getConfig().http
             .flatMap { it.domains }
             .filterNot { it.isBlank() }
             .distinct()
@@ -68,14 +74,13 @@ data class Project(
         assertTrue(opensslHandler.isOpensslAvailable.await())
         val certificateFile = getProjectStorage.resolve("certificate.pem")
         val privateKeyFile = getProjectStorage.resolve("private.key")
-        val services = getConfig().services
         val mainDomain = id.lowercase() + ".werkbank.space"
         // Regenerate certificates
         opensslHandler.createCertificatePair(
             certificateFile = certificateFile,
             privateKeyFile = privateKeyFile,
             mainDomain = id.lowercase() + ".werkbank.space",
-            altDomains = services
+            altDomains = getConfig().http
                 .flatMap { it.domains }
                 .filterNot { it.isBlank() }
                 .distinct()

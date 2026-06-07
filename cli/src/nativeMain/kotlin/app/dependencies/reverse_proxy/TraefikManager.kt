@@ -103,8 +103,8 @@ class TraefikManager : AppDependency, KoinComponent {
         val projects = projectRepository.getAllProjects().map { it.getConfig() }
         return projects.flatMap { project ->
             val projectBaseDomain = "${project.project.id.lowercase()}.werkbank.space"
-            project.services.flatMap { service ->
-                service.domains
+            project.http.flatMap { httpEntry ->
+                httpEntry.domains
                     .map {
                         if (it.isBlank()) projectBaseDomain
                         else "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.space"
@@ -186,39 +186,47 @@ class TraefikManager : AppDependency, KoinComponent {
 
         projects.forEach { (state, project) ->
             val projectBaseDomains = listOfNotNull("${project.project.id.lowercase()}.werkbank.space", project.project.externalDomain)
-            project.services.forEach { service ->
-                val domains = service.domains
+            project.http.forEach { httpEntry ->
+                val werkbankDomains = httpEntry.domains
                     .flatMap {
                         if (it.isBlank()) projectBaseDomains
                         else projectBaseDomains.map { baseDomain -> "${it.lowercase()}.${project.project.id.lowercase()}.$baseDomain" }
                     }
                     .ifEmpty { projectBaseDomains }
                     .distinct()
-                val pathPrefixes = service.pathPrefixes.ifEmpty { listOf("/") }
-                val serviceName = project.project.id.lowercase() + "-" + service.name.lowercase()
+                val externalDomains = httpEntry.externalDomains
+                    .filterNot { it.isBlank() }
+                    .map { it.toTraefikHostRule() }
+                val allDomains = werkbankDomains.map { "Host(`$it`)" } + externalDomains
+                val pathPrefixes = httpEntry.pathPrefixes.ifEmpty { listOf("/") }
+                val serviceName = project.project.id.lowercase() + "-" + httpEntry.targetService.lowercase()
 
                 val serviceFile = dynamicConfigFolder.resolve("${serviceName}.user.service.yaml")
-                val serviceState = state.services.firstOrNull { it.name == service.name }?.serviceState
+                val targetService = project.services.firstOrNull { it.name == httpEntry.targetService }
+                if (targetService == null) {
+                    println(buildStyledString { red { +"HTTP entry references unknown service '${httpEntry.targetService}' in project '${project.project.name}'" } })
+                    return@forEach
+                }
+                val serviceState = state.services.firstOrNull { it.name == httpEntry.targetService }?.serviceState
 
                 val url = when (serviceState) {
                     WerkbankConfig.Project.Service.ServiceState.Disabled, null -> return@forEach
                     WerkbankConfig.Project.Service.ServiceState.Docker -> {
-                        val container = service.modes.docker!!.container
-                        val port = service.modes.docker.port
+                        val container = targetService.modes.docker!!.container
+                        val port = targetService.modes.docker.port
                         val containerName = "werkbank${if (isDevMode) "-dev" else ""}-${project.project.id.lowercase()}-${container}"
                         "http://${containerName}:$port"
                     }
-                    WerkbankConfig.Project.Service.ServiceState.Local -> "http://host.docker.internal:${service.modes.local!!.port}"
+                    WerkbankConfig.Project.Service.ServiceState.Local -> "http://host.docker.internal:${targetService.modes.local!!.port}"
                 }
 
-                val rule = "(${domains.joinToString(" || ") { "Host(`$it`)" }}) && (${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})"
+                val rule = "(${allDomains.joinToString(" || ")}) && (${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})"
 
                 generateServiceConfig(
                     serviceFile = serviceFile,
                     serviceName = serviceName,
                     rule = rule,
                     url = url,
-                    priority = service.routingPriority
                 )
             }
         }
@@ -254,7 +262,6 @@ class TraefikManager : AppDependency, KoinComponent {
             serviceName = serviceName,
             rule = rule,
             url = url,
-            priority = null
         )
     }
 
@@ -263,7 +270,6 @@ class TraefikManager : AppDependency, KoinComponent {
         serviceName: String,
         rule: String,
         url: String,
-        priority: Int?
     ) {
         val serviceConfig = buildString {
             appendLine("http:")
@@ -273,7 +279,6 @@ class TraefikManager : AppDependency, KoinComponent {
             appendLine("      service: ${serviceName}-service")
             appendLine("      entryPoints: [\"websecure\"]")
             appendLine("      tls: {}")
-            if (priority != null) appendLine("      priority: $priority")
             appendLine("  services:")
             appendLine("    ${serviceName}-service:")
             appendLine("      loadBalancer:")
@@ -284,6 +289,19 @@ class TraefikManager : AppDependency, KoinComponent {
 
         serviceFile.writeText(serviceConfig)
     }
+
+    private fun String.toTraefikHostRule(): String = when {
+        startsWith("**.") -> {
+            val base = removePrefix("**.").replace(".", "\\.")
+            "HostRegexp(`.+\\." + base + "`)"
+        }
+        startsWith("*.") -> {
+            val base = removePrefix("*.").replace(".", "\\.")
+            "HostRegexp(`[^.]+\\." + base + "`)"
+        }
+        else -> "Host(`$this`)"
+    }
+
 
     override val reverseProxyRecords: List<ReverseProxyRecord> = emptyList()
     override val webfacingDomains: List<String> = listOf(traefikDomain)

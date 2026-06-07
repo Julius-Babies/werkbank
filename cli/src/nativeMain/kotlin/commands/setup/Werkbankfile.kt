@@ -8,6 +8,7 @@ data class Werkbankfile(
     @SerialName("project") val project: Project,
     @SerialName("containers") val containers: List<Container> = emptyList(),
     @SerialName("services") val services: List<Service> = emptyList(),
+    @SerialName("http") val http: List<Http> = emptyList(),
     @SerialName("dependencies") val dependencies: Dependencies? = null
 ) {
     @Serializable
@@ -36,10 +37,7 @@ data class Werkbankfile(
     @Serializable
     data class Service(
         @SerialName("name") val name: String,
-        @SerialName("path_prefixes") val pathPrefixes: List<String> = listOf("/"),
-        @SerialName("domains") val domains: List<String> = emptyList(),
         @SerialName("modes") val modes: Modes,
-        @SerialName("routing_priority") val routingPriority: Int? = null,
     ) {
         @Serializable
         data class Modes(
@@ -58,6 +56,14 @@ data class Werkbankfile(
             )
         }
     }
+
+    @Serializable
+    data class Http(
+        @SerialName("path_prefixes") val pathPrefixes: List<String> = listOf("/"),
+        @SerialName("domains") val domains: List<String> = emptyList(),
+        @SerialName("external_domains") val externalDomains: List<String> = emptyList(),
+        @SerialName("target_service") val targetService: String,
+    )
 
     @Serializable
     data class Dependencies(
