@@ -92,7 +92,7 @@ class LoginCommand : SuspendingCliktCommand("login"), KoinComponent {
 
             val currentTime = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
             print(buildStyledString {
-                +"\r"
+                +"\u001B[2K\r"
                 yellow { +currentTime.format(LocalDateTime.Format {
                     hour(Padding.ZERO)
                     char(':')
