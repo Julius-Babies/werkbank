@@ -4,10 +4,12 @@ docker-kt = "v0.4.2"
 hash = "0.8.0"
 kaml = "0.104.0"
 kfile = "v0.1.0"
+ktor = "3.5.0"
 koin = "4.1.0"
 kommand = "2.3.0"
 kotlin = "2.3.20"
 kotlinxCoroutines = "1.10.2"
+kotlinxDatetime = "0.8.0"
 kotlinxSerialization = "1.10.0"
 table-tui = "0.1.1"
 
@@ -21,10 +23,14 @@ kaml = { module = "com.charleskorn.kaml:kaml", version.ref = "kaml" }
 kfile = { module = "io.github.julius-babies:kfile", version.ref = "kfile" }
 kommand = { module = "com.kgit2:kommand", version.ref = "kommand" }
 
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-darwin = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
 
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
 
 table-tui = { module = "io.github.julius-babies:table-tui", version.ref = "table-tui" }
 [plugins]

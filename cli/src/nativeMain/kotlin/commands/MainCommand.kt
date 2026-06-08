@@ -11,6 +11,8 @@ import commands.config.ConfigCommand
 import commands.dependencies.DependenciesCommand
 import commands.down.DownCommand
 import commands.exposed.ExposedCommand
+import commands.login.LoginCommand
+import commands.login.LogoutCommand
 import commands.poweroff.PoweroffCommand
 import commands.service.ServiceCommand
 import commands.setup.SetupCommand
@@ -51,6 +53,8 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
             ConfigCommand(),
             ExposedCommand(),
             DependenciesCommand(),
+            LoginCommand(),
+            LogoutCommand(),
         )
     }
 }

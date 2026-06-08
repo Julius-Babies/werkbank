@@ -131,4 +131,4 @@ class ConsoleStyle(
     }
 }
 
-fun buildStyledString(block: ConsoleStyle.() -> Unit): String = ConsoleStyle().apply(block).toString()
+inline fun buildStyledString(block: ConsoleStyle.() -> Unit): String = ConsoleStyle().apply(block).toString()

@@ -8,6 +8,7 @@ data class WerkbankConfig(
     @SerialName("projects") val projects: List<Project>? = null,
     @SerialName("android-dns") val androidDns: AndroidDnsConfig = AndroidDnsConfig(),
     @SerialName("keycloak") val keycloak: KeycloakConfig = KeycloakConfig(),
+    @SerialName("auth") val auth: Auth? = null,
 ) {
     @Serializable
     data class Project(
@@ -50,4 +51,10 @@ data class WerkbankConfig(
             const val KEYCLOAK_DEFAULT_IMAGE = "quay.io/keycloak/keycloak:26.6"
         }
     }
+
+    @Serializable
+    data class Auth(
+        @SerialName("username") val username: String,
+        @SerialName("bearer") val bearer: String,
+    )
 }
