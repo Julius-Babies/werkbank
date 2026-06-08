@@ -1,7 +1,7 @@
 package app.data.extensions.project
 
+import app.werkbank.shared.Werkbankfile
 import com.charleskorn.kaml.Yaml
-import commands.setup.Werkbankfile
 import es.jvbabi.kfile.File
 import util.buildStyledString
 

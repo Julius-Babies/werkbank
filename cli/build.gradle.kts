@@ -1,18 +1,12 @@
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.kotlinxSerialization)
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
 }
 
-group = "es.jvbabi"
-version = "1.0-SNAPSHOT"
-
-repositories {
-    mavenLocal()
-    mavenCentral()
-}
+group = "app.werkbank"
+version = "1.0.0-SNAPSHOT"
 
 kotlin {
-
     compilerOptions {
         optIn.add("kotlin.uuid.ExperimentalUuidApi")
     }
@@ -36,24 +30,19 @@ kotlin {
 
     sourceSets {
         nativeMain.dependencies {
+            implementation(project(":shared"))
             implementation(libs.kaml)
             implementation(libs.clikt)
             implementation(libs.docker.kt)
-
             implementation(libs.hash.sha1)
-
             implementation(libs.kfile)
             implementation(libs.kommand)
-
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.darwin)
-
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.datetime)
-
             implementation(libs.koin.core)
-
             implementation(libs.table.tui)
         }
     }

@@ -1,4 +1,4 @@
-package commands.setup
+package app.werkbank.shared
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

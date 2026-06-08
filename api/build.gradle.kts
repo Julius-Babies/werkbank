@@ -19,6 +19,7 @@ kotlin {
     }
 }
 dependencies {
+    implementation(project(":shared"))
     implementation(ktorLibs.serialization.kotlinx.json)
     implementation(ktorLibs.server.contentNegotiation)
     implementation(ktorLibs.server.core)

@@ -4,6 +4,7 @@ import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.keycloak.Keycloak
 import app.repository.ProjectRepository
+import app.werkbank.shared.Werkbankfile
 import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import es.jvbabi.kfile.File

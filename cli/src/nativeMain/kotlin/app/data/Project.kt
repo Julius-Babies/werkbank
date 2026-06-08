@@ -10,8 +10,8 @@ import app.dependencies.reverse_proxy.TraefikManager
 import app.hosts.HostsManager
 import app.storage.isDevMode
 import app.storage.storageRoot
+import app.werkbank.shared.Werkbankfile
 import com.charleskorn.kaml.Yaml
-import commands.setup.Werkbankfile
 import es.jvbabi.docker.kt.api.container.Container
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent

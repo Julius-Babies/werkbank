@@ -1,0 +1,43 @@
+[versions]
+clikt = "5.1.0"
+docker-kt = "v0.4.2"
+exposed = "1.3.0"
+hash = "0.8.0"
+kaml = "0.104.0"
+kfile = "v0.1.0"
+koin = "4.2.1"
+kommand = "2.3.0"
+kotlin = "2.4.0"
+kotlinxCoroutines = "1.10.2"
+kotlinxDatetime = "0.8.0"
+kotlinxSerialization = "1.10.0"
+logback = "1.5.34"
+authentikt = "0.4.4"
+table-tui = "0.1.1"
+
+[libraries]
+clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
+docker-kt = { module = "io.github.julius-babies:docker-kt", version.ref = "docker-kt" }
+exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }
+exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
+exposed-dao = { module = "org.jetbrains.exposed:exposed-dao", version.ref = "exposed" }
+exposed-kotlinx-datetime = { module = "org.jetbrains.exposed:exposed-kotlin-datetime", version.ref = "exposed" }
+hash-sha1 = { module = "org.kotlincrypto.hash:sha1", version.ref = "hash" }
+kaml = { module = "com.charleskorn.kaml:kaml", version.ref = "kaml" }
+kfile = { module = "io.github.julius-babies:kfile", version.ref = "kfile" }
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+koin-ktor = { module = "io.insert-koin:koin-ktor", version.ref = "koin" }
+koin-loggerSlf4j = { module = "io.insert-koin:koin-logger-slf4j", version.ref = "koin" }
+kommand = { module = "com.kgit2:kommand", version.ref = "kommand" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+postgresql = { module = "org.postgresql:postgresql", version = "42.7.11" }
+authentikt = { module = "es.jvbabi.authentikt:core", version.ref = "authentikt" }
+table-tui = { module = "io.github.julius-babies:table-tui", version.ref = "table-tui" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

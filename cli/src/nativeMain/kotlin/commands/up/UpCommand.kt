@@ -5,8 +5,8 @@ import app.repository.ProjectRepository
 import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.parameters.options.flag
+import app.werkbank.shared.Werkbankfile
 import com.github.ajalt.clikt.parameters.options.option
-import commands.setup.Werkbankfile
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
