@@ -9,6 +9,7 @@ data class AppConfig(
     @SerialName("database") val database: Database,
     @SerialName("github") val github: GitHub,
     @SerialName("cli") val cli: Cli,
+    @SerialName("jwt") val jwt: Jwt,
 ) {
     @Serializable
     data class Database(
@@ -26,5 +27,10 @@ data class AppConfig(
     data class Cli(
         @SerialName("client_id") val clientId: String,
         @SerialName("client_secret") val clientSecret: String,
+    )
+
+    @Serializable
+    data class Jwt(
+        @SerialName("secret") val secret: String,
     )
 }

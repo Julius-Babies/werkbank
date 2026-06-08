@@ -4,7 +4,7 @@ koin = "4.2.1"
 kotlin = "2.4.0"
 kommand = "2.3.0"
 logback = "1.5.34"
-authentikt = "0.4.3"
+authentikt = "0.4.4"
 
 [libraries]
 exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }
@@ -20,5 +20,4 @@ authentikt = { module = "es.jvbabi.authentikt:core", version.ref = "authentikt" 
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
-kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

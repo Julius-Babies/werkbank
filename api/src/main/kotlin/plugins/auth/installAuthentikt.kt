@@ -5,6 +5,8 @@ import app.werkbank.config.AppConfig
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.User
 import app.werkbank.database.Users
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
 import es.jvbabi.authentikt.core.AuthentiktInstance
 import es.jvbabi.authentikt.core.AuthentiktUser
 import es.jvbabi.authentikt.core.config.OAuthAccessToken
@@ -20,7 +22,9 @@ import org.jetbrains.exposed.v1.core.eq
 import org.koin.core.context.loadKoinModules
 import org.koin.dsl.module
 import org.koin.ktor.ext.inject
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
+import kotlin.time.toJavaInstant
 import kotlin.uuid.Uuid
 
 private fun User.toAuthentiktUser() = object : AuthentiktUser<User>(this) {
@@ -69,13 +73,26 @@ fun Application.installAuthentikt() {
             scopes("openid", "profile", "email")
         }
 
-        val donePlugin = DonePlugin<User> {
+        val donePlugin = DonePlugin {
+
+            val tokenValidity = 60.days
+            fun createToken(user: User): String = JWT.create()
+                    .withAudience("werkbank")
+                    .withIssuer("werkbank")
+                    .withClaim("username", user.username)
+                    .withClaim("sub", user.id.value.toHexString())
+                    .withExpiresAt((Clock.System.now() + tokenValidity).toJavaInstant())
+                    .sign(Algorithm.HMAC256(appConfig.jwt.secret))
+
             onSuccess { session, user ->
                 if (session.destination is SessionDestination.DeviceFlow) return@onSuccess
+
+                val token = createToken(user)
+
                 cookie(
                     name = "SessionToken",
-                    value = "token-for-${user.username}",
-                    validFor = 60.days
+                    value = token,
+                    validFor = tokenValidity,
                 )
 
                 val userDomain = user.username.lowercase() + "." + appConfig.domainSuffix
@@ -84,9 +101,9 @@ fun Application.installAuthentikt() {
 
             onOAuthSuccess { _, user ->
                 return@onOAuthSuccess OAuthAccessToken(
-                    "token-for-${user.username}",
-                    null,
-                    7.days,
+                    accessToken = createToken(user),
+                    refreshToken = null,
+                    expiresIn = tokenValidity,
                 )
             }
         }

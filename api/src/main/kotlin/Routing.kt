@@ -1,9 +1,10 @@
 package app.werkbank
 
 import app.werkbank.app.login.github.loginWithGitHub
+import app.werkbank.app.me.me
 import app.werkbank.config.AppConfig
 import io.ktor.server.application.*
-import io.ktor.server.response.respondText
+import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.koin.ktor.ext.inject
 
@@ -16,6 +17,10 @@ fun Application.configureRouting() {
                     route("/github") {
                         loginWithGitHub()
                     }
+                }
+
+                route("/me") {
+                    me()
                 }
             }
         }
