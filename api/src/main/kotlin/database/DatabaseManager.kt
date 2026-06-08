@@ -15,6 +15,7 @@ class DatabaseManager(
     init {
         transaction {
             SchemaUtils.create(Users)
+            SchemaUtils.create(Projects)
         }
     }
 
