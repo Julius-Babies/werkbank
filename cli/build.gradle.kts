@@ -38,12 +38,14 @@ kotlin {
             implementation(libs.kfile)
             implementation(libs.kommand)
             implementation(libs.ktor.client.core)
-            implementation(libs.ktor.client.darwin)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.datetime)
             implementation(libs.koin.core)
             implementation(libs.table.tui)
+        }
+        macosMain.dependencies {
+            implementation(libs.ktor.client.darwin)
         }
     }
 }

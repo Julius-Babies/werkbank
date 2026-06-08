@@ -8,6 +8,7 @@ kfile = "v0.1.0"
 koin = "4.2.1"
 kommand = "2.3.0"
 kotlin = "2.4.0"
+ktor = "3.5.0"
 kotlinxCoroutines = "1.10.2"
 kotlinxDatetime = "0.8.0"
 kotlinxSerialization = "1.10.0"
@@ -32,6 +33,8 @@ kommand = { module = "com.kgit2:kommand", version.ref = "kommand" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 postgresql = { module = "org.postgresql:postgresql", version = "42.7.11" }
 authentikt = { module = "es.jvbabi.authentikt:core", version.ref = "authentikt" }

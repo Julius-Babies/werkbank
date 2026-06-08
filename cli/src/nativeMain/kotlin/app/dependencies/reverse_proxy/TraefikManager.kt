@@ -212,12 +212,16 @@ class TraefikManager : AppDependency, KoinComponent {
                 val url = when (serviceState) {
                     WerkbankConfig.Project.Service.ServiceState.Disabled, null -> return@forEach
                     WerkbankConfig.Project.Service.ServiceState.Docker -> {
-                        val container = targetService.modes.docker!!.container
-                        val port = targetService.modes.docker.port
+                        val dockerMode = targetService.modes.docker ?: error("Service ${httpEntry.targetService} has no docker mode")
+                        val container = dockerMode.container
+                        val port = dockerMode.port
                         val containerName = "werkbank${if (isDevMode) "-dev" else ""}-${project.project.id.lowercase()}-${container}"
                         "http://${containerName}:$port"
                     }
-                    WerkbankConfig.Project.Service.ServiceState.Local -> "http://host.docker.internal:${targetService.modes.local!!.port}"
+                    WerkbankConfig.Project.Service.ServiceState.Local -> {
+                        val localMode = targetService.modes.local ?: error("Service ${httpEntry.targetService} has no local mode")
+                        "http://host.docker.internal:${localMode.port}"
+                    }
                 }
 
                 val rule = "(${allDomains.joinToString(" || ")}) && (${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})"
