@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class Werkbankfile(
+    @SerialName("disallow_cloud") val disallowCloud: Boolean = false,
     @SerialName("project") val project: Project,
     @SerialName("containers") val containers: List<Container> = emptyList(),
     @SerialName("services") val services: List<Service> = emptyList(),

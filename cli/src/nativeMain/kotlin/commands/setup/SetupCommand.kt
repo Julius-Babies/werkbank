@@ -76,7 +76,7 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
             )
         }
 
-        if (mainConfig.getConfig().auth != null) {
+        if (mainConfig.getConfig().auth != null && !werkbankFile.disallowCloud) {
             println(buildStyledString { gray { +"Uploading Werkbankfile" } })
             val client = httpClient()
             val response = client.post("https://werkbank.werkbank.space/api/projects") {

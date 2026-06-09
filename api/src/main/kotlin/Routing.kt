@@ -12,7 +12,7 @@ import org.koin.ktor.ext.inject
 fun Application.configureRouting() {
     val appConfig by inject<AppConfig>()
     routing {
-        host(appConfig.domainSuffix) {
+        host(appConfig.appDomain) {
             route("/api") {
                 route("/login") {
                     route("/github") {

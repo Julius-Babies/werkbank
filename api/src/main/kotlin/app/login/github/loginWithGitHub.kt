@@ -14,7 +14,7 @@ fun Route.loginWithGitHub() {
 
     get("/jump") {
         val session = authentikt.createNewSession()
-        val redirectUrl = URLBuilder("https://${appConfig.domainSuffix}").apply {
+        val redirectUrl = URLBuilder("https://${appConfig.appDomain}").apply {
             appendPathSegments("auth")
             parameters.append("_authentikt_flow_active", "true")
             parameters.append("_authentikt_session_id", session.sessionId)

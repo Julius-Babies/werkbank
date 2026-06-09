@@ -39,7 +39,7 @@ fun Application.installAuthentikt() {
     val dnsManager by inject<DnsManager>()
 
     val authentikt = installAuthentikt {
-        baseUrl = "https://${appConfig.domainSuffix}"
+        baseUrl = "https://${appConfig.appDomain}"
         apiPrefix = "/api"
         uiLoginBaseUrl = "$baseUrl/auth"
 

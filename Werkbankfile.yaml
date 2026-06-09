@@ -1,3 +1,4 @@
+disallow_cloud: true
 project:
   name: "Werkbank"
   id: "werkbank"
@@ -19,6 +20,9 @@ http:
       - /oauth
     external_domains:
       - "**.werkbank.werkbank.space"
+    target_service: api
+  - external_domains:
+      - "**.localwb.space"
     target_service: api
   - path_prefixes:
       - /

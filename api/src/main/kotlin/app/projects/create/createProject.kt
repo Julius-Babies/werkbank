@@ -30,6 +30,7 @@ fun Route.createProject() {
         post {
             val principal = call.principal<UserPrincipal>()!!
             val werkbankFile = call.receive<Werkbankfile>()
+            if (werkbankFile.disallowCloud) return@post
             println(principal.user.username)
             println(werkbankFile)
 
