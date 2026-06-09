@@ -2,6 +2,7 @@ package app.werkbank
 
 import app.werkbank.app.login.github.loginWithGitHub
 import app.werkbank.app.me.me
+import app.werkbank.app.projects.create.createProject
 import app.werkbank.config.AppConfig
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -21,6 +22,10 @@ fun Application.configureRouting() {
 
                 route("/me") {
                     me()
+                }
+
+                route("/projects") {
+                    createProject()
                 }
             }
         }

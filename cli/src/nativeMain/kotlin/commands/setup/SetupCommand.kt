@@ -1,5 +1,6 @@
 package commands.setup
 
+import app.config.MainConfig
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.keycloak.Keycloak
@@ -7,7 +8,15 @@ import app.repository.ProjectRepository
 import app.werkbank.shared.Werkbankfile
 import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
+import com.github.ajalt.clikt.command.main
 import es.jvbabi.kfile.File
+import http.httpClient
+import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.qualifier.named
@@ -17,6 +26,7 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
 
     private val projectRepository by inject<ProjectRepository>()
     private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
+    private val mainConfig by inject<MainConfig>()
 
     override val invokeWithoutSubcommand: Boolean = true
     override suspend fun run() {
@@ -64,6 +74,17 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
                 projectId = werkbankFile.project.id,
                 projectName = werkbankFile.project.name
             )
+        }
+
+        if (mainConfig.getConfig().auth != null) {
+            println(buildStyledString { gray { +"Uploading Werkbankfile" } })
+            val client = httpClient()
+            val response = client.post("https://werkbank.werkbank.space/api/projects") {
+                contentType(ContentType.Application.Json)
+                setBody(werkbankFile)
+                bearerAuth(mainConfig.getConfig().auth!!.bearer)
+            }
+            println(response.bodyAsText())
         }
     }
 }
