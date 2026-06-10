@@ -15,7 +15,7 @@ jobs:
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
       - name: Build
-        run: bun build
+        run: bun run build
       - name: Rename artifact
         run: mv build web_build
       - name: Upload artifact
@@ -26,9 +26,6 @@ jobs:
 
   build-server:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./server
     steps:
       - uses: actions/checkout@v6
         name: Checkout
