@@ -3,9 +3,9 @@ package app.werkbank
 import app.werkbank.app.login.github.loginWithGitHub
 import app.werkbank.app.me.me
 import app.werkbank.app.projects.create.createProject
+import app.werkbank.app.tunnel.tunnel
 import app.werkbank.config.AppConfig
 import io.ktor.server.application.*
-import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.koin.ktor.ext.inject
 
@@ -20,6 +20,10 @@ fun Application.configureRouting() {
                     }
                 }
 
+                route("/tunnel") {
+                    tunnel()
+                }
+
                 route("/me") {
                     me()
                 }
@@ -27,12 +31,6 @@ fun Application.configureRouting() {
                 route("/projects") {
                     createProject()
                 }
-            }
-        }
-
-        host(Regex(".+\\.${appConfig.domainSuffix.replace(".", "\\.")}")) {
-            get("*") {
-                call.respondText("Hey")
             }
         }
     }

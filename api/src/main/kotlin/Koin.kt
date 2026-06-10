@@ -1,8 +1,10 @@
 package app.werkbank
 
+import app.werkbank.app.dns.CloudflareDnsManagerImpl
 import app.werkbank.app.dns.DnsManager
 import app.werkbank.app.dns.LocalHostsDnsManagerImpl
 import app.werkbank.app.dns.local.SudoManager
+import app.werkbank.config.AppConfig
 import app.werkbank.database.DatabaseManager
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -27,12 +29,12 @@ fun Application.configureKoin() {
                 }
 
                 val configFile = File("./data/config.json")
-                val config: app.werkbank.config.AppConfig = json.decodeFromString(configFile.readText())
+                val config: AppConfig = json.decodeFromString(configFile.readText())
                 config
             }
 
             single {
-                val config: app.werkbank.config.AppConfig = get()
+                val config: AppConfig = get()
                 DatabaseManager(config.database.url)
             }
 
@@ -45,7 +47,11 @@ fun Application.configureKoin() {
             }
 
             single { SudoManager() }
-            single<DnsManager> { LocalHostsDnsManagerImpl(get()) }
+            single<DnsManager> {
+                val config: AppConfig = get()
+                if (config.cloudflare != null) CloudflareDnsManagerImpl()
+                else LocalHostsDnsManagerImpl(get())
+            }
         })
     }
 }

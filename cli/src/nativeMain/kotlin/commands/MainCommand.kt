@@ -16,6 +16,7 @@ import commands.login.LogoutCommand
 import commands.poweroff.PoweroffCommand
 import commands.service.ServiceCommand
 import commands.setup.SetupCommand
+import commands.tunnel.TunnelCommand
 import commands.up.UpCommand
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -55,6 +56,7 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
             DependenciesCommand(),
             LoginCommand(),
             LogoutCommand(),
+            TunnelCommand(),
         )
     }
 }

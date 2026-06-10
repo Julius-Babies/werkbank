@@ -13,7 +13,7 @@ class LocalHostsDnsManagerImpl(
         private const val HOST_IP = "127.0.0.1"
     }
 
-    override suspend fun createRecord(domain: String): String {
+    override suspend fun createRecord(domain: String) {
         val hostsFile = File("/etc/hosts")
         val content = if (hostsFile.exists()) hostsFile.readText() else ""
 
@@ -28,9 +28,7 @@ class LocalHostsDnsManagerImpl(
                 appendBlock(content, entry)
             } else {
                 val blockLines = lines.subList(startIdx + 1, endIdx)
-                if (blockLines.any { it.trim() == entry }) {
-                    return domain
-                }
+                if (blockLines.any { it.trim() == entry }) return
                 val newLines = lines.toMutableList()
                 newLines.add(endIdx, entry)
                 newLines.joinToString("\n")
@@ -40,7 +38,6 @@ class LocalHostsDnsManagerImpl(
         }
 
         writeWithSudo(hostsFile.absolutePath, newContent)
-        return domain
     }
 
     override suspend fun deleteRecord(domain: String) {

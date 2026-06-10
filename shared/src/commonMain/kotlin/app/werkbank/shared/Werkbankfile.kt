@@ -64,6 +64,8 @@ data class Werkbankfile(
         @SerialName("domains") val domains: List<String> = emptyList(),
         @SerialName("external_domains") val externalDomains: List<String> = emptyList(),
         @SerialName("target_service") val targetService: String,
+        @SerialName("priority") val priority: Int? = null,
+        @SerialName("description") val description: String? = null,
     )
 
     @Serializable

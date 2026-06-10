@@ -11,6 +11,8 @@ data class AppConfig(
     @SerialName("github") val github: GitHub,
     @SerialName("cli") val cli: Cli,
     @SerialName("jwt") val jwt: Jwt,
+    @SerialName("dns") val dns: Dns,
+    @SerialName("cloudflare") val cloudflare: Cloudflare? = null,
 ) {
     @Serializable
     data class Database(
@@ -33,5 +35,17 @@ data class AppConfig(
     @Serializable
     data class Jwt(
         @SerialName("secret") val secret: String,
+    )
+
+    @Serializable
+    data class Dns(
+        @SerialName("target_ip") val targetIp: String,
+    )
+
+    @Serializable
+    data class Cloudflare(
+        @SerialName("zone_id") val zoneId: String,
+        @SerialName("api_token") val apiToken: String,
+        @SerialName("domain") val domain: String,
     )
 }

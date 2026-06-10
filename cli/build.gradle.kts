@@ -37,7 +37,8 @@ kotlin {
             implementation(libs.hash.sha1)
             implementation(libs.kfile)
             implementation(libs.kommand)
-            implementation(libs.ktor.client.core)
+            implementation(ktorLibs.client.core)
+            implementation(ktorLibs.client.websockets)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.datetime)
@@ -45,7 +46,7 @@ kotlin {
             implementation(libs.table.tui)
         }
         macosMain.dependencies {
-            implementation(libs.ktor.client.darwin)
+            implementation(ktorLibs.client.darwin)
         }
     }
 }

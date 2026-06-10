@@ -8,8 +8,9 @@ import org.jetbrains.exposed.v1.datetime.CurrentTimestamp
 import org.jetbrains.exposed.v1.datetime.timestamp
 import kotlin.uuid.Uuid
 
-class User(id: EntityID<Uuid>): UuidEntity(id) {
+class User(id: EntityID<Id>): UuidEntity(id) {
     companion object: UuidEntityClass<User>(Users)
+    typealias Id = Uuid
 
     var username by Users.username
     var githubToken by Users.githubToken

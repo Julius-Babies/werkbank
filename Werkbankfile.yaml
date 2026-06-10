@@ -21,14 +21,18 @@ http:
     external_domains:
       - "**.werkbank.werkbank.space"
     target_service: api
-  - external_domains:
+    priority: 200
+  - description: "Werkbank userspace"
+    external_domains:
       - "**.localwb.space"
     target_service: api
-  - path_prefixes:
+  - description: "Werkbank Cloud UI"
+    path_prefixes:
       - /
     external_domains:
       - "**.werkbank.werkbank.space"
     target_service: ui
+    priority: 100
 
 dependencies:
   postgres:
