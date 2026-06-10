@@ -1,6 +1,26 @@
 :80 {
     log
-    reverse_proxy /api* localhost:8080
-    reverse_proxy /oauth* localhost:8080
-    reverse_proxy * localhost:3000
- }
+
+    # Subdomains -> API always
+    @subdomains host *.BASE_DOMAIN
+    handle @subdomains {
+        reverse_proxy localhost:8080
+    }
+
+    # Base domain -> split by path
+    @api path /api*
+    @oauth path /oauth*
+
+    handle @api {
+        reverse_proxy localhost:8080
+    }
+
+    handle @oauth {
+        reverse_proxy localhost:8080
+    }
+
+    # everything else on base -> UI
+    handle {
+        reverse_proxy localhost:3000
+    }
+}
