@@ -7,10 +7,6 @@ group = "app.werkbank"
 version = "1.0.0-SNAPSHOT"
 
 kotlin {
-    compilerOptions {
-        optIn.add("kotlin.uuid.ExperimentalUuidApi")
-    }
-
     val targets = listOf(
         linuxArm64(),
         linuxX64(),

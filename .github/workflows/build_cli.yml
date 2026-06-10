@@ -28,17 +28,17 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            arch: x64
+            name: linux-x64
             gradle-task: ":cli:linkReleaseExecutableLinuxX64"
             artifact-path: "cli/build/bin/linuxX64/releaseExecutable/cli.kexe"
 
-          - os: ubuntu-24.04-arm
-            arch: arm64
+          - os: ubuntu-latest
+            name: linux-arm64
             gradle-task: ":cli:linkReleaseExecutableLinuxArm64"
             artifact-path: "cli/build/bin/linuxArm64/releaseExecutable/cli.kexe"
 
-          - os: macos-latest
-            arch: arm64
+          - os: macos-14
+            name: macos-arm64
             gradle-task: ":cli:linkReleaseExecutableMacosArm64"
             artifact-path: "cli/build/bin/macosArm64/releaseExecutable/cli.kexe"
 
@@ -65,13 +65,13 @@ jobs:
       - run: mkdir out
 
       - name: Rename artifact
-        run: mv ${{ matrix.artifact-path }} out/cli-${{ matrix.os }}-${{ matrix.arch }}
+        run: mv ${{ matrix.artifact-path }} out/cli-${{ matrix.name }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: cli-${{ matrix.os }}-${{ matrix.arch }}
-          path: out/cli-${{ matrix.os }}-${{ matrix.arch }}
+          name: cli-${{ matrix.name }}
+          path: out/cli-${{ matrix.name }}
 
   release:
     needs: [ build, setup ]
