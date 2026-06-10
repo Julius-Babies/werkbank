@@ -22,4 +22,4 @@ function start_proxy {
   caddy run --config /tmp/Caddyfile.generated --adapter caddyfile
 }
 
-start_server & start_web & start_proxy & wait
+start_server & start_web & start_proxy & wait -n; exit $?
