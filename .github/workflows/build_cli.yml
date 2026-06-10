@@ -3,9 +3,13 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'cli/**'
+  workflow_dispatch: {}
 
 jobs:
   setup:
+    name: Generate Build Metadata
     runs-on: ubuntu-latest
     outputs:
       build_tag: ${{ steps.vars.outputs.build_tag }}
@@ -24,6 +28,7 @@ jobs:
 
 
   build:
+    name: Build CLI Executable
     strategy:
       matrix:
         include:
@@ -74,6 +79,7 @@ jobs:
           path: out/cli-${{ matrix.name }}
 
   release:
+    name: Create Release
     needs: [ build, setup ]
     runs-on: ubuntu-latest
     steps:

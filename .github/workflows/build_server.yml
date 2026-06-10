@@ -3,9 +3,14 @@ run-name: Build server and web artifacts, then build and push Docker image
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'web/**'
+      - 'api/**'
+  workflow_dispatch: {}
 
 jobs:
   build-web:
+    name: Build Web Application
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -28,6 +33,7 @@ jobs:
           name: web_build
 
   build-server:
+    name: Build Server Application
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -53,6 +59,7 @@ jobs:
           name: api-fatjar
 
   build-docker:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
     needs: [build-web, build-server]
     steps:
