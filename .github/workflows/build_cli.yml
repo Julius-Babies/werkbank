@@ -96,6 +96,6 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
-          name: Trails (${{ needs.setup.outputs.date_formatted }})
+          name: Werkbank (${{ needs.setup.outputs.date_formatted }})
           fail_on_unmatched_files: true
           tag_name: v${{ needs.setup.outputs.build_tag }}
