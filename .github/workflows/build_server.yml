@@ -83,7 +83,7 @@ jobs:
       - name: Build Docker image
         run: |
           rm -rf ./web/web_build && cp -r artifacts/web_build ./web/web_build
-          cp artifacts/api-fatjar/server.jar ./server/
+          cp artifacts/api-fatjar/server.jar ./server.jar
           docker build -t juliusbabies/werkbank-cloud:latest .
       - name: Push Docker image
         run: docker push juliusbabies/werkbank-cloud:latest
