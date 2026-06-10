@@ -13,6 +13,7 @@ data class AppConfig(
     @SerialName("jwt") val jwt: Jwt,
     @SerialName("dns") val dns: Dns,
     @SerialName("cloudflare") val cloudflare: Cloudflare? = null,
+    @SerialName("tls") val tls: Tls,
 ) {
     @Serializable
     data class Database(
@@ -48,4 +49,19 @@ data class AppConfig(
         @SerialName("api_token") val apiToken: String,
         @SerialName("domain") val domain: String,
     )
+
+    @Serializable
+    sealed class Tls {
+        @Serializable
+        @SerialName("self-signed")
+        data class SelfSigned(
+            @SerialName("root_ca") val rootCa: RootCa? = null
+        ): Tls() {
+            @Serializable
+            data class RootCa(
+                @SerialName("certificate_path") val certificatePath: String,
+                @SerialName("key_path") val keyPath: String,
+            )
+        }
+    }
 }

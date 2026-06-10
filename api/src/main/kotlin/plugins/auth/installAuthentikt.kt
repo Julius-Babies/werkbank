@@ -1,7 +1,9 @@
 package app.werkbank.plugins.auth
 
+import app.werkbank.app.certificates.CertificateManager
 import app.werkbank.app.dns.DnsManager
 import app.werkbank.config.AppConfig
+import app.werkbank.database.Certificate
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.User
 import app.werkbank.database.Users
@@ -19,9 +21,11 @@ import es.jvbabi.authentikt.core.step.plugins.builtin.UserInfo
 import io.ktor.client.call.*
 import io.ktor.server.application.*
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.statements.api.ExposedBlob
 import org.koin.core.context.loadKoinModules
 import org.koin.dsl.module
 import org.koin.ktor.ext.inject
+import java.io.File
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.toJavaInstant
@@ -37,6 +41,7 @@ fun Application.installAuthentikt() {
     val appConfig by inject<AppConfig>()
     val db by inject<DatabaseManager>()
     val dnsManager by inject<DnsManager>()
+    val certificateManager by inject<CertificateManager>()
 
     val authentikt = installAuthentikt {
         baseUrl = "https://${appConfig.appDomain}"
@@ -54,17 +59,39 @@ fun Application.installAuthentikt() {
                 val fields = response.body<Map<String, String?>>()
                 val username = fields["login"]!!
 
+                val userDomain = username.lowercase() + "." + appConfig.domainSuffix
+
                 val user = run {
                     val existingUser = db.query { User.find { Users.username eq username }.firstOrNull() }
-                    val userDomain = username.lowercase() + "." + appConfig.domainSuffix
                     if (existingUser == null) {
                         val user = db.query { User.new { this.username = username; this.githubToken = accessToken } }
-                        dnsManager.createRecord(userDomain)
+                        dnsManager.createRecord("*.$userDomain")
+
                         return@run user
                     } else {
                         db.query { existingUser.githubToken = accessToken }
                     }
                     return@run existingUser
+                }
+
+                if (db.query { user.certificates.empty() }) {
+                    val id = Uuid.random()
+                    val certificateFile = File(System.getProperty("java.io.tmpdir"), "certificate-$id.crt")
+                    val keyFile = File(System.getProperty("java.io.tmpdir"), "key-$id.key")
+
+                    certificateManager.requestCertificate(
+                        domains = listOf("*.$userDomain"),
+                        targetCertFile = certificateFile,
+                        targetKeyFile = keyFile,
+                    )
+
+                    db.query {
+                        Certificate.new {
+                            this.user = user
+                            this.privateKey = ExposedBlob(keyFile.readBytes())
+                            this.certificate = ExposedBlob(certificateFile.readBytes())
+                        }
+                    }
                 }
 
                 return@onUserInfo UserInfo.Result.Success(user.toAuthentiktUser())

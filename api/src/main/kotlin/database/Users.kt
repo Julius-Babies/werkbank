@@ -15,6 +15,8 @@ class User(id: EntityID<Id>): UuidEntity(id) {
     var username by Users.username
     var githubToken by Users.githubToken
     var createdAt by Users.createdAt
+
+    val certificates by Certificate referrersOn Certificates.user
 }
 
 object Users : UuidTable("users") {

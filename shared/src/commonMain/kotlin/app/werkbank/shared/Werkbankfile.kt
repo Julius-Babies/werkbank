@@ -10,7 +10,8 @@ data class Werkbankfile(
     @SerialName("containers") val containers: List<Container> = emptyList(),
     @SerialName("services") val services: List<Service> = emptyList(),
     @SerialName("http") val http: List<Http> = emptyList(),
-    @SerialName("dependencies") val dependencies: Dependencies? = null
+    @SerialName("dependencies") val dependencies: Dependencies? = null,
+    @SerialName("extra_certificate_directories") val extraCertificates: List<String> = emptyList(),
 ) {
     @Serializable
     data class Project(

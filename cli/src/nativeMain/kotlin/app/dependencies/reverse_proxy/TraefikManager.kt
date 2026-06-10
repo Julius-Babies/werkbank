@@ -20,12 +20,6 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.qualifier.named
 import util.buildStyledString
-import kotlin.collections.component1
-import kotlin.collections.component2
-import kotlin.collections.distinct
-import kotlin.collections.ifEmpty
-import kotlin.text.isBlank
-import kotlin.text.lowercase
 
 class TraefikManager : AppDependency, KoinComponent {
 
@@ -153,11 +147,50 @@ class TraefikManager : AppDependency, KoinComponent {
     fun generateSslConfig() {
         val config = TraefikTlsConfig(
             tls = TraefikTlsConfig.Tls(
-                certificates = projectRepository.getAllProjects().map { project ->
-                    TraefikTlsConfig.Tls.Certificate(
+                certificates = projectRepository.getAllProjects().flatMap { project ->
+                    val certificates = mutableListOf(TraefikTlsConfig.Tls.Certificate(
                         certFile = "/projects/${project.id}/certificate.pem",
                         keyFile = "/projects/${project.id}/private.key"
-                    )
+                    ))
+
+                    fun appendFolder(folder: File) {
+                        if (!folder.exists()) return
+                        val subfolders = folder.listFiles().filter { it.isDirectory() }
+                        subfolders.forEach { appendFolder(it) }
+
+                        val certFiles = folder.listFiles().filter { !it.isDirectory() && it.extension in listOf("pem", "crt") }
+                        val keyFiles = folder.listFiles().filter { !it.isDirectory() && it.extension == "key" }
+
+                        val pairs = certFiles
+                            .associateWith { certFile ->
+                                keyFiles.firstOrNull { keyFile ->
+                                    opensslHandler.isValidPair(certFile, keyFile)
+                                }
+                            }
+                            .filterValues { it != null }
+                            .mapValues { (_, keyFile) -> keyFile!! }
+
+                        pairs.forEach { (certFile, keyFile) ->
+                            val certificateFolder = storageRoot.resolve("projects").resolve(project.id)
+                            val mountedCertFile = certificateFolder.resolve(certFile.absolutePath.replace("/", "-"))
+                            val mountedKeyFile = certificateFolder.resolve(keyFile.absolutePath.replace("/", "-"))
+                            certFile.copy(mountedCertFile)
+                            keyFile.copy(mountedKeyFile)
+                            certificates.add(TraefikTlsConfig.Tls.Certificate(
+                                certFile = "/projects/${project.id}/${mountedCertFile.name}",
+                                keyFile = "/projects/${project.id}/${mountedKeyFile.name}"
+                            ))
+                        }
+                    }
+
+                    project.getConfig()
+                        .extraCertificates
+                        .map { certRoot -> File(project.path).resolve(certRoot) }
+                        .forEach { certRoot ->
+                            appendFolder(certRoot)
+                        }
+
+                    certificates
                 } + dependencies.filter { it.webfacingDomains.isNotEmpty() }.map { dependency ->
                     TraefikTlsConfig.Tls.Certificate(
                         certFile = "/ssl/internal/${dependency.key}.crt",

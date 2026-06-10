@@ -17,6 +17,7 @@ class DatabaseManager(
             SchemaUtils.create(Users)
             SchemaUtils.create(Projects)
             SchemaUtils.create(Services)
+            SchemaUtils.create(Certificates)
         }
     }
 

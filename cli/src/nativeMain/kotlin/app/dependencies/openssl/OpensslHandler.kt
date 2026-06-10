@@ -397,6 +397,41 @@ class OpensslHandler : KoinComponent {
         if (signingRequestFile.exists()) signingRequestFile.delete()
         if (sanFile.exists()) sanFile.delete()
     }
+
+    fun isValidPair(certificateFile: File, privateKeyFile: File): Boolean {
+        if (!certificateFile.exists()) return false
+        if (!privateKeyFile.exists()) return false
+
+        val certificateModulus = Command("openssl")
+            .args(
+                "x509",
+                "-noout",
+                "-modulus",
+                "-in",
+                certificateFile.absolutePath
+            )
+            .stdout(Stdio.Pipe)
+            .stderr(Stdio.Pipe)
+            .spawn()
+            .waitWithOutput()
+            .stdout!!
+
+        val privateKeyModulus = Command("openssl")
+            .args(
+                "rsa",
+                "-noout",
+                "-modulus",
+                "-in",
+                privateKeyFile.absolutePath
+            )
+            .stdout(Stdio.Pipe)
+            .stderr(Stdio.Pipe)
+            .spawn()
+            .waitWithOutput()
+            .stdout!!
+
+        return certificateModulus == privateKeyModulus
+    }
 }
 
 expect fun installRootCa(rootCaFile: File, sudoManager: SudoManager)

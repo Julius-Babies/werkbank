@@ -7,7 +7,7 @@ services:
   - name: "api"
     modes:
       local:
-        port: 8080
+        port: 7090
 
   - name: "ui"
     modes:
@@ -25,6 +25,7 @@ http:
   - description: "Werkbank userspace"
     external_domains:
       - "**.localwb.space"
+      - "**.wbcloud-dev-juliusbabies-midnight.wbspace.app"
     target_service: api
   - description: "Werkbank Cloud UI"
     path_prefixes:
@@ -34,6 +35,10 @@ http:
     target_service: ui
     priority: 100
 
+extra_certificate_directories:
+  - "data/certificates"
+
 dependencies:
   postgres:
     18:
+      databases: []

@@ -5,29 +5,26 @@ import kotlinx.serialization.Serializable
 import kotlin.uuid.Uuid
 
 @Serializable
-sealed class ServerMessage {
+sealed class ClientMessage {
 
     @Serializable
-    @SerialName("http.new_request")
-    data class HttpRequest(
+    @SerialName("http.response")
+    data class HttpResponse(
         @SerialName("request_id") val requestId: Uuid,
-        @SerialName("project") val project: String,
-        @SerialName("service") val service: String,
-        @SerialName("path") val path: String,
-        @SerialName("method") val method: String,
+        @SerialName("status_code") val statusCode: Int,
         @SerialName("headers") val headers: List<String>,
-    ): ServerMessage()
+    ): ClientMessage()
 
     @Serializable
     @SerialName("http.body")
     data class HttpBody(
         @SerialName("request_id") val requestId: Uuid,
         @SerialName("body") val body: String,
-    ): ServerMessage()
+    ): ClientMessage()
 
     @Serializable
     @SerialName("http.end")
     data class HttpEnd(
         @SerialName("request_id") val requestId: Uuid,
-    ): ServerMessage()
+    ): ClientMessage()
 }
