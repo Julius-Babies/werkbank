@@ -32,8 +32,7 @@ fun Route.tunnel() {
             runCatching {
                 for (frame in incoming) {
                     if (frame is Frame.Text) {
-                        val message = json.decodeFromString<ClientMessage>(frame.readText())
-                        when (message) {
+                        when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
                             is ClientMessage.HttpResponse -> {
                                 val requestId = message.requestId
                                 instance.pendingCalls[requestId]?.send(message)
@@ -65,7 +64,7 @@ class TunnelInstance(
     suspend fun request(
         method: HttpMethod,
         projectName: String,
-        serviceName: String,
+        serviceName: String?,
         path: String,
         headers: Map<String, List<String>>,
         body: ByteReadChannel?,

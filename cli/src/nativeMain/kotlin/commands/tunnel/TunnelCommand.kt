@@ -87,12 +87,29 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                         }
 
                                         val services = project.getWerkbankConfig().services
-                                        val service = services.firstOrNull { service -> service.name == message.service }
-                                        if (service == null) {
-                                            println(buildStyledString {
-                                                red { +"Service ${message.service} not found in project ${message.project}" }
-                                            })
-                                            return@launch
+                                        val service: WerkbankConfig.Project.Service?
+                                        if (message.service != null) {
+                                            val requestedService = services.firstOrNull { service -> service.name == message.service }
+                                            if (requestedService == null) {
+                                                println(buildStyledString {
+                                                    red { +"Service ${message.service} not found in project ${message.project}" }
+                                                })
+                                                return@launch
+                                            }
+                                            service = requestedService
+                                        } else {
+                                            val httpRules = project.getConfig().http
+                                            val requestedService = httpRules.firstNotNullOfOrNull { rule ->
+                                                if (rule.pathPrefixes.none { message.path.startsWith(it) }) return@firstNotNullOfOrNull null
+                                                return@firstNotNullOfOrNull services.firstOrNull { it.name == rule.targetService }
+                                            }
+                                            if (requestedService == null) {
+                                                println(buildStyledString {
+                                                    red { +"No service found for path ${message.path} in project ${message.project}" }
+                                                })
+                                                return@launch
+                                            }
+                                            service = requestedService
                                         }
 
                                         val serviceState = service.serviceState
@@ -100,32 +117,32 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                         when (serviceState) {
                                             WerkbankConfig.Project.Service.ServiceState.Disabled -> {
                                                 println(buildStyledString {
-                                                    red { +"Service ${message.service} is disabled in project ${message.project}" }
+                                                    red { +"Service ${service.name} is disabled in project ${message.project}" }
                                                 })
                                                 return@launch
                                             }
                                             WerkbankConfig.Project.Service.ServiceState.Local -> {
-                                                val port = project.getConfig().services.first { it.name == message.service }.modes.local?.port
+                                                val port = project.getConfig().services.first { it.name == service.name }.modes.local?.port
                                                 if (port == null) {
                                                     println(buildStyledString {
-                                                        red { +"Service ${message.service} has no local port" }
+                                                        red { +"Service ${service.name} has no local port" }
                                                     })
                                                     return@launch
                                                 }
                                                 targetUrl = "http://localhost:$port${message.path}"
                                             }
                                             WerkbankConfig.Project.Service.ServiceState.Docker -> {
-                                                val dockerConfig = project.getConfig().services.first { it.name == message.service }.modes.docker
+                                                val dockerConfig = project.getConfig().services.first { it.name == service.name }.modes.docker
                                                 if (dockerConfig == null) {
                                                     println(buildStyledString {
-                                                        red { +"Service ${message.service} has no docker configuration" }
+                                                        red { +"Service ${service.name} has no docker configuration" }
                                                     })
                                                     return@launch
                                                 }
                                                 val container = project.getContainers().firstOrNull { it.name == dockerConfig.container }?.container
                                                 if (container == null) {
                                                     println(buildStyledString {
-                                                        red { +"Service ${message.service} has no docker container" }
+                                                        red { +"Service ${service.name} has no docker container" }
                                                     })
                                                     return@launch
                                                 }

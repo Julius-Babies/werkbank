@@ -43,46 +43,59 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 return@onCall
             }
 
+            val project: Project
+            val service: Service?
+
             if ('-' in destination) {
                 val (serviceName, projectName) = destination.split('-', limit = 2)
 
-                val project = db.query { Project.find { (Projects.name.lowerCase() eq projectName.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
-                if (project == null) {
+                val requestedProject = db.query { Project.find { (Projects.name.lowerCase() eq projectName.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
+                if (requestedProject == null) {
                     call.respondText("Project not found", status = HttpStatusCode.NotFound)
                     return@onCall
                 }
+                project = requestedProject
 
-                val service = db.query { Service.find { Services.project eq project.id and (Services.serviceKey.lowerCase() eq serviceName.lowercase()) }.firstOrNull() }
-                if (service == null) {
+                val requestedService = db.query { Service.find { Services.project eq project.id and (Services.serviceKey.lowerCase() eq serviceName.lowercase()) }.firstOrNull() }
+                if (requestedService == null) {
                     call.respondText("Service not found", status = HttpStatusCode.NotFound)
                     return@onCall
                 }
-
-                // TODO: Check auth + service openness
-
-                val result = tunnel.request(
-                    method = call.request.httpMethod,
-                    projectName = projectName,
-                    serviceName = serviceName,
-                    path = call.request.uri,
-                    headers = call.request.headers.toMap(),
-                    body = when (call.request.httpMethod) {
-                        HttpMethod.Get -> null
-                        else -> call.receiveChannel()
-                    },
-                    coroutineScope = CoroutineScope(currentCoroutineContext())
-                )
-
-
-                val response = result.await()
-                response.headers.forEach { (key, values) ->
-                    values.forEach { call.response.headers.append(key, it) }
+                service = requestedService
+            } else {
+                val requestedProject = db.query { Project.find { (Projects.name.lowerCase() eq destination.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
+                if (requestedProject == null) {
+                    call.respondText("Project not found", status = HttpStatusCode.NotFound)
+                    return@onCall
                 }
-                call.respondOutputStream(
-                    status = response.status,
-                    producer = { response.body?.copyTo(this) }
-                )
+                project = requestedProject
+                service = null
             }
+
+            // TODO: Check auth + service openness
+
+            val result = tunnel.request(
+                method = call.request.httpMethod,
+                projectName = project.projectKey,
+                serviceName = service?.serviceKey,
+                path = call.request.uri,
+                headers = call.request.headers.toMap(),
+                body = when (call.request.httpMethod) {
+                    HttpMethod.Get -> null
+                    else -> call.receiveChannel()
+                },
+                coroutineScope = CoroutineScope(currentCoroutineContext())
+            )
+
+
+            val response = result.await()
+            response.headers.forEach { (key, values) ->
+                values.forEach { call.response.headers.append(key, it) }
+            }
+            call.respondOutputStream(
+                status = response.status,
+                producer = { response.body?.copyTo(this) }
+            )
         }
     }
 }

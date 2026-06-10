@@ -12,7 +12,7 @@ sealed class ServerMessage {
     data class HttpRequest(
         @SerialName("request_id") val requestId: Uuid,
         @SerialName("project") val project: String,
-        @SerialName("service") val service: String,
+        @SerialName("service") val service: String?,
         @SerialName("path") val path: String,
         @SerialName("method") val method: String,
         @SerialName("headers") val headers: List<String>,
