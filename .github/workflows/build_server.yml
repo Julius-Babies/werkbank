@@ -29,12 +29,15 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          path: web_build
+          path: ./web/web_build
           name: web_build
 
   build-server:
     name: Build Server Application
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./api
     steps:
       - uses: actions/checkout@v6
         name: Checkout
@@ -49,13 +52,13 @@ jobs:
             **/gradle.properties
             **/libs.versions.toml
       - name: Build server
-        run: ./gradlew :api:buildFatJar --no-daemon
+        run: ./gradlew :buildFatJar --no-daemon
       - name: Rename artifact
-        run: mv api/build/libs/api-all.jar server.jar
+        run: mv build/libs/api-all.jar ../server.jar
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          path: server.jar
+          path: ./server.jar
           name: api-fatjar
 
   build-docker:
@@ -81,8 +84,7 @@ jobs:
           path: artifacts
       - name: Build Docker image
         run: |
-          mkdir -p src/api/build/libs
-          cp -r artifacts/web_build/web_build/* ./web/
+          cp -r artifacts/web_build/web_build ./web/
           cp artifacts/api-fatjar/server.jar ./server/
           docker build -t juliusbabies/werkbank-cloud:latest .
       - name: Push Docker image
