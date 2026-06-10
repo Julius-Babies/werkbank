@@ -10,7 +10,7 @@ group = "app.werkbank"
 version = "1.0.0-SNAPSHOT"
 
 application {
-    mainClass = "app.werkbank.ApplicationKt"
+    mainClass = "app.werkbank.MainKt"
 }
 
 kotlin {
