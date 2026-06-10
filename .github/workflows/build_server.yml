@@ -21,7 +21,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          path: web/web_build
+          path: web_build
           name: web_build
 
   build-server:
@@ -50,7 +50,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: server.jar
-          name: server.jar
+          name: api-fatjar
 
   build-docker:
     runs-on: ubuntu-latest
@@ -70,7 +70,13 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Download artifacts
         uses: actions/download-artifact@v7
+        with:
+          path: artifacts
       - name: Build Docker image
-        run: docker build -t juliusbabies/werkbank-cloud:latest .
+        run: |
+          mkdir -p src/api/build/libs
+          cp artifacts/web_build/web_build ./web/
+          cp artifacts/api-fatjar/server.jar ./server/
+          docker build -t juliusbabies/werkbank-cloud:latest .
       - name: Push Docker image
         run: docker push juliusbabies/werkbank-cloud:latest
