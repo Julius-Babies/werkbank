@@ -10,7 +10,7 @@
     import {env} from "$env/dynamic/public";
 
     const authentiktConfiguration: AuthentiktConfiguration = {
-        baseUrl: "https://" + env.PUBLIC_BASE_DOMAIN + "/api/authentikt/",
+        baseUrl: env.PUBLIC_BASE_URL + "/api/authentikt/",
         // debug: {show_overlay: false},
         debug: false
     }

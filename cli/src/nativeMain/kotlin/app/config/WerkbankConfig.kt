@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class WerkbankConfig(
+    @SerialName("werkbank-cloud-domain") val werkbankCloudDomain: String = "wbspace.app",
     @SerialName("projects") val projects: List<Project>? = null,
     @SerialName("android-dns") val androidDns: AndroidDnsConfig = AndroidDnsConfig(),
     @SerialName("keycloak") val keycloak: KeycloakConfig = KeycloakConfig(),

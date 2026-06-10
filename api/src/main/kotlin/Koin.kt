@@ -17,7 +17,9 @@ import org.koin.ktor.plugin.Koin
 import org.koin.logger.slf4jLogger
 import java.io.File
 
-fun Application.configureKoin() {
+fun Application.configureKoin(
+    storageRoot: File
+) {
     install(Koin) {
         slf4jLogger()
         modules(module {
@@ -28,7 +30,7 @@ fun Application.configureKoin() {
                     ignoreUnknownKeys = true
                 }
 
-                val configFile = File("./data/config.json")
+                val configFile = storageRoot.resolve(File("./data/config.json"))
                 val config: AppConfig = json.decodeFromString(configFile.readText())
                 config
             }

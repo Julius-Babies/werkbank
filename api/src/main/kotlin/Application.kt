@@ -8,10 +8,13 @@ import io.ktor.serialization.kotlinx.*
 import io.ktor.server.application.*
 import io.ktor.server.plugins.calllogging.*
 import io.ktor.server.websocket.*
+import java.io.File
 import kotlin.time.Duration.Companion.seconds
 
-fun Application.rootModule() {
-    configureKoin()
+fun Application.rootModule(
+    storageRoot: File
+) {
+    configureKoin(storageRoot)
     configureSerialization()
     installAuthentikt()
     installAuthorization()

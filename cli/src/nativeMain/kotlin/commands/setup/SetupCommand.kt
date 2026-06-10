@@ -8,7 +8,6 @@ import app.repository.ProjectRepository
 import app.werkbank.shared.Werkbankfile
 import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
-import com.github.ajalt.clikt.command.main
 import es.jvbabi.kfile.File
 import http.httpClient
 import io.ktor.client.request.bearerAuth
@@ -79,7 +78,7 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
         if (mainConfig.getConfig().auth != null && !werkbankFile.disallowCloud) {
             println(buildStyledString { gray { +"Uploading Werkbankfile" } })
             val client = httpClient()
-            val response = client.post("https://werkbank.werkbank.space/api/projects") {
+            val response = client.post("https://${mainConfig.getConfig().werkbankCloudDomain}/api/projects") {
                 contentType(ContentType.Application.Json)
                 setBody(werkbankFile)
                 bearerAuth(mainConfig.getConfig().auth!!.bearer)

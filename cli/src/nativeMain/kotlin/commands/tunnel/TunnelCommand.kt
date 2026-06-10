@@ -44,7 +44,7 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
         while (true) {
             try {
                 httpClient().webSocket(
-                    urlString = "wss://werkbank.werkbank.space/api/tunnel",
+                    urlString = "wss://${mainConfig.getConfig().werkbankCloudDomain}/api/tunnel",
                     request = {
                         bearerAuth(authToken)
                     }

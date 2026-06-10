@@ -35,7 +35,7 @@ class LoginCommand : SuspendingCliktCommand("login"), KoinComponent {
         val client = httpClient()
 
         val deviceCodeResponse = client.submitForm(
-            url = "https://werkbank.werkbank.space/oauth/device/code",
+            url = "https://${mainConfig.getConfig().werkbankCloudDomain}/oauth/device/code",
             formParameters = Parameters.build {
                 append("client_id", "werkbank-cli")
                 append("scope", "openid profile email")
@@ -79,7 +79,7 @@ class LoginCommand : SuspendingCliktCommand("login"), KoinComponent {
 
         while (true) {
             val response = client.submitForm(
-                url = "https://werkbank.werkbank.space/oauth/token",
+                url = "https://${mainConfig.getConfig().werkbankCloudDomain}/oauth/token",
                 formParameters = Parameters.build {
                     append(
                         "grant_type",
@@ -130,7 +130,7 @@ class LoginCommand : SuspendingCliktCommand("login"), KoinComponent {
                 println()
                 val body = response.body<TokenResponse>()
 
-                val meResponse = client.get("https://werkbank.werkbank.space/api/me") {
+                val meResponse = client.get("https://${mainConfig.getConfig().werkbankCloudDomain}/api/me") {
                     bearerAuth(body.accessToken)
                 }
                 val meResponseBody = meResponse.body<MeResponse>()
