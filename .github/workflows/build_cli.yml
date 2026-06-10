@@ -5,6 +5,7 @@ on:
       - main
     paths:
       - 'cli/**'
+      - '.github/workflows/build_cli.yml'
   workflow_dispatch: {}
 
 jobs:

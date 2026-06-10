@@ -6,6 +6,7 @@ on:
     paths:
       - 'web/**'
       - 'api/**'
+      - '.github/workflows/build_server.yml'
   workflow_dispatch: {}
 
 jobs:
