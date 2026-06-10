@@ -49,7 +49,7 @@ jobs:
             **/gradle.properties
             **/libs.versions.toml
       - name: Build server
-        run: ./gradlew :buildFatJar --no-daemon
+        run: ./gradlew :api:buildFatJar --no-daemon
       - name: Rename artifact
         run: mv api/build/libs/api-all.jar server.jar
       - name: Upload artifact
