@@ -30,7 +30,7 @@ fun Application.configureKoin(
                     ignoreUnknownKeys = true
                 }
 
-                val configFile = storageRoot.resolve(File("./data/config.json"))
+                val configFile = storageRoot.resolve(File("config.json"))
                 val config: AppConfig = json.decodeFromString(configFile.readText())
                 config
             }
