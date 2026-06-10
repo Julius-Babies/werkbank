@@ -82,6 +82,9 @@ jobs:
     name: Create Release
     needs: [ build, setup ]
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v7

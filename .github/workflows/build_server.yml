@@ -82,7 +82,7 @@ jobs:
       - name: Build Docker image
         run: |
           mkdir -p src/api/build/libs
-          cp artifacts/web_build/web_build ./web/
+          cp -r artifacts/web_build/web_build/* ./web/
           cp artifacts/api-fatjar/server.jar ./server/
           docker build -t juliusbabies/werkbank-cloud:latest .
       - name: Push Docker image
