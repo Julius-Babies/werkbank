@@ -37,7 +37,7 @@ jobs:
             gradle-task: ":cli:linkReleaseExecutableLinuxArm64"
             artifact-path: "cli/build/bin/linuxArm64/releaseExecutable/cli.kexe"
 
-          - os: macos-14
+          - os: macos-latest
             name: macos-arm64
             gradle-task: ":cli:linkReleaseExecutableMacosArm64"
             artifact-path: "cli/build/bin/macosArm64/releaseExecutable/cli.kexe"
@@ -65,7 +65,7 @@ jobs:
       - run: mkdir out
 
       - name: Rename artifact
-        run: mv ${{ matrix.artifact-path }} out/cli-${{ matrix.name }
+        run: mv ${{ matrix.artifact-path }} out/cli-${{ matrix.name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
