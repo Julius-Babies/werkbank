@@ -1,0 +1,92 @@
+name: build_cli.yml
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      build_tag: ${{ steps.vars.outputs.build_tag }}
+      build_timestamp: ${{ steps.vars.outputs.build_timestamp }}
+      date_formatted: ${{ steps.vars.outputs.date_formatted }}
+    steps:
+      - name: Generate vars
+        id: vars
+        run: |
+          TIMESTAMP=$(date +%s)
+          TAG=$(date -d @$TIMESTAMP '+%Y%m%d_%H%M')
+          DATE_FORMATTED=$(date -d @$TIMESTAMP '+%d.%m.%Y %H:%M')
+          echo "build_timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "build_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "date_formatted=$DATE_FORMATTED" >> $GITHUB_OUTPUT
+
+
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+            gradle-task: ":cli:linkReleaseExecutableLinuxX64"
+            artifact-path: "cli/build/bin/linuxX64/releaseExecutable/cli.kexe"
+
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            gradle-task: ":cli:linkReleaseExecutableLinuxArm64"
+            artifact-path: "cli/build/bin/linuxArm64/releaseExecutable/cli.kexe"
+
+          - os: macos-latest
+            arch: arm64
+            gradle-task: ":cli:linkReleaseExecutableMacosArm64"
+            artifact-path: "cli/build/bin/macosArm64/releaseExecutable/cli.kexe"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '26'
+          cache: 'gradle'
+          cache-dependency-path: |
+            **/*.gradle.kts
+            **/gradle.properties
+            **/libs.versions.toml
+
+      - name: Build CLI
+        run: ./gradlew ${{ matrix.gradle-task }} --no-daemon
+
+      - run: mkdir out
+
+      - name: Rename artifact
+        run: mv ${{ matrix.artifact-path }} out/cli-${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.os }}-${{ matrix.arch }}
+          path: out/cli-${{ matrix.os }}-${{ matrix.arch }}
+
+  release:
+    needs: [ build, setup ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v7
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: cli-*
+          draft: false
+          prerelease: false
+          make_latest: true
+          name: Trails (${{ needs.setup.outputs.date_formatted }})
+          fail_on_unmatched_files: true
+          tag_name: v${{ needs.setup.outputs.build_tag }}
