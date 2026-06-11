@@ -7,10 +7,13 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
+import io.ktor.server.websocket.*
 import io.ktor.util.*
 import io.ktor.utils.io.jvm.javaio.*
+import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.lowerCase
@@ -75,28 +78,70 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
 
             // TODO: Check auth + service openness
 
-            val result = tunnel.request(
-                method = call.request.httpMethod,
-                projectName = project.projectKey,
-                serviceName = service?.serviceKey,
-                path = call.request.uri,
-                headers = call.request.headers.toMap(),
-                body = when (call.request.httpMethod) {
-                    HttpMethod.Get -> null
-                    else -> call.receiveChannel()
-                },
-                coroutineScope = CoroutineScope(currentCoroutineContext())
-            )
+            val isWebSocket = call.request.httpMethod == HttpMethod.Get &&
+                call.request.headers["Upgrade"]?.lowercase() == "websocket"
+
+            if (isWebSocket) {
+                val wsProxy = tunnel.wsProxy(
+                    projectName = project.projectKey,
+                    serviceName = service?.serviceKey,
+                    path = call.request.uri,
+                    headers = call.request.headers.toMap(),
+                )
+
+                call.respond(WebSocketUpgrade(call) {
+                    launch {
+                        for (frame in incoming) {
+                            when (frame) {
+                                is Frame.Text -> wsProxy.send(Frame.Text(frame.readText()))
+                                is Frame.Binary -> wsProxy.send(Frame.Binary(true, frame.readBytes()))
+                                is Frame.Close -> {
+                                    wsProxy.send(frame.readReason()?.let { Frame.Close(it) } ?: Frame.Close())
+                                    break
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
+
+                    launch {
+                        for (frame in wsProxy.incomingFrames) {
+                            when (frame) {
+                                is Frame.Text -> send(Frame.Text(frame.readText()))
+                                is Frame.Binary -> send(Frame.Binary(true, frame.readBytes()))
+                                is Frame.Close -> {
+                                    close(frame.readReason() ?: CloseReason(1000, ""))
+                                    break
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
+                })
+            } else {
+                val result = tunnel.request(
+                    method = call.request.httpMethod,
+                    projectName = project.projectKey,
+                    serviceName = service?.serviceKey,
+                    path = call.request.uri,
+                    headers = call.request.headers.toMap(),
+                    body = when (call.request.httpMethod) {
+                        HttpMethod.Get -> null
+                        else -> call.receiveChannel()
+                    },
+                    coroutineScope = CoroutineScope(currentCoroutineContext())
+                )
 
 
-            val response = result.await()
-            response.headers.forEach { (key, values) ->
-                values.forEach { call.response.headers.append(key, it) }
+                val response = result.await()
+                response.headers.forEach { (key, values) ->
+                    values.forEach { call.response.headers.append(key, it) }
+                }
+                call.respondOutputStream(
+                    status = response.status,
+                    producer = { response.body?.copyTo(this) }
+                )
             }
-            call.respondOutputStream(
-                status = response.status,
-                producer = { response.body?.copyTo(this) }
-            )
         }
     }
 }

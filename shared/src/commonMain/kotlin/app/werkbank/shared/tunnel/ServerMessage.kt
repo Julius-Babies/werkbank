@@ -30,4 +30,36 @@ sealed class ServerMessage {
     data class HttpEnd(
         @SerialName("request_id") val requestId: Uuid,
     ): ServerMessage()
+
+    @Serializable
+    @SerialName("ws.open")
+    data class WsOpen(
+        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("project") val project: String,
+        @SerialName("service") val service: String?,
+        @SerialName("path") val path: String,
+        @SerialName("headers") val headers: List<String>,
+    ): ServerMessage()
+
+    @Serializable
+    @SerialName("ws.text")
+    data class WsText(
+        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("text") val text: String,
+    ): ServerMessage()
+
+    @Serializable
+    @SerialName("ws.binary")
+    data class WsBinary(
+        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("body") val body: String,
+    ): ServerMessage()
+
+    @Serializable
+    @SerialName("ws.close")
+    data class WsClose(
+        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("code") val code: Int,
+        @SerialName("reason") val reason: String,
+    ): ServerMessage()
 }

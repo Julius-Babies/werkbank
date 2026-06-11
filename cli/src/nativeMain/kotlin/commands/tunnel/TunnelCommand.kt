@@ -55,6 +55,7 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
         }
 
         val requestBodies = mutableMapOf<Uuid, ByteWriteChannel>()
+        val wsProxyState = mutableMapOf<Uuid, DefaultClientWebSocketSession>()
 
         while (true) {
             try {
@@ -63,7 +64,8 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                     request = {
                         bearerAuth(authToken)
                     }
-                ) {
+                ) serverSession@{
+
                     println(buildStyledString { green { +"Connected to your werkbank cloud tunnel" } })
                     for (message in incoming) {
                         if (message is Frame.Text) {
@@ -233,6 +235,134 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                     launch {
                                         requestBodies[message.requestId]?.flushAndClose()
                                         requestBodies.remove(message.requestId)
+                                    }
+                                }
+                                is ServerMessage.WsOpen -> {
+                                    launch {
+                                        val project = projectRepository.getById(message.project)
+                                        if (project == null) {
+                                            println(buildStyledString {
+                                                red { +"Project ${message.project} not found in config" }
+                                            })
+                                            return@launch
+                                        }
+
+                                        val services = project.getWerkbankConfig().services
+                                        val service: WerkbankConfig.Project.Service?
+                                        if (message.service != null) {
+                                            val requestedService = services.firstOrNull { service -> service.name == message.service }
+                                            if (requestedService == null) {
+                                                println(buildStyledString {
+                                                    red { +"Service ${message.service} not found in project ${message.project}" }
+                                                })
+                                                return@launch
+                                            }
+                                            service = requestedService
+                                        } else {
+                                            val httpRules = project.getConfig().http
+                                            val requestedService = httpRules.firstNotNullOfOrNull { rule ->
+                                                if (rule.pathPrefixes.none { message.path.startsWith(it) }) return@firstNotNullOfOrNull null
+                                                return@firstNotNullOfOrNull services.firstOrNull { it.name == rule.targetService }
+                                            }
+                                            if (requestedService == null) {
+                                                println(buildStyledString {
+                                                    red { +"No service found for path ${message.path} in project ${message.project}" }
+                                                })
+                                                return@launch
+                                            }
+                                            service = requestedService
+                                        }
+
+                                        val serviceState = service.serviceState
+                                        val targetUrl: String
+                                        when (serviceState) {
+                                            WerkbankConfig.Project.Service.ServiceState.Disabled -> {
+                                                println(buildStyledString {
+                                                    red { +"Service ${service.name} is disabled in project ${message.project}" }
+                                                })
+                                                return@launch
+                                            }
+                                            WerkbankConfig.Project.Service.ServiceState.Local -> {
+                                                val port = project.getConfig().services.first { it.name == service.name }.modes.local?.port
+                                                if (port == null) {
+                                                    println(buildStyledString {
+                                                        red { +"Service ${service.name} has no local port" }
+                                                    })
+                                                    return@launch
+                                                }
+                                                targetUrl = "ws://localhost:$port${message.path}"
+                                            }
+                                            WerkbankConfig.Project.Service.ServiceState.Docker -> {
+                                                val dockerConfig = project.getConfig().services.first { it.name == service.name }.modes.docker
+                                                if (dockerConfig == null) {
+                                                    println(buildStyledString {
+                                                        red { +"Service ${service.name} has no docker configuration" }
+                                                    })
+                                                    return@launch
+                                                }
+                                                val container = project.getContainers().firstOrNull { it.name == dockerConfig.container }?.container
+                                                if (container == null) {
+                                                    println(buildStyledString {
+                                                        red { +"Service ${service.name} has no docker container" }
+                                                    })
+                                                    return@launch
+                                                }
+                                                targetUrl = "ws://${dockerClient.containers.inspectContainer(container.getId()!!).networkSettings.networks.values.first().ipAddress}:${dockerConfig.port}${message.path}"
+                                            }
+                                        }
+
+                                        println(buildStyledString {
+                                            green { +"WebSocket: ${message.path}" }
+                                            +" -> "
+                                            gray { +targetUrl }
+                                        })
+
+                                        httpClient().webSocket(urlString = targetUrl) {
+                                            wsProxyState[message.requestId] = this
+                                            this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
+                                                requestId = message.requestId
+                                            ))
+
+                                            for (frame in incoming) {
+                                                when (frame) {
+                                                    is Frame.Text -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
+                                                        requestId = message.requestId,
+                                                        text = frame.readText()
+                                                    ))
+                                                    is Frame.Binary -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsBinary(
+                                                        requestId = message.requestId,
+                                                        body = Base64.encode(frame.readBytes())
+                                                    ))
+                                                    is Frame.Close -> {
+                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                            requestId = message.requestId,
+                                                            code = frame.readReason()?.code?.toInt() ?: 1000,
+                                                            reason = frame.readReason()?.message ?: ""
+                                                        ))
+                                                        break
+                                                    }
+                                                    else -> {}
+                                                }
+                                            }
+                                        }
+
+                                        wsProxyState.remove(message.requestId)
+                                    }
+                                }
+                                is ServerMessage.WsText -> {
+                                    launch {
+                                        wsProxyState[message.requestId]?.send(Frame.Text(message.text))
+                                    }
+                                }
+                                is ServerMessage.WsBinary -> {
+                                    launch {
+                                        wsProxyState[message.requestId]?.send(Frame.Binary(true, Base64.decode(message.body)))
+                                    }
+                                }
+                                is ServerMessage.WsClose -> {
+                                    launch {
+                                        wsProxyState[message.requestId]?.close(CloseReason(message.code.toShort(), message.reason))
+                                        wsProxyState.remove(message.requestId)
                                     }
                                 }
                             }

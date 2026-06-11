@@ -28,6 +28,8 @@ http:
     domains: null
     external_domains:
       - "**.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
+      - "**.localwb.space"
+      - "**.werkbank.werkbank.space"
     target_service: api
     priority: 50
   - description: "Werkbank Cloud UI"
@@ -35,7 +37,9 @@ http:
       - /
     external_domains:
       - "*.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
+      - "*.werkbank.werkbank.space"
       - "wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
+      - "*.localwb.space"
     target_service: ui
     priority: 100
 
