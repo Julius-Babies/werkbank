@@ -66,4 +66,9 @@ tasks.register<Jar>("fatJar") {
     with(tasks.jar.get() as CopySpec)
 
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    exclude("META-INF/*.SF")
+    exclude("META-INF/*.DSA")
+    exclude("META-INF/*.RSA")
+    exclude("META-INF/*.EC")
 }
