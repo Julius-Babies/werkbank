@@ -1,9 +1,10 @@
-package app.werkbank.app.certificates
+package app.certificates
 
 import app.werkbank.APP_STORAGE_ROOT_QUALIFIER
 import app.werkbank.config.AppConfig
 import com.kgit2.kommand.process.Command
 import com.kgit2.kommand.process.Stdio
+import io.opentelemetry.kotlin.tracing.Span
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
@@ -87,7 +88,12 @@ class LocalCertificateManager: CertificateManager, KoinComponent {
         }
     }
 
-    override suspend fun requestCertificate(domains: List<String>, targetCertFile: File, targetKeyFile: File) {
+    override suspend fun requestCertificate(
+        span: Span,
+        domains: List<String>,
+        targetCertFile: File,
+        targetKeyFile: File
+    ) {
         val privateKeyResult = Command("openssl")
             .args(
                 "genpkey",

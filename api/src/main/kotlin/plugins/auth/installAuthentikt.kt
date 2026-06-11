@@ -1,6 +1,6 @@
 package app.werkbank.plugins.auth
 
-import app.werkbank.app.certificates.CertificateManager
+import app.queue.certificate.CertificateQueue
 import app.werkbank.app.dns.DnsManager
 import app.werkbank.app.login.redirectAttribute
 import app.werkbank.config.AppConfig
@@ -56,7 +56,7 @@ fun Application.installAuthentikt() {
     val appConfig by inject<AppConfig>()
     val db by inject<DatabaseManager>()
     val dnsManager by inject<DnsManager>()
-    val certificateManager by inject<CertificateManager>()
+    val certificateQueue by inject<CertificateQueue>()
 
     val authentikt = installAuthentikt {
         baseUrl = "https://${appConfig.appDomain}"
@@ -96,25 +96,13 @@ fun Application.installAuthentikt() {
                     return@run existingUser
                 }
 
-//                if (db.query { user.certificates.empty() }) {
-//                    val id = Uuid.random()
-//                    val certificateFile = File(System.getProperty("java.io.tmpdir"), "certificate-$id.crt")
-//                    val keyFile = File(System.getProperty("java.io.tmpdir"), "key-$id.key")
-//
-//                    certificateManager.requestCertificate(
-//                        domains = listOf("*.$userDomain"),
-//                        targetCertFile = certificateFile,
-//                        targetKeyFile = keyFile,
-//                    )
-//
-//                    db.query {
-//                        Certificate.new {
-//                            this.user = user
-//                            this.privateKey = ExposedBlob(keyFile.readBytes())
-//                            this.certificate = ExposedBlob(certificateFile.readBytes())
-//                        }
-//                    }
-//                }
+                if (db.query { user.certificates.empty() }) {
+                    certificateQueue.submit(CertificateQueue.Request(
+                        domains = listOf("*.$userDomain"),
+                        createdAt = Clock.System.now(),
+                        targetUser = user,
+                    ))
+                }
 
                 return@onUserInfo UserInfo.Result.Success(user.toAuthentiktUser())
             }

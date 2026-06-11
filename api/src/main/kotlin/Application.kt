@@ -1,5 +1,7 @@
-package app.werkbank
-
+import app.queue.certificate.CertificateQueue
+import app.werkbank.configureKoin
+import app.werkbank.configureRouting
+import app.werkbank.configureSerialization
 import app.werkbank.plugins.auth.installAuthentikt
 import app.werkbank.plugins.auth.installAuthorization
 import app.werkbank.plugins.proxy.SubdomainHandler
@@ -9,6 +11,9 @@ import io.ktor.server.application.*
 import io.ktor.server.plugins.calllogging.*
 import io.ktor.server.request.*
 import io.ktor.server.websocket.*
+import kotlinx.coroutines.launch
+import org.koin.ktor.ext.inject
+import plugins.configureOpenTelemetry
 import java.io.File
 import kotlin.time.Duration.Companion.seconds
 
@@ -33,9 +38,13 @@ fun Application.rootModule(
         contentConverter = KotlinxWebsocketSerializationConverter(json)
     }
     configureRouting()
+    configureOpenTelemetry()
     install(CallLogging) {
         format { call ->
             "${call.request.httpMethod.value} ${call.request.host()}${call.request.uri}: ${call.response.status()} in ${call.processingTimeMillis()}ms"
         }
     }
+
+    val certificateQueue by inject<CertificateQueue>()
+    launch { certificateQueue.start() }
 }

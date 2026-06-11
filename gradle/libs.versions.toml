@@ -16,6 +16,7 @@ authentikt = "0.4.4"
 table-tui = "0.1.1"
 acme-client = "5.1.0"
 gson = "2.14.0"
+opentelemetry-kotlin = "0.4.0"
 
 [libraries]
 clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
@@ -40,6 +41,9 @@ authentikt = { module = "es.jvbabi.authentikt:core", version.ref = "authentikt" 
 table-tui = { module = "io.github.julius-babies:table-tui", version.ref = "table-tui" }
 acme-client = { module = "org.shredzone.acme4j:acme4j-client", version.ref = "acme-client" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+opentelemetry-core = { module = "io.opentelemetry.kotlin:core", version.ref = "opentelemetry-kotlin" }
+opentelemetry-implementation = { module = "io.opentelemetry.kotlin:implementation", version.ref = "opentelemetry-kotlin" }
+opentelemetry-exporter-otlp = { module = "io.opentelemetry.kotlin:exporters-otlp", version.ref = "opentelemetry-kotlin" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

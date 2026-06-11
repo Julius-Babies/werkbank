@@ -14,6 +14,7 @@ data class AppConfig(
     @SerialName("dns") val dns: Dns,
     @SerialName("cloudflare") val cloudflare: Cloudflare? = null,
     @SerialName("tls") val tls: Tls,
+    @SerialName("otel") val otel: Otel,
 ) {
     @Serializable
     data class Database(
@@ -69,6 +70,19 @@ data class AppConfig(
         data class LetsEncrypt(
             @SerialName("keypair_path") val keypairPath: String,
             @SerialName("email") val email: String,
-        ): Tls()
+            @SerialName("mode") val mode: Mode,
+        ): Tls() {
+            @Serializable
+            enum class Mode {
+                @SerialName("staging") Staging,
+                @SerialName("production") Production,
+            }
+        }
     }
+
+    @Serializable
+    data class Otel(
+        @SerialName("endpoint") val endpoint: String,
+        @SerialName("service_name") val serviceName: String,
+    )
 }

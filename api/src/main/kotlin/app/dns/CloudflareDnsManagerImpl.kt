@@ -50,7 +50,7 @@ class CloudflareDnsManagerImpl: DnsManager, KoinComponent {
 
     override suspend fun createTxtRecord(domain: String, content: String) {
         val existing = getExistingDomains()
-            .firstOrNull { it.name.equals(domain, ignoreCase = true) && it.type == "TXT" }
+            .firstOrNull { it.name.equals(domain.removeSuffix("."), ignoreCase = true) && it.type == "TXT" }
 
         if (existing == null) {
             createCloudflareTxtRecord(domain, content)

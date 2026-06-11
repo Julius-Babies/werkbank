@@ -46,3 +46,4 @@ dependencies:
   postgres:
     18:
       databases: []
+  jaeger: true

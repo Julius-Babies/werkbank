@@ -17,6 +17,7 @@ kotlin {
     jvmToolchain(26)
     compilerOptions {
         freeCompilerArgs.add("-Xskip-prerelease-check")
+        optIn.add("io.opentelemetry.kotlin.ExperimentalApi")
     }
 }
 dependencies {
@@ -45,6 +46,9 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.authentikt)
     implementation(libs.acme.client)
+    implementation(libs.opentelemetry.core)
+    implementation(libs.opentelemetry.implementation)
+    implementation(libs.opentelemetry.exporter.otlp)
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.server.testHost)

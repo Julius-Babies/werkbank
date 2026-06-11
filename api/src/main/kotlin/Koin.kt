@@ -1,8 +1,9 @@
 package app.werkbank
 
-import app.werkbank.app.certificates.CertificateManager
-import app.werkbank.app.certificates.LetsEncryptCertificateManager
-import app.werkbank.app.certificates.LocalCertificateManager
+import app.certificates.CertificateManager
+import app.certificates.LetsEncryptCertificateManager
+import app.certificates.LocalCertificateManager
+import app.queue.certificate.CertificateQueue
 import app.werkbank.app.dns.CloudflareDnsManagerImpl
 import app.werkbank.app.dns.DnsManager
 import app.werkbank.app.dns.LocalHostsDnsManagerImpl
@@ -10,11 +11,16 @@ import app.werkbank.app.dns.local.SudoManager
 import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.config.AppConfig
 import app.werkbank.database.DatabaseManager
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.serialization.kotlinx.json.json
+import io.ktor.client.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
+import io.opentelemetry.kotlin.OpenTelemetry
+import io.opentelemetry.kotlin.createOpenTelemetry
+import io.opentelemetry.kotlin.tracing.Tracer
+import io.opentelemetry.kotlin.tracing.export.batchSpanProcessor
+import io.opentelemetry.kotlin.tracing.export.otlpHttpSpanExporter
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.koin.core.qualifier.named
@@ -57,6 +63,28 @@ fun Application.configureKoin(
                 }
             }
 
+            single {
+                val config: AppConfig = get()
+                createOpenTelemetry {
+                    serviceName = config.otel.serviceName
+                    tracerProvider {
+                        export {
+                            batchSpanProcessor(
+                                otlpHttpSpanExporter(config.otel.endpoint)
+                            )
+                        }
+                    }
+                }
+            }
+
+            single<Tracer> {
+                val openTelemetry: OpenTelemetry = get()
+                openTelemetry.tracerProvider.getTracer(
+                    name = "werkbank",
+                    version = "0.0.1"
+                )
+            }
+
             single { SudoManager() }
             single<DnsManager> {
                 val config: AppConfig = get()
@@ -72,6 +100,7 @@ fun Application.configureKoin(
                     }.also { it.init() }
                 }
             }
+            single { CertificateQueue() }
 
             single { TunnelManager() }
         })

@@ -10,6 +10,7 @@ import com.github.ajalt.clikt.parameters.types.path
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import kotlinx.coroutines.runBlocking
+import rootModule
 import java.io.File
 
 fun main(args: Array<String>) {
