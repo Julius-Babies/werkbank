@@ -25,4 +25,8 @@ class DatabaseManager(
         @Suppress("DEPRECATION")
         return newSuspendedTransaction(Dispatchers.IO, database) { block() }
     }
+
+    fun <T> queryBlocking(block: Transaction.() -> T): T {
+        return transaction(database) { block() }
+    }
 }

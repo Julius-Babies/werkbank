@@ -1,5 +1,6 @@
 package app.werkbank
 
+import app.certificates.ServerKeyManager
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.command.main
 import com.github.ajalt.clikt.parameters.options.default
@@ -9,6 +10,8 @@ import com.github.ajalt.clikt.parameters.options.validate
 import com.github.ajalt.clikt.parameters.types.path
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
+import io.netty.handler.ssl.OptionalSslHandler
+import io.netty.handler.ssl.SslContextBuilder
 import kotlinx.coroutines.runBlocking
 import rootModule
 import java.io.File
@@ -19,7 +22,7 @@ fun main(args: Array<String>) {
     }
 }
 
-class AppCommand: SuspendingCliktCommand("server") {
+class AppCommand : SuspendingCliktCommand("server") {
     val storageDirectory by option("--storage-directory", help = "Path to store data in")
         .path(mustExist = true, mustBeWritable = true, mustBeReadable = true)
         .default(File("./data").toPath())
@@ -33,11 +36,21 @@ class AppCommand: SuspendingCliktCommand("server") {
 
     override suspend fun run() {
 
+        val sslContext = SslContextBuilder
+            .forServer(ServerKeyManager())
+            .build()
+
         embeddedServer(
             factory = Netty,
-            port = port.toInt(),
-            host = bindHost ?: "0.0.0.0",
-            module = { rootModule(storageDirectory.toFile()) }
-        ).start(wait = true)
+            configure = {
+                connector {
+                    host = this@AppCommand.bindHost ?: "0.0.0.0"
+                    port = this@AppCommand.port.toInt()
+                }
+                channelPipelineConfig = {
+                    addFirst(OptionalSslHandler(sslContext))
+                }
+            },
+            module = { rootModule(storageDirectory.toFile()) }).start(wait = true)
     }
 }
