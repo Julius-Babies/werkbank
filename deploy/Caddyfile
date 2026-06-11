@@ -1,25 +1,33 @@
 :80 {
     log
 
-    # Subdomains -> API always
-    @subdomains host *.BASE_DOMAIN
-    handle @subdomains {
+    # 1. Match deep subdomains (2+ levels, e.g., sub.sub.BASE_DOMAIN)
+    # This looks for at least two dots before the BASE_DOMAIN
+    @deep_subdomains header_regexp host Host `^([^.]+\.){2,}BASE_DOMAIN$`
+
+    handle @deep_subdomains {
         reverse_proxy localhost:8080
     }
 
-    # Base domain -> split by path
-    @api path /api*
-    @oauth path /oauth*
+    # 2. Match base domain and first-level subdomains only (e.g., BASE_DOMAIN or sub.BASE_DOMAIN)
+    # This ensures we capture both, but exclude the deep subdomains handled above
+    @base_and_first_level host BASE_DOMAIN *.BASE_DOMAIN
 
-    handle @api {
-        reverse_proxy localhost:8080
+    handle @base_and_first_level {
+        # Inside here, route by path
+        @api_oauth path /api* /oauth*
+
+        handle @api_oauth {
+            reverse_proxy localhost:8080
+        }
+
+        # Fallback for everything else on base/first-level
+        handle {
+            reverse_proxy localhost:3000
+        }
     }
 
-    handle @oauth {
-        reverse_proxy localhost:8080
-    }
-
-    # everything else on base -> UI
+    # 3. Catch-all fallback (Optional, but good practice)
     handle {
         reverse_proxy localhost:3000
     }
