@@ -175,6 +175,8 @@
                                         <span class="text-red-500">Tunnel inactive</span>
                                     {/if}
                                 </span>
+                            {:else}
+                                loading tunnel state
                             {/if}
                         </div>
                     </div>

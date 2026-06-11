@@ -26,6 +26,7 @@ export default function () {
 
             webSocket.onclose = (event) => {
                 if (!event.wasClean) {
+                    tunnelState.set(null);
                     console.log("WebSocket connection closed unexpectedly");
                     setTimeout(() => connect(), 5000);
                 }
