@@ -21,7 +21,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
     val db by application.inject<DatabaseManager>()
 
     val suffix = appConfig.domainSuffix
-    val regex = Regex(".+\\.${suffix.replace(".", "\\.")}")
+    val regex = Regex("(.+\\.){2}${suffix.replace(".", "\\.")}")
 
     onCall { call ->
         val host = call.request.host()

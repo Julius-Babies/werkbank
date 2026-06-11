@@ -40,6 +40,14 @@ class LocalHostsDnsManagerImpl(
         writeWithSudo(hostsFile.absolutePath, newContent)
     }
 
+    override suspend fun createTxtRecord(domain: String, content: String) {
+        // TXT records are not supported in /etc/hosts; skipped on local.
+    }
+
+    override suspend fun deleteTxtRecord(domain: String) {
+        // TXT records are not supported in /etc/hosts; skipped on local.
+    }
+
     override suspend fun deleteRecord(domain: String) {
         val hostsFile = File("/etc/hosts")
         if (!hostsFile.exists()) return

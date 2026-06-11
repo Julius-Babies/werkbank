@@ -62,7 +62,7 @@ data class Werkbankfile(
     @Serializable
     data class Http(
         @SerialName("path_prefixes") val pathPrefixes: List<String> = listOf("/"),
-        @SerialName("domains") val domains: List<String> = emptyList(),
+        @SerialName("domains") val domains: List<String>? = emptyList(),
         @SerialName("external_domains") val externalDomains: List<String> = emptyList(),
         @SerialName("target_service") val targetService: String,
         @SerialName("priority") val priority: Int? = null,

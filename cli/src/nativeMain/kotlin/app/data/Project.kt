@@ -63,7 +63,7 @@ data class Project(
         val domain = id.lowercase() + ".werkbank.space"
         hostsManager.addHost(domain)
         getConfig().http
-            .flatMap { it.domains }
+            .flatMap { it.domains.orEmpty() }
             .filterNot { it.isBlank() }
             .distinct()
             .map { if (it.endsWith(".$domain")) it else "$it.$domain" }
@@ -81,7 +81,7 @@ data class Project(
             privateKeyFile = privateKeyFile,
             mainDomain = id.lowercase() + ".werkbank.space",
             altDomains = getConfig().http
-                .flatMap { it.domains }
+                .flatMap { it.domains.orEmpty() }
                 .filterNot { it.isBlank() }
                 .distinct()
                 .map { if (it.endsWith(".$mainDomain")) it else "$it.$mainDomain" }

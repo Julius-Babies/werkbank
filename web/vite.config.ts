@@ -7,7 +7,9 @@ export default defineConfig({
     server: {
         allowedHosts: [
             "werkbank.werkbank.space",
-            "julius-babies.werkbank.werkbank.space"
+            "julius-babies.werkbank.werkbank.space",
+            "julius-babies.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app",
+            "wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
         ]
     }
 });

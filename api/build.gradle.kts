@@ -43,6 +43,7 @@ dependencies {
     implementation(libs.postgresql)
     implementation(libs.kommand)
     implementation(libs.authentikt)
+    implementation(libs.acme.client)
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.server.testHost)

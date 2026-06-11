@@ -10,6 +10,7 @@ fun Project.getAllDomains(): List<String> {
         .flatMap { httpEntry ->
             httpEntry
                 .domains
+                .orEmpty()
                 .filterNot { it.isBlank() }
                 .map { domain -> if (domain.endsWith(".$mainDomain")) domain else "$domain.$mainDomain" }
         } + mainDomain)

@@ -398,39 +398,47 @@ class OpensslHandler : KoinComponent {
         if (sanFile.exists()) sanFile.delete()
     }
 
-    fun isValidPair(certificateFile: File, privateKeyFile: File): Boolean {
-        if (!certificateFile.exists()) return false
-        if (!privateKeyFile.exists()) return false
+    companion object {
+        fun isValidPair(certificateFile: File, privateKeyFile: File): Boolean {
+            if (!certificateFile.exists()) return false
+            if (!privateKeyFile.exists()) return false
 
-        val certificateModulus = Command("openssl")
-            .args(
-                "x509",
-                "-noout",
-                "-modulus",
-                "-in",
-                certificateFile.absolutePath
-            )
-            .stdout(Stdio.Pipe)
-            .stderr(Stdio.Pipe)
-            .spawn()
-            .waitWithOutput()
-            .stdout!!
+            val certificatePublicKey = Command("openssl")
+                .args(
+                    "x509",
+                    "-pubkey",
+                    "-noout",
+                    "-in",
+                    certificateFile.absolutePath
+                )
+                .stdout(Stdio.Pipe)
+                .stderr(Stdio.Pipe)
+                .spawn()
+                .waitWithOutput()
 
-        val privateKeyModulus = Command("openssl")
-            .args(
-                "rsa",
-                "-noout",
-                "-modulus",
-                "-in",
-                privateKeyFile.absolutePath
-            )
-            .stdout(Stdio.Pipe)
-            .stderr(Stdio.Pipe)
-            .spawn()
-            .waitWithOutput()
-            .stdout!!
+            if (certificatePublicKey.status != 0) {
+                return false
+            }
 
-        return certificateModulus == privateKeyModulus
+            val privateKeyPublicKey = Command("openssl")
+                .args(
+                    "pkey",
+                    "-pubout",
+                    "-in",
+                    privateKeyFile.absolutePath
+                )
+                .stdout(Stdio.Pipe)
+                .stderr(Stdio.Pipe)
+                .spawn()
+                .waitWithOutput()
+
+            if (privateKeyPublicKey.status != 0) {
+                return false
+            }
+
+            return certificatePublicKey.stdout!!.trim() ==
+                    privateKeyPublicKey.stdout!!.trim()
+        }
     }
 }
 

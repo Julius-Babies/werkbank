@@ -48,6 +48,36 @@ class CloudflareDnsManagerImpl: DnsManager, KoinComponent {
         updateCloudflareRecord(existing.id, domain)
     }
 
+    override suspend fun createTxtRecord(domain: String, content: String) {
+        val existing = getExistingDomains()
+            .firstOrNull { it.name.equals(domain, ignoreCase = true) && it.type == "TXT" }
+
+        if (existing == null) {
+            createCloudflareTxtRecord(domain, content)
+            return
+        }
+
+        if (existing.content == content) return
+
+        updateCloudflareTxtRecord(existing.id, domain, content)
+    }
+
+    override suspend fun deleteTxtRecord(domain: String) {
+        val existing = getExistingDomains()
+            .firstOrNull { it.name.equals(domain, ignoreCase = true) && it.type == "TXT" }
+            ?: return
+
+        val response = httpClient.delete(
+            "https://api.cloudflare.com/client/v4/zones/${appConfig.cloudflare!!.zoneId}/dns_records/${existing.id}"
+        ) {
+            bearerAuth(appConfig.cloudflare!!.apiToken)
+        }
+
+        require(response.status.isSuccess()) {
+            "Failed to delete TXT record: ${response.bodyAsText()}"
+        }
+    }
+
     override suspend fun deleteRecord(domain: String) {
         val existing = getExistingDomains()
             .firstOrNull { it.name.equals(domain, ignoreCase = true) }
@@ -112,6 +142,58 @@ class CloudflareDnsManagerImpl: DnsManager, KoinComponent {
 
         require(response.status.isSuccess()) {
             "Failed to update DNS record: ${response.bodyAsText()}"
+        }
+    }
+
+    private suspend fun createCloudflareTxtRecord(domain: String, content: String) {
+        val response = httpClient.post(
+            "https://api.cloudflare.com/client/v4/zones/${appConfig.cloudflare!!.zoneId}/dns_records"
+        ) {
+            bearerAuth(appConfig.cloudflare!!.apiToken)
+            contentType(ContentType.Application.Json)
+
+            setBody(
+                CreateCloudflareDnsRecord(
+                    type = "TXT",
+                    name = domain,
+                    content = content,
+                    ttl = 120,
+                    proxied = false,
+                    comment = "Created by WerkbankCloud at ${Clock.System.now()}"
+                )
+            )
+        }
+
+        require(response.status.isSuccess()) {
+            "Failed to create TXT record: ${response.bodyAsText()}"
+        }
+    }
+
+    private suspend fun updateCloudflareTxtRecord(
+        recordId: String,
+        domain: String,
+        content: String,
+    ) {
+        val response = httpClient.put(
+            "https://api.cloudflare.com/client/v4/zones/${appConfig.cloudflare!!.zoneId}/dns_records/$recordId"
+        ) {
+            bearerAuth(appConfig.cloudflare!!.apiToken)
+            contentType(ContentType.Application.Json)
+
+            setBody(
+                CreateCloudflareDnsRecord(
+                    type = "TXT",
+                    name = domain,
+                    content = content,
+                    ttl = 120,
+                    proxied = false,
+                    comment = "Updated by WerkbankCloud at ${Clock.System.now()}"
+                )
+            )
+        }
+
+        require(response.status.isSuccess()) {
+            "Failed to update TXT record: ${response.bodyAsText()}"
         }
     }
 

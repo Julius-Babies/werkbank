@@ -20,18 +20,22 @@ http:
       - /oauth
     external_domains:
       - "**.werkbank.werkbank.space"
+      - "wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
+      - "*.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
     target_service: api
     priority: 200
   - description: "Werkbank userspace"
+    domains: null
     external_domains:
-      - "**.localwb.space"
-      - "**.wbcloud-dev-juliusbabies-midnight.wbspace.app"
+      - "**.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
     target_service: api
+    priority: 50
   - description: "Werkbank Cloud UI"
     path_prefixes:
       - /
     external_domains:
-      - "**.werkbank.werkbank.space"
+      - "*.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
+      - "wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
     target_service: ui
     priority: 100
 

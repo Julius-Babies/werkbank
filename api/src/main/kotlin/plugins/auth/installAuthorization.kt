@@ -5,11 +5,11 @@ import app.werkbank.database.DatabaseManager
 import app.werkbank.database.User
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import io.ktor.server.application.Application
-import io.ktor.server.application.install
-import io.ktor.server.auth.Authentication
-import io.ktor.server.auth.jwt.JWTPrincipal
-import io.ktor.server.auth.jwt.jwt
+import io.ktor.http.*
+import io.ktor.http.auth.*
+import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import org.koin.ktor.ext.inject
 import kotlin.uuid.Uuid
 
@@ -28,6 +28,20 @@ fun Application.installAuthorization() {
                     .withIssuer("werkbank")
                     .build()
             )
+
+            authHeader { call ->
+                val token = call.request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer ")?.ifBlank { null }
+                if (token != null) {
+                    return@authHeader parseAuthorizationHeader("Bearer $token")
+                }
+
+                val cookie = call.request.cookies["werkbank-token"]?.ifBlank { null }
+                if (cookie != null) {
+                    return@authHeader parseAuthorizationHeader("Bearer $cookie")
+                }
+
+                return@authHeader null
+            }
 
             validate { credential ->
                 val userId = Uuid.parse(credential.payload.getClaim("sub").asString())

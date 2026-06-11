@@ -35,7 +35,7 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
                 println("Restarting Traefik...")
                 traefikManager.stop()
             }
-
+            traefikManager.initialize()
             traefikManager.start()
         }
     }

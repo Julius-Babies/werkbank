@@ -15,6 +15,8 @@ class User(id: EntityID<Id>): UuidEntity(id) {
     var username by Users.username
     var githubToken by Users.githubToken
     var createdAt by Users.createdAt
+    var profileImageUrl by Users.profileImageUrl
+    var email by Users.email
 
     val certificates by Certificate referrersOn Certificates.user
 }
@@ -22,5 +24,7 @@ class User(id: EntityID<Id>): UuidEntity(id) {
 object Users : UuidTable("users") {
     val username = varchar("username", 255)
     val githubToken = varchar("github_token", 255)
+    val profileImageUrl = varchar("profile_image_url", 300).nullable()
+    val email = varchar("email", 255).nullable()
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
 }

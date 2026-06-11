@@ -63,5 +63,12 @@ data class AppConfig(
                 @SerialName("key_path") val keyPath: String,
             )
         }
+
+        @Serializable
+        @SerialName("lets-encrypt")
+        data class LetsEncrypt(
+            @SerialName("keypair_path") val keypairPath: String,
+            @SerialName("email") val email: String,
+        ): Tls()
     }
 }

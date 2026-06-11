@@ -99,12 +99,16 @@ class TraefikManager : AppDependency, KoinComponent {
         return projects.flatMap { project ->
             val projectBaseDomain = "${project.project.id.lowercase()}.werkbank.space"
             project.http.flatMap { httpEntry ->
+                // domains = [] -> use project base domain
+                // domains = null -> don't use any included domains
+
                 httpEntry.domains
-                    .map {
+                    ?.map {
                         if (it.isBlank()) projectBaseDomain
                         else "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.space"
                     }
-                    .ifEmpty { listOf(projectBaseDomain) }
+                    ?.ifEmpty { listOf(projectBaseDomain) }
+                    .orEmpty()
                     .distinct()
             }
         }.distinct()
@@ -138,6 +142,8 @@ class TraefikManager : AppDependency, KoinComponent {
             
             log:
               level: DEBUG
+            accessLog:
+              format: json
         """.trimIndent())
     }
 
@@ -164,8 +170,8 @@ class TraefikManager : AppDependency, KoinComponent {
                         val pairs = certFiles
                             .associateWith { certFile ->
                                 keyFiles.firstOrNull { keyFile ->
-                                    opensslHandler.isValidPair(certFile, keyFile)
-                                }
+                                    OpensslHandler.isValidPair(certFile, keyFile)
+                                } ?: println("Warning: No key file found for certificate ${certFile.absolutePath}").let { null }
                             }
                             .filterValues { it != null }
                             .mapValues { (_, keyFile) -> keyFile!! }
@@ -251,11 +257,12 @@ class TraefikManager : AppDependency, KoinComponent {
 
                 httpEntries.forEachIndexed { index, httpEntry ->
                     val werkbankDomains = httpEntry.domains
-                        .flatMap {
+                        ?.flatMap {
                             if (it.isBlank()) projectBaseDomains
                             else projectBaseDomains.map { baseDomain -> "${it.lowercase()}.${project.project.id.lowercase()}.$baseDomain" }
                         }
-                        .ifEmpty { projectBaseDomains }
+                        ?.ifEmpty { projectBaseDomains }
+                        .orEmpty()
                         .distinct()
                     val externalDomains = httpEntry.externalDomains
                         .filterNot { it.isBlank() }

@@ -11,7 +11,7 @@ import org.koin.core.component.inject
 import java.io.File
 import kotlin.uuid.Uuid
 
-class LocalCertificateGenerator: CertificateManager, KoinComponent {
+class LocalCertificateManager: CertificateManager, KoinComponent {
     private val storageRoot by inject<File>(APP_STORAGE_ROOT_QUALIFIER)
     private val appConfig by inject<AppConfig>()
     private val certificatesDir by lazy { File(storageRoot, "certificates").also { it.mkdirs() } }
@@ -177,8 +177,8 @@ class LocalCertificateGenerator: CertificateManager, KoinComponent {
 
         // copy to local certificate storage
         val dir = certificatesDir.resolve(domains.first().removePrefix("*.")).also { it.mkdirs() }
-        targetCertFile.copyTo(dir.resolve("certificate.crt"))
-        targetKeyFile.copyTo(dir.resolve("private.key"))
+        targetCertFile.copyTo(dir.resolve("certificate.crt"), overwrite = true)
+        targetKeyFile.copyTo(dir.resolve("private.key"), overwrite = true)
     }
 }
 

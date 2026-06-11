@@ -1,7 +1,8 @@
 package app.werkbank
 
 import app.werkbank.app.certificates.CertificateManager
-import app.werkbank.app.certificates.LocalCertificateGenerator
+import app.werkbank.app.certificates.LetsEncryptCertificateManager
+import app.werkbank.app.certificates.LocalCertificateManager
 import app.werkbank.app.dns.CloudflareDnsManagerImpl
 import app.werkbank.app.dns.DnsManager
 import app.werkbank.app.dns.LocalHostsDnsManagerImpl
@@ -65,8 +66,9 @@ fun Application.configureKoin(
                 runBlocking {
                     val config: AppConfig = get()
                     when (config.tls) {
-                        is AppConfig.Tls.SelfSigned -> LocalCertificateGenerator().also { it.init() }
-                    }
+                        is AppConfig.Tls.SelfSigned -> LocalCertificateManager()
+                        is AppConfig.Tls.LetsEncrypt -> LetsEncryptCertificateManager()
+                    }.also { it.init() }
                 }
             }
         })
