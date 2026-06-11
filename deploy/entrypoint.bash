@@ -4,7 +4,7 @@ set -e
 export PUBLIC_BASE_DOMAIN=$(jq -r '.domain_suffix' /data/config.json)
 
 function start_server {
-  java -jar /app/server.jar --storage-directory=/data --bind-host=127.0.0.1
+  java -jar /app/server.jar --storage-directory=/data --bind-host=0.0.0.0
 }
 
 function start_web {
