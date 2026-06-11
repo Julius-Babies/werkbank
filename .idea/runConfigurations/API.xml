@@ -2,7 +2,7 @@
   <configuration default="false" name="API" type="KtorApplicationConfigurationType" factoryName="Ktor">
     <option name="MAIN_CLASS_NAME" value="app.werkbank.MainKt" />
     <module name="Werkbank.api.main" />
-    <option name="PROGRAM_PARAMETERS" value="--port 7090" />
+    <option name="PROGRAM_PARAMETERS" value="--port 7010 --with-local-main-certificate" />
     <extension name="coverage">
       <pattern>
         <option name="PATTERN" value="app.werkbank.*" />
@@ -14,7 +14,7 @@
     <option name="includeProvidedScope" value="false" />
     <option name="mainClass" value="app.werkbank.MainKt" />
     <option name="passParentEnvs" value="true" />
-    <option name="programParameters" value="--port 7090" />
+    <option name="programParameters" value="--port 7010 --with-local-main-certificate" />
     <option name="shortenCommandLine" />
     <option name="vmParameters" />
     <option name="workingDirectory" value="$PROJECT_DIR$" />

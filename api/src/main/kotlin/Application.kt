@@ -21,13 +21,6 @@ fun Application.rootModule(
     storageRoot: File
 ) {
     configureKoin(storageRoot)
-//    runBlocking {
-//        LocalCertificateManager().requestCertificate(
-//            listOf("wbcloud-dev-juliusbabies-midnight.dev.wbspace.app", "*.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"),
-//            targetCertFile = File("/tmp/${Uuid.random()}.crt"),
-//            targetKeyFile = File("/tmp/${Uuid.random()}.key")
-//        )
-//    }
     configureSerialization()
     installAuthentikt()
     installAuthorization()

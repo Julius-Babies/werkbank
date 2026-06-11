@@ -7,12 +7,12 @@ services:
   - name: "api"
     modes:
       local:
-        port: 7090
+        port: 7010
 
   - name: "ui"
     modes:
       local:
-        port: 5173
+        port: 7020
 
 http:
   - path_prefixes:
@@ -20,6 +20,7 @@ http:
       - /oauth
     external_domains:
       - "**.werkbank.werkbank.space"
+      - "werkbank.werkbank.space"
       - "wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
       - "*.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
     target_service: api
@@ -28,20 +29,19 @@ http:
     domains: null
     external_domains:
       - "**.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
-      - "**.localwb.space"
       - "**.werkbank.werkbank.space"
     target_service: api
-    priority: 50
+    priority: 100
   - description: "Werkbank Cloud UI"
     path_prefixes:
       - /
     external_domains:
       - "*.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
       - "*.werkbank.werkbank.space"
+      - "werkbank.werkbank.space"
       - "wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
-      - "*.localwb.space"
     target_service: ui
-    priority: 100
+    priority: 50
 
 extra_certificate_directories:
   - "data/certificates"

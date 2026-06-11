@@ -1,20 +1,22 @@
 package app.werkbank
 
+import app.certificates.LocalCertificateManager
 import app.certificates.ServerKeyManager
+import app.werkbank.config.AppConfig
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.command.main
-import com.github.ajalt.clikt.parameters.options.default
-import com.github.ajalt.clikt.parameters.options.option
-import com.github.ajalt.clikt.parameters.options.optionalValue
-import com.github.ajalt.clikt.parameters.options.validate
+import com.github.ajalt.clikt.parameters.options.*
 import com.github.ajalt.clikt.parameters.types.path
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.netty.handler.ssl.OptionalSslHandler
 import io.netty.handler.ssl.SslContextBuilder
 import kotlinx.coroutines.runBlocking
+import org.koin.ktor.ext.inject
 import rootModule
+import util.StubSpan
 import java.io.File
+import kotlin.uuid.Uuid
 
 fun main(args: Array<String>) {
     runBlocking {
@@ -34,6 +36,8 @@ class AppCommand : SuspendingCliktCommand("server") {
         .default("8080")
         .validate { require(it.toIntOrNull() != null) { "Port must be a number" } }
 
+    val withLocalMainCertificate by option("--with-local-main-certificate", help = "Use local main certificate").flag(default = false)
+
     override suspend fun run() {
 
         val sslContext = SslContextBuilder
@@ -51,6 +55,20 @@ class AppCommand : SuspendingCliktCommand("server") {
                     addFirst(OptionalSslHandler(sslContext))
                 }
             },
-            module = { rootModule(storageDirectory.toFile()) }).start(wait = true)
+            module = {
+                rootModule(storageDirectory.toFile())
+
+                if (withLocalMainCertificate) {
+                    val appConfig by inject<AppConfig>()
+                    val localCertificateManager by inject<LocalCertificateManager>()
+                    localCertificateManager.requestCertificate(
+                        span = StubSpan,
+                        listOf(appConfig.appDomain, "*." + appConfig.appDomain),
+                        targetCertFile = File("/tmp/${Uuid.random()}.crt"),
+                        targetKeyFile = File("/tmp/${Uuid.random()}.key")
+                    )
+                }
+            }
+        ).start(wait = true)
     }
 }
