@@ -12,8 +12,6 @@
     <link rel="icon" href={favicon}/>
 </svelte:head>
 
-
-
 <div class="flex w-full h-full">
     {@render children()}
 </div>

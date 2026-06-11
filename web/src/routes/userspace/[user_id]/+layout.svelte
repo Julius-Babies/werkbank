@@ -25,7 +25,8 @@
     } from "$lib/components/ui/dropdown-menu/index.ts";
     import {Avatar, AvatarFallback, AvatarImage} from "$lib/components/ui/avatar";
     import {Separator} from "$lib/components/ui/separator";
-    import {title, user} from "./state.ts";
+    import {title, tunnelState, user} from "./state.ts";
+    import webappSocket from "./webappSocket.ts";
 
     const sidebar = useSidebar();
 
@@ -34,6 +35,8 @@
     }: {
         children: Snippet,
     } = $props();
+
+    let cleanup: (() => void)[] = [];
 
     onMount(async () => {
         const meResult = await fetch("/api/me");
@@ -46,6 +49,12 @@
             console.error("Failed to fetch user data");
         } else {
             user.set(await meResult.json());
+        }
+
+        cleanup.push(webappSocket())
+
+        return () => {
+            cleanup.forEach(fn => fn())
         }
     })
 
@@ -158,7 +167,15 @@
                         <Separator orientation="vertical" class="mx-2 data-[orientation=vertical]:h-4"/>
                         <h1 class="text-base font-medium">{$title}</h1>
                         <div class="ms-auto flex items-center gap-2">
-                            <span class="text-sm font-light">Tunnel inaktiv</span>
+                            {#if $tunnelState}
+                                <span class="text-sm font-light">
+                                    {#if $tunnelState.active}
+                                        <span class="text-green-500">Tunnel active</span>
+                                    {:else}
+                                        <span class="text-red-500">Tunnel inactive</span>
+                                    {/if}
+                                </span>
+                            {/if}
                         </div>
                     </div>
                 </header>

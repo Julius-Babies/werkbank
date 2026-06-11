@@ -6,4 +6,8 @@ export let user = writable<{
     avatar_url: string,
 } | null>(null);
 
+export let tunnelState = writable<{
+    active: boolean
+} |null>(null);
+
 export let title = writable<string>("");

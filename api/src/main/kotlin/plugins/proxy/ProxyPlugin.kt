@@ -1,6 +1,6 @@
-package app.werkbank.plugins.subdomain
+package app.werkbank.plugins.proxy
 
-import app.werkbank.app.tunnel.tunnels
+import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
 import io.ktor.http.*
@@ -19,6 +19,7 @@ import org.koin.ktor.ext.inject
 val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
     val appConfig by application.inject<AppConfig>()
     val db by application.inject<DatabaseManager>()
+    val tunnelManager by application.inject<TunnelManager>()
 
     val suffix = appConfig.domainSuffix
     val regex = Regex("(.+\\.){2}${suffix.replace(".", "\\.")}")
@@ -36,7 +37,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 return@onCall
             }
 
-            val tunnel = tunnels[user.id.value]
+            val tunnel = tunnelManager.getTunnel(user)
 
             if (tunnel == null) {
                 call.respondText("Tunnel not active, start with wb tunnel.", status = HttpStatusCode.ServiceUnavailable)

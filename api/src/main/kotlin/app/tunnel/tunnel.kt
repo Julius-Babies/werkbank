@@ -1,6 +1,5 @@
 package app.werkbank.app.tunnel
 
-import app.werkbank.database.User
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
@@ -17,17 +16,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import org.koin.ktor.ext.inject
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
-val tunnels = mutableMapOf<User.Id, TunnelInstance>()
-
 fun Route.tunnel() {
+
+    val tunnelManager by inject<TunnelManager>()
+
     authenticate("jwt") {
         webSocket {
             val user = call.principal<UserPrincipal>()!!
             val instance = TunnelInstance(this)
-            tunnels[user.user.id.value] = instance
+            tunnelManager.onNewIncomingTunnel(user.user, instance)
 
             runCatching {
                 for (frame in incoming) {
@@ -49,7 +50,7 @@ fun Route.tunnel() {
                     }
                 }
             }.also {
-                tunnels.remove(user.user.id.value)
+                tunnelManager.onTunnelClosed(user.user)
             }
         }
     }

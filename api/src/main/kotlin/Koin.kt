@@ -7,6 +7,7 @@ import app.werkbank.app.dns.CloudflareDnsManagerImpl
 import app.werkbank.app.dns.DnsManager
 import app.werkbank.app.dns.LocalHostsDnsManagerImpl
 import app.werkbank.app.dns.local.SudoManager
+import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.config.AppConfig
 import app.werkbank.database.DatabaseManager
 import io.ktor.client.HttpClient
@@ -71,6 +72,8 @@ fun Application.configureKoin(
                     }.also { it.init() }
                 }
             }
+
+            single { TunnelManager() }
         })
     }
 }

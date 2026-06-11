@@ -42,6 +42,7 @@ dependencies {
     implementation(libs.logback.classic)
     implementation(libs.postgresql)
     implementation(libs.kommand)
+    implementation(libs.gson)
     implementation(libs.authentikt)
     implementation(libs.acme.client)
 
