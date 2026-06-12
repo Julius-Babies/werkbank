@@ -1,7 +1,6 @@
+package app.werkbank
+
 import app.queue.certificate.CertificateQueue
-import app.werkbank.configureKoin
-import app.werkbank.configureRouting
-import app.werkbank.configureSerialization
 import app.werkbank.plugins.auth.installAuthentikt
 import app.werkbank.plugins.auth.installAuthorization
 import app.werkbank.plugins.proxy.SubdomainHandler

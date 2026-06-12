@@ -13,7 +13,6 @@ import io.netty.handler.ssl.OptionalSslHandler
 import io.netty.handler.ssl.SslContextBuilder
 import kotlinx.coroutines.runBlocking
 import org.koin.ktor.ext.inject
-import rootModule
 import util.StubSpan
 import java.io.File
 import kotlin.uuid.Uuid
