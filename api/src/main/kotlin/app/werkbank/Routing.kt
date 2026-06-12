@@ -7,6 +7,7 @@ import app.werkbank.app.login.logout
 import app.werkbank.app.me.me
 import app.werkbank.app.projects.create.createProject
 import app.werkbank.app.tunnel.tunnel
+import app.werkbank.app.webapp.projects.webappProjects
 import app.werkbank.app.webapp.socket.webappSocket
 import app.werkbank.config.AppConfig
 import io.ktor.server.application.*
@@ -47,6 +48,10 @@ fun Application.configureRouting() {
                 }
 
                 route("/webapp") {
+                    route("/projects") {
+                        webappProjects()
+                    }
+
                     route("/ws") {
                         webappSocket()
                     }

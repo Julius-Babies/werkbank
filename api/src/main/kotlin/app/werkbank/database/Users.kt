@@ -19,6 +19,7 @@ class User(id: EntityID<Id>): UuidEntity(id) {
     var email by Users.email
 
     val certificates by Certificate referrersOn Certificates.user
+    val projects by Project referrersOn Projects.owner
 }
 
 object Users : UuidTable("users") {

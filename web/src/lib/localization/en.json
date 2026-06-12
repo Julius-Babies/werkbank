@@ -7,5 +7,6 @@
 
   "userspace.projects.title": "Projects",
   "userspace.projects.your-projects.title": "Your Projects",
-  "userspace.projects.your-projects.create": "Create"
+  "userspace.projects.your-projects.create": "Create",
+  "userspace.projects.your-projects.list.loading": "Loading your projects..."
 }
