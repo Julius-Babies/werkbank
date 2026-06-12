@@ -41,7 +41,7 @@ http:
       - "werkbank.werkbank.space"
       - "wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
     target_service: ui
-    priority: 50
+    priority: 150
 
 extra_certificate_directories:
   - "data/certificates"
