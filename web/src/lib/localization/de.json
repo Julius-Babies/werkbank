@@ -1,0 +1,11 @@
+{
+  "userspace.sidebar.home": "Dashboard",
+  "userspace.sidebar.projects": "Projekte",
+  "userspace.sidebar.logout": "Abmelden",
+
+  "userspace.getting-started.title": "Beginne mit Werkbank Cloud.",
+
+  "userspace.projects.title": "Projekte",
+  "userspace.projects.your-projects.title": "Deine Projekte",
+  "userspace.projects.your-projects.create": "Neu"
+}

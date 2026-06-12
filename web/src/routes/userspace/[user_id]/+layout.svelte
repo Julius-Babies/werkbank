@@ -1,6 +1,7 @@
 <script lang="ts">
     import {onMount, type Snippet} from "svelte";
     import {env} from "$env/dynamic/public";
+    import {_} from 'svelte-i18n';
     import {
         Sidebar,
         SidebarContent,
@@ -16,7 +17,9 @@
         SidebarTrigger,
         useSidebar
     } from "$lib/components/ui/sidebar/index.ts";
-    import {EllipsisVertical, House, LogOutIcon, Pickaxe} from "@lucide/svelte";
+    import {page} from "$app/state"
+    import {EllipsisVertical, LogOutIcon, Pickaxe} from "@lucide/svelte";
+    import {FolderSimple, HouseIcon} from "phosphor-svelte";
     import {
         DropdownMenu,
         DropdownMenuContent,
@@ -25,8 +28,11 @@
     } from "$lib/components/ui/dropdown-menu/index.ts";
     import {Avatar, AvatarFallback, AvatarImage} from "$lib/components/ui/avatar";
     import {Separator} from "$lib/components/ui/separator";
-    import {title, tunnelState, user} from "./state.ts";
+    import {title, user} from "./state.ts";
     import webappSocket from "./webappSocket.ts";
+    import SidebarItem from "./_lib/appshell/sidebar/SidebarItem.svelte";
+    import {goto} from "$app/navigation";
+    import TunnelState from "./_lib/appshell/topbar/TunnelState.svelte";
 
     const sidebar = useSidebar();
 
@@ -82,7 +88,7 @@
             style="--sidebar-width: calc(var(--spacing) * 72); --header-height: calc(var(--spacing) * 12);"
     >
         <Sidebar collapsible="offcanvas">
-            <SidebarHeader>
+            <SidebarHeader class="px-4 pt-4">
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton class="data-[slot=sidebar-menu-button]:!p-2">
@@ -97,19 +103,22 @@
                 </SidebarMenu>
             </SidebarHeader>
 
-            <SidebarContent>
+            <SidebarContent class="px-2">
                 <SidebarGroup>
                     <SidebarGroupContent class="flex flex-col gap-2">
                         <SidebarMenu>
-                            <SidebarMenuItem class="flex items-center gap-2">
-                                <SidebarMenuButton
-                                        class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground min-w-8 duration-200 ease-linear"
-                                        tooltipContent="Home"
-                                >
-                                    <House/>
-                                    <span>Home</span>
-                                </SidebarMenuButton>
-                            </SidebarMenuItem>
+                            <SidebarItem
+                                    icon={HouseIcon}
+                                    title={$_("userspace.sidebar.home")}
+                                    isActive={page.url.pathname === "/"}
+                                    onClick={() => goto("/")}
+                            />
+                            <SidebarItem
+                                    icon={FolderSimple}
+                                    title={$_("userspace.sidebar.projects")}
+                                    isActive={page.url.pathname.startsWith("/projects")}
+                                    onClick={() => goto("/projects")}
+                            />
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>
@@ -148,7 +157,7 @@
                             >
                                 <DropdownMenuItem onSelect={() => (window.location.href = "/api/login/logout")}>
                                     <LogOutIcon/>
-                                    Log out
+                                    <span>{$_("userspace.sidebar.logout")}</span>
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -167,17 +176,7 @@
                         <Separator orientation="vertical" class="mx-2 data-[orientation=vertical]:h-4"/>
                         <h1 class="text-base font-medium">{$title}</h1>
                         <div class="ms-auto flex items-center gap-2">
-                            {#if $tunnelState}
-                                <span class="text-sm font-light">
-                                    {#if $tunnelState.active}
-                                        <span class="text-green-500">Tunnel active</span>
-                                    {:else}
-                                        <span class="text-red-500">Tunnel inactive</span>
-                                    {/if}
-                                </span>
-                            {:else}
-                                loading tunnel state
-                            {/if}
+                            <TunnelState />
                         </div>
                     </div>
                 </header>

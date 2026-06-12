@@ -1,10 +1,10 @@
 <script lang="ts">
     import './layout.css';
     import favicon from '$lib/assets/favicon.svg';
+    import "$lib/localization/i18n";
 
 
     let {children} = $props();
-
 
 </script>
 

@@ -2,6 +2,7 @@
     import {onMount} from "svelte";
     import {title} from "./state.ts";
     import {Timeline, TimelineContent, TimelineIndicator, TimelineItem} from "$lib/components/ui/timeline/index.ts";
+    import { _ } from 'svelte-i18n'
 
     onMount(() => {
         title.set("Home")
@@ -10,7 +11,7 @@
 
 <div class="flex flex-col overflow-y-auto p-4">
     <div class="flex justify-center items-center w-full mt-8">
-        <h1 class="text-2xl font-bold">Get started with Werkbank Cloud.</h1>
+        <h1 class="text-2xl font-bold">{$_("userspace.getting-started.title")}</h1>
     </div>
 
     <div class="max-w-2xl mx-auto mt-8">

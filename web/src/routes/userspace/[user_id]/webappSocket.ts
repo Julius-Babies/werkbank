@@ -20,8 +20,6 @@ export default function () {
                 } else if (message.type === "tunnel.active") {
                     tunnelState.set({ active: true });
                 }
-
-                console.log(message);
             }
 
             webSocket.onclose = (event) => {
