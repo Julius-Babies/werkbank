@@ -11,8 +11,10 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.netty.handler.ssl.OptionalSslHandler
 import io.netty.handler.ssl.SslContextBuilder
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.koin.ktor.ext.inject
+import org.koin.ktor.plugin.KoinApplicationStarted
 import util.StubSpan
 import java.io.File
 import kotlin.uuid.Uuid
@@ -57,15 +59,19 @@ class AppCommand : SuspendingCliktCommand("server") {
             module = {
                 rootModule(storageDirectory.toFile())
 
-                if (withLocalMainCertificate) {
-                    val appConfig by inject<AppConfig>()
-                    val localCertificateManager by inject<LocalCertificateManager>()
-                    localCertificateManager.requestCertificate(
-                        span = StubSpan,
-                        listOf(appConfig.appDomain, "*." + appConfig.appDomain),
-                        targetCertFile = File("/tmp/${Uuid.random()}.crt"),
-                        targetKeyFile = File("/tmp/${Uuid.random()}.key")
-                    )
+                this.monitor.subscribe(KoinApplicationStarted) {
+                    launch {
+                        if (withLocalMainCertificate) {
+                            val appConfig by inject<AppConfig>()
+                            val localCertificateManager by inject<LocalCertificateManager>()
+                            localCertificateManager.requestCertificate(
+                                span = StubSpan,
+                                listOf(appConfig.appDomain, "*." + appConfig.appDomain),
+                                targetCertFile = File("/tmp/${Uuid.random()}.crt"),
+                                targetKeyFile = File("/tmp/${Uuid.random()}.key")
+                            )
+                        }
+                    }
                 }
             }
         ).start(wait = true)
