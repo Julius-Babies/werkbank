@@ -16,7 +16,7 @@
         SidebarProvider,
         SidebarTrigger,
         useSidebar
-    } from "$lib/components/ui/sidebar/index.ts";
+    } from "$lib/components/ui/sidebar";
     import {page} from "$app/state"
     import {EllipsisVertical, LogOutIcon, Pickaxe} from "@lucide/svelte";
     import {FolderSimple, HouseIcon} from "phosphor-svelte";
@@ -25,7 +25,7 @@
         DropdownMenuContent,
         DropdownMenuItem,
         DropdownMenuTrigger
-    } from "$lib/components/ui/dropdown-menu/index.ts";
+    } from "$lib/components/ui/dropdown-menu";
     import {Avatar, AvatarFallback, AvatarImage} from "$lib/components/ui/avatar";
     import {Separator} from "$lib/components/ui/separator";
     import {title, user} from "./state.ts";
@@ -91,10 +91,10 @@
             <SidebarHeader class="px-4 pt-4">
                 <SidebarMenu>
                     <SidebarMenuItem>
-                        <SidebarMenuButton class="data-[slot=sidebar-menu-button]:!p-2">
+                        <SidebarMenuButton class="data-[slot=sidebar-menu-button]:p-2!">
                             {#snippet child({props})}
                                 <a href={env.PUBLIC_BASE_URL} {...props}>
-                                    <Pickaxe class="!size-5"/>
+                                    <Pickaxe class="size-5!"/>
                                     <span class="text-base font-semibold">Werkbank Cloud</span>
                                 </a>
                             {/snippet}
@@ -181,7 +181,7 @@
                     </div>
                 </header>
 
-                <div class="flex flex-1 flex-col w-gfull h-full">
+                <div class="flex flex-1 flex-col w-gfull h-full overflow-y-auto max-md:p-4 md:p-8">
                     {@render children()}
                 </div>
             </div>

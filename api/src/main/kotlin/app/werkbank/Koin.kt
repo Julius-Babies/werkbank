@@ -88,7 +88,7 @@ fun Application.configureKoin(
             single { SudoManager() }
             single<DnsManager> {
                 val config: AppConfig = get()
-                if (config.cloudflare != null) CloudflareDnsManagerImpl()
+                if (config.cloudflare != null && config.domainSuffix.endsWith(config.cloudflare.domain)) CloudflareDnsManagerImpl()
                 else LocalHostsDnsManagerImpl(get())
             }
             single<CertificateManager> {

@@ -5,8 +5,12 @@ import {renderComponent} from "$lib/components/ui/data-table";
 import ProjectKeyCell from "./table/ProjectKeyCell.svelte";
 import ProjectCreatedAtCell from "./table/ProjectCreatedAtCell.svelte";
 import DataTableCheckbox from "./table/DataTableCheckbox.svelte";
+import ProjectActionsCell from "./table/ProjectActionsCell.svelte";
+import ProjectAccessStateCell from "./table/access_state/ProjectAccessStateCell.svelte";
 
-export const columns: ColumnDef<Project>[] = [
+export const columns = (
+    onReloadProjects: () => void
+): ColumnDef<Project>[] => [
     {
         accessorKey: "selection",
         meta: { compact: true },
@@ -46,6 +50,7 @@ export const columns: ColumnDef<Project>[] = [
     {
         accessorKey: "created_at",
         header: "CREATED AT",
+        meta: { compact: true },
         cell: ({row}) => {
             return renderComponent(
                 ProjectCreatedAtCell as Component<{project: Project}>,
@@ -53,4 +58,31 @@ export const columns: ColumnDef<Project>[] = [
             )
         }
     },
+    {
+        accessorKey: "visibility",
+        header: "VISIBILITY",
+        meta: { compact: true },
+        cell: ({row}) => {
+            return renderComponent(
+                ProjectAccessStateCell as Component<{project: Project}>,
+                {
+                    project: row.original,
+                    onReloadProjects: onReloadProjects,
+                }
+            )
+        }
+    },
+    {
+        accessorKey: "actions",
+        header: "",
+        meta: { compact: true },
+        cell: ({row}) => {
+            return renderComponent(
+                ProjectActionsCell as Component<{project: Project}>,
+                {
+                    project: row.original
+                }
+            )
+        }
+    }
 ]

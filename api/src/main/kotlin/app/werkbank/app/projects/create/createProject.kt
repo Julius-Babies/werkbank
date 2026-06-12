@@ -53,6 +53,7 @@ fun Route.createProject() {
                         this.name = werkbankFile.project.name
                         this.owner = principal.user
                         this.icon = ExposedBlob(IconGenerator().generateRandomIcon())
+                        this.accessState = Project.AccessState.Disabled
                     }
                 }
 

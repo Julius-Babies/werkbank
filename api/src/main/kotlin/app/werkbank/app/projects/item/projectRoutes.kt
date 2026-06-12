@@ -2,6 +2,7 @@ package app.werkbank.app.projects.item
 
 import app.werkbank.app.projects.item.icon.getIcon
 import app.werkbank.app.projects.item.icon.setIcon
+import app.werkbank.app.projects.item.set_access.setAccess
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.Project
 import app.werkbank.database.Projects
@@ -42,6 +43,11 @@ suspend fun ApplicationCall.getProjectWithPrincipalAsOwner(): Project? {
 
 
 fun Route.projectRoutes() {
+
+    route("/access") {
+        setAccess()
+    }
+
     route("/icon") {
         getIcon()
         setIcon()

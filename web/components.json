@@ -16,5 +16,5 @@
 	"style": "luma",
 	"iconLibrary": "phosphor",
 	"menuColor": "default-translucent",
-	"menuAccent": "bold"
+	"menuAccent": "subtle"
 }

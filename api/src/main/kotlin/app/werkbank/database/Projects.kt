@@ -16,14 +16,20 @@ class Project(id: EntityID<Uuid>): UuidEntity(id) {
     var name by Projects.name
     var owner by User referencedOn Projects.owner
     var icon by Projects.icon
+    var accessState by Projects.accessState
     var createdAt by Projects.createdAt
+
+    enum class AccessState {
+        Disabled, Restricted, Open
+    }
 }
 
 object Projects : UuidTable("projects") {
     val projectKey = varchar("project_key", 255)
     val name = varchar("name", 255)
     val owner = reference("owner", Users, onDelete = ReferenceOption.CASCADE)
-    val icon = blob("icon").nullable()
+    val icon = blob("icon")
+    val accessState = enumerationByName<Project.AccessState>("access_state", 16)
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
 
     init {

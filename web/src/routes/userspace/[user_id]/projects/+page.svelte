@@ -2,21 +2,17 @@
     import {title} from "../state.ts";
     import {Button} from "$lib/components/ui/button";
     import {Loader, PlusIcon} from "@lucide/svelte";
-    import {Popover} from "$lib/components/ui/popover";
     import {_} from 'svelte-i18n'
-    import {
-        PopoverContent,
-        PopoverDescription,
-        PopoverTitle,
-        PopoverTrigger
-    } from "$lib/components/ui/popover/index.ts";
     import {getProjects, type Project} from "./getProjects.ts";
     import {onMount} from "svelte";
     import {getCoreRowModel, type RowSelectionState} from "@tanstack/table-core";
     import {createSvelteTable, FlexRender} from "$lib/components/ui/data-table";
     import {columns} from "./columns.ts";
-    import {Table, TableBody, TableCell, TableRow} from "$lib/components/ui/table";
-    import {TableHead, TableHeader} from "$lib/components/ui/table/index.ts";
+    import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "$lib/components/ui/table";
+    import {Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle} from "$lib/components/ui/empty";
+    import {FolderSimpleDashedIcon, ArrowBendDownRightIcon} from "phosphor-svelte";
+    import NewProjectPopover from "./NewProjectPopover.svelte";
+    import {EmptyDescription} from "$lib/components/ui/empty";
 
     $effect(() => {
         title.set($_("userspace.projects.title"))
@@ -29,12 +25,18 @@
             .then(result => projects = result)
     })
 
+    function reloadProjects() {
+        getProjects().then(result => projects = result)
+    }
+
     let rowSelection: RowSelectionState = $state({});
     const table = $derived(projects === "loading" ? null : createSvelteTable({
         get data() {
             return projects as Project[];
         },
-        columns,
+        columns: columns(
+            reloadProjects
+        ),
         getCoreRowModel: getCoreRowModel(),
         getRowId: (row: Project) => row.project_id,
         enableRowSelection: true,
@@ -50,24 +52,16 @@
     }));
 </script>
 
-<div class="flex flex-col overflow-y-auto p-8">
+<div class="flex flex-col overflow-y-auto">
     <div class="flex flex-row justify-between w-full">
         <h1 class="text-2xl font-bold flex-1">{$_("userspace.projects.your-projects.title")}</h1>
-        <Popover>
-            <PopoverTrigger>
-                <Button
-                >
-                    <PlusIcon />
-                    {$_("userspace.projects.your-projects.create")}
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent>
-                <PopoverTitle>Create a new project</PopoverTitle>
-                <PopoverDescription>
-                    Run the <code>wb setup</code> command in the directory of your project. It needs to have a Werkbankfile.yaml.
-                </PopoverDescription>
-            </PopoverContent>
-        </Popover>
+        <NewProjectPopover>
+            <Button
+            >
+                <PlusIcon />
+                {$_("userspace.projects.your-projects.create")}
+            </Button>
+        </NewProjectPopover>
     </div>
 
     <div>
@@ -111,11 +105,30 @@
                             {/each}
                         </TableRow>
                     {:else}
-                        <Table.Row>
-                            <Table.Cell colspan={columns.length} class="h-24 text-center">
-                                No results.
-                            </Table.Cell>
-                        </Table.Row>
+                        <TableRow>
+                            <TableCell colspan={columns.length} class="h-24 text-center">
+                                <Empty>
+                                    <EmptyHeader>
+                                        <EmptyMedia variant="icon">
+                                            <FolderSimpleDashedIcon />
+                                        </EmptyMedia>
+                                        <EmptyTitle>{$_("userspace.projects.your-projects.list.empty.title")}</EmptyTitle>
+                                        <EmptyDescription>{$_("userspace.projects.your-projects.list.empty.description")}</EmptyDescription>
+                                    </EmptyHeader>
+
+                                    <EmptyContent>
+                                        <div class="flex flex-row gap-2">
+                                            <NewProjectPopover>
+                                                <Button>
+                                                    <ArrowBendDownRightIcon />
+                                                    {$_("userspace.projects.your-projects.list.empty.create")}
+                                                </Button>
+                                            </NewProjectPopover>
+                                        </div>
+                                    </EmptyContent>
+                                </Empty>
+                            </TableCell>
+                        </TableRow>
                     {/each}
                 </TableBody>
             </Table>

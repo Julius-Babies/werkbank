@@ -2,6 +2,7 @@ export interface Project {
     project_id: string;
     project_key: string;
     project_name: string;
+    access_state: "disabled" | "restricted" | "open";
     created_at: Date
 }
 
@@ -12,6 +13,7 @@ export async function getProjects(): Promise<Project[]> {
         project_id: project.project_id,
         project_key: project.project_key,
         project_name: project.project_name,
+        access_state: project.access_state,
         created_at: new Date(project.created_at)
     }))
 }

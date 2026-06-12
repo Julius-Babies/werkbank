@@ -8,5 +8,18 @@
   "userspace.projects.title": "Projects",
   "userspace.projects.your-projects.title": "Your Projects",
   "userspace.projects.your-projects.create": "Create",
-  "userspace.projects.your-projects.list.loading": "Loading your projects..."
+  "userspace.projects.your-projects.list.loading": "Loading your projects...",
+  "userspace.projects.your-projects.list.empty.title": "You don't have any projects yet.",
+  "userspace.projects.your-projects.list.empty.description": "Start by creating a new project.",
+  "userspace.projects.your-projects.list.empty.create": "Create your first project",
+  "userspace.projects.table.access_state.change.title": "Change access",
+  "userspace.projects.table.access_state.change.more": "More",
+  "userspace.projects.table.access_state.change.custom": "Custom",
+  "userspace.projects.table.access_state.change.custom.description": "Change access per service",
+  "userspace.projects.table.access_state.disabled": "Disabled",
+  "userspace.projects.table.access_state.disabled.description": "Only you can access this project.",
+  "userspace.projects.table.access_state.restricted": "Restricted",
+  "userspace.projects.table.access_state.restricted.description": "Only users with explicit access can view this project.",
+  "userspace.projects.table.access_state.open": "Open",
+  "userspace.projects.table.access_state.open.description": "Anyone can access this project."
 }
