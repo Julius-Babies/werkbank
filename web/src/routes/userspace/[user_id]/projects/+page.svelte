@@ -12,7 +12,7 @@
     } from "$lib/components/ui/popover/index.ts";
     import {getProjects, type Project} from "./getProjects.ts";
     import {onMount} from "svelte";
-    import {getCoreRowModel} from "@tanstack/table-core";
+    import {getCoreRowModel, type RowSelectionState} from "@tanstack/table-core";
     import {createSvelteTable, FlexRender} from "$lib/components/ui/data-table";
     import {columns} from "./columns.ts";
     import {Table, TableBody, TableCell, TableRow} from "$lib/components/ui/table";
@@ -29,12 +29,24 @@
             .then(result => projects = result)
     })
 
+    let rowSelection: RowSelectionState = $state({});
     const table = $derived(projects === "loading" ? null : createSvelteTable({
         get data() {
             return projects as Project[];
         },
         columns,
         getCoreRowModel: getCoreRowModel(),
+        getRowId: (row: Project) => row.project_id,
+        enableRowSelection: true,
+        state: {
+            get rowSelection() {
+                return rowSelection;
+            },
+        },
+        onRowSelectionChange: (updater) => {
+            rowSelection =
+                typeof updater === "function" ? updater(rowSelection) : updater;
+        },
     }));
 </script>
 
@@ -70,7 +82,10 @@
                     {#each table?.getHeaderGroups() as headerGroup (headerGroup.id)}
                         <TableRow>
                             {#each headerGroup.headers as header (header.id)}
-                                <TableHead colspan={header.colSpan}>
+                                <TableHead
+                                        colspan={header.colSpan}
+                                        class={header.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : ""}
+                                >
                                     {#if !header.isPlaceholder}
                                         <FlexRender
                                                 content={header.column.columnDef.header}
