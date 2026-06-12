@@ -49,6 +49,8 @@ dependencies {
     implementation(libs.opentelemetry.core)
     implementation(libs.opentelemetry.implementation)
     implementation(libs.opentelemetry.exporter.otlp)
+    implementation(libs.batik.transcoder)
+    implementation(libs.batik.codec)
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.server.testHost)

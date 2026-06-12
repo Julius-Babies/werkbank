@@ -6,6 +6,7 @@ import app.werkbank.app.login.login
 import app.werkbank.app.login.logout
 import app.werkbank.app.me.me
 import app.werkbank.app.projects.create.createProject
+import app.werkbank.app.projects.item.projectRoutes
 import app.werkbank.app.tunnel.tunnel
 import app.werkbank.app.webapp.projects.webappProjects
 import app.werkbank.app.webapp.socket.webappSocket
@@ -45,6 +46,10 @@ fun Application.configureRouting() {
 
                 route("/projects") {
                     createProject()
+
+                    route("/{projectId}") {
+                        projectRoutes()
+                    }
                 }
 
                 route("/webapp") {

@@ -14,6 +14,7 @@ data class WerkbankConfig(
     @Serializable
     data class Project(
         @SerialName("id") val id: String,
+        @SerialName("cloud_id") val cloudId: String? = null,
         @SerialName("name") val name: String,
         @SerialName("path") val path: String,
         @SerialName("submodules") val submodules: List<Submodule>,

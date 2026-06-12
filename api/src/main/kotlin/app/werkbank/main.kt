@@ -2,6 +2,7 @@ package app.werkbank
 
 import app.certificates.LocalCertificateManager
 import app.certificates.ServerKeyManager
+import app.werkbank.app.tools.icon_generator.IconGenerator
 import app.werkbank.config.AppConfig
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.command.main

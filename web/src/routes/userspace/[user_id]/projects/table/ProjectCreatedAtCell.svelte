@@ -19,4 +19,6 @@
     let date = $derived(project.created_at.toLocaleDateString(undefined, options));
 </script>
 
-{date}
+<div class="text-neutral-700">
+    {date}
+</div>

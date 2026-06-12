@@ -1,6 +1,7 @@
 package app.werkbank.app.projects.create
 
 import app.werkbank.app.dns.DnsManager
+import app.werkbank.app.tools.icon_generator.IconGenerator
 import app.werkbank.config.AppConfig
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.Project
@@ -10,14 +11,17 @@ import app.werkbank.database.ServiceHelper
 import app.werkbank.database.Services
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.Werkbankfile
+import app.werkbank.shared.setup.SetupResponse
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
+import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.notInList
+import org.jetbrains.exposed.v1.core.statements.api.ExposedBlob
 import org.koin.ktor.ext.inject
 
 fun Route.createProject() {
@@ -48,6 +52,7 @@ fun Route.createProject() {
                         this.projectKey = werkbankFile.project.id
                         this.name = werkbankFile.project.name
                         this.owner = principal.user
+                        this.icon = ExposedBlob(IconGenerator().generateRandomIcon())
                     }
                 }
 
@@ -85,6 +90,10 @@ fun Route.createProject() {
                     }
                 }
             }
+
+            call.respond(SetupResponse(
+                projectId = project.id.value,
+            ))
         }
     }
 }

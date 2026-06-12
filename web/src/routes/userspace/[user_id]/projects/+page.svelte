@@ -67,7 +67,7 @@
         {:else}
             <Table>
                 <TableHeader>
-                    {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
+                    {#each table?.getHeaderGroups() as headerGroup (headerGroup.id)}
                         <TableRow>
                             {#each headerGroup.headers as header (header.id)}
                                 <TableHead colspan={header.colSpan}>

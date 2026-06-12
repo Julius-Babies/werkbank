@@ -15,6 +15,7 @@ class Project(id: EntityID<Uuid>): UuidEntity(id) {
     var projectKey by Projects.projectKey
     var name by Projects.name
     var owner by User referencedOn Projects.owner
+    var icon by Projects.icon
     var createdAt by Projects.createdAt
 }
 
@@ -22,6 +23,7 @@ object Projects : UuidTable("projects") {
     val projectKey = varchar("project_key", 255)
     val name = varchar("name", 255)
     val owner = reference("owner", Users, onDelete = ReferenceOption.CASCADE)
+    val icon = blob("icon").nullable()
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
 
     init {

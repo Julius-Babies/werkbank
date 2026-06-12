@@ -77,6 +77,7 @@ class ProjectRepository : KoinComponent {
                 ?: WerkbankConfig.Project(
                     id = project.id,
                     name = project.name,
+                    cloudId = null,
                     path = project.path,
                     submodules = emptyList(),
                     services = project.getConfig().services.map { service ->

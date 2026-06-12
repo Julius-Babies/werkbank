@@ -32,7 +32,7 @@ const val BALLOT_X = "✗"
 const val HEAVY_BALLOT_X = "✘"
 
 class ConsoleStyle(
-    private var styles: List<String> = emptyList()
+    var styles: List<String> = emptyList()
 ) {
     val parts = mutableListOf<Part>()
 
@@ -45,91 +45,91 @@ class ConsoleStyle(
         parts.add(Part.Text(this))
     }
 
-    fun black(block: ConsoleStyle.() -> Unit) {
+    inline fun black(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BLACK).apply(block)))
     }
 
-    fun bgBlack(block: ConsoleStyle.() -> Unit) {
+    inline fun bgBlack(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_BLACK).apply(block)))
     }
 
-    fun bgRed(block: ConsoleStyle.() -> Unit) {
+    inline fun bgRed(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_RED).apply(block)))
     }
 
-    fun bgGreen(block: ConsoleStyle.() -> Unit) {
+    inline fun bgGreen(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_GREEN).apply(block)))
     }
 
-    fun bgYellow(block: ConsoleStyle.() -> Unit) {
+    inline fun bgYellow(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_YELLOW).apply(block)))
     }
 
-    fun bgBlue(block: ConsoleStyle.() -> Unit) {
+    inline fun bgBlue(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_BLUE).apply(block)))
     }
 
-    fun bgPurple(block: ConsoleStyle.() -> Unit) {
+    inline fun bgPurple(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_PURPLE).apply(block)))
     }
 
-    fun bgCyan(block: ConsoleStyle.() -> Unit) {
+    inline fun bgCyan(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_CYAN).apply(block)))
     }
 
-    fun bgWhite(block: ConsoleStyle.() -> Unit) {
+    inline fun bgWhite(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_WHITE).apply(block)))
     }
 
-    fun bgGray(block: ConsoleStyle.() -> Unit) {
+    inline fun bgGray(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BG_GRAY).apply(block)))
     }
 
-    fun aqua(block: ConsoleStyle.() -> Unit) {
+    inline fun aqua(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + AQUA).apply(block)))
     }
 
-    fun red(block: ConsoleStyle.() -> Unit) {
+    inline fun red(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + RED).apply(block)))
     }
 
-    fun green(block: ConsoleStyle.() -> Unit) {
+    inline fun green(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + GREEN).apply(block)))
     }
 
-    fun yellow(block: ConsoleStyle.() -> Unit) {
+    inline fun yellow(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + YELLOW).apply(block)))
     }
 
-    fun blue(block: ConsoleStyle.() -> Unit) {
+    inline fun blue(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BLUE).apply(block)))
     }
 
-    fun purple(block: ConsoleStyle.() -> Unit) {
+    inline fun purple(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + PURPLE).apply(block)))
     }
 
-    fun cyan(block: ConsoleStyle.() -> Unit) {
+    inline fun cyan(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + CYAN).apply(block)))
     }
 
-    fun white(block: ConsoleStyle.() -> Unit) {
+    inline fun white(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + WHITE).apply(block)))
     }
 
-    fun gray(block: ConsoleStyle.() -> Unit) {
+    inline fun gray(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + GRAY).apply(block)))
     }
 
-    fun bold(block: ConsoleStyle.() -> Unit) {
+    inline fun bold(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + BOLD).apply(block)))
     }
 
-    fun italic(block: ConsoleStyle.() -> Unit) {
+    inline fun italic(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + ITALIC).apply(block)))
     }
 
-    fun underline(block: ConsoleStyle.() -> Unit) {
+    inline fun underline(block: ConsoleStyle.() -> Unit) {
         parts.add(Part.Styled(ConsoleStyle(this@ConsoleStyle.styles + UNDERLINE).apply(block)))
     }
 
