@@ -21,5 +21,87 @@
   "userspace.projects.table.access_state.restricted": "Restricted",
   "userspace.projects.table.access_state.restricted.description": "Only users with explicit access can view this project.",
   "userspace.projects.table.access_state.open": "Open",
-  "userspace.projects.table.access_state.open.description": "Anyone can access this project."
+  "userspace.projects.table.access_state.open.description": "Anyone can access this project.",
+
+  "userspace": {
+    "projects": {
+      "project": {
+        "access_settings": {
+          "dialog": {
+            "title": "Access settings for project {project}",
+            "description": "To determine, whether an external request to your project domain makes its way through to your local machine, the request must be validated against every following access state rule.",
+            "project_access": {
+              "title": "1. Project access",
+              "disabled": {
+                "title": "Disabled",
+                "description": "Only you can access this project."
+              },
+              "restricted": {
+                "title": "Restricted",
+                "description": "Only users with explicit access can view this project, either by sharing a password with them if they don't have a WBCloud account or directly inviting them. You can always access this project."
+              },
+              "open": {
+                "title": "Open",
+                "description": "Anyone can access this project. Be aware that this can be a security risk as you're exposing parts of your local machine to the internet."
+              },
+              "passwords": {
+                "title": "Passwords",
+                "no_passwords": {
+                  "title": "No passwords",
+                  "description": "You don't have any passwords created yet. To share your project with someone, who does not have a WBCloud account, you can create a new password."
+                },
+                "create_new_password": {
+                  "button": "Create a new password",
+                    "dialog": {
+                      "title": "New Password",
+                      "description": "Create a new password which can be used to access the project.",
+                      "create_new": {
+                        "title": "Create new",
+                        "label": {
+                          "title": "Label",
+                          "placeholder": "E.g. Client Demo Q2",
+                          "description": "Give a name to this password.",
+                          "error": "Label must be at least 3 characters."
+                        },
+                        "password": {
+                          "title": "Password",
+                          "placeholder": "••••••",
+                          "description": "Enter a new password.",
+                          "error": "Password must be at least 3 characters."
+                        }
+                      },
+                      "use_existing": {
+                        "title": "Use existing",
+                        "existing_password": {
+                          "title": "Existing password"
+                        },
+                        "select": {
+                          "placeholder": "Select a password",
+                          "error": "Please select a password."
+                        }
+                      },
+                      "footer": {
+                        "cancel": "Cancel",
+                        "create_new": "Create",
+                        "use_existing": "Use"
+                      }
+                    }
+                },
+                "delete_password": {
+                  "dialog": {
+                    "title": "Delete password {label}?",
+                    "description": "The password will become invalid for this project. Other projects that use this password will stay accessible.",
+                    "footer": {
+                      "cancel": "Cancel",
+                      "delete": "Delete"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

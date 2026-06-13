@@ -19,6 +19,8 @@ class Project(id: EntityID<Uuid>): UuidEntity(id) {
     var accessState by Projects.accessState
     var createdAt by Projects.createdAt
 
+    val passwords by ProjectPassword referrersOn ProjectPasswords.projectId
+
     enum class AccessState {
         Disabled, Restricted, Open
     }

@@ -8,6 +8,8 @@ import app.werkbank.app.me.me
 import app.werkbank.app.projects.create.createProject
 import app.werkbank.app.projects.item.projectRoutes
 import app.werkbank.app.tunnel.tunnel
+import app.werkbank.app.webapp.projects.item.access.getState
+import app.werkbank.app.webapp.projects.item.access.passwords.getPasswordOptions
 import app.werkbank.app.webapp.projects.webappProjects
 import app.werkbank.app.webapp.socket.webappSocket
 import app.werkbank.config.AppConfig
@@ -55,6 +57,18 @@ fun Application.configureRouting() {
                 route("/webapp") {
                     route("/projects") {
                         webappProjects()
+
+                        route("/{projectId}") {
+                            route("/access") {
+                                route("/passwords") {
+                                    route("/options") {
+                                        getPasswordOptions()
+                                    }
+                                }
+
+                                getState()
+                            }
+                        }
                     }
 
                     route("/ws") {

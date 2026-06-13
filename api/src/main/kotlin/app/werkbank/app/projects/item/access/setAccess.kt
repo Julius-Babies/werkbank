@@ -1,4 +1,4 @@
-package app.werkbank.app.projects.item.set_access
+package app.werkbank.app.projects.item.access
 
 import app.werkbank.app.projects.item.getProjectWithPrincipalAsOwner
 import app.werkbank.app.webapp.projects.ProjectResponse

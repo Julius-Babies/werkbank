@@ -13,6 +13,7 @@
     import {FolderSimpleDashedIcon, ArrowBendDownRightIcon} from "phosphor-svelte";
     import NewProjectPopover from "./NewProjectPopover.svelte";
     import {EmptyDescription} from "$lib/components/ui/empty";
+    import AccessStateDialog from "./access_state/AccessStateDialog.svelte";
 
     $effect(() => {
         title.set($_("userspace.projects.title"))
@@ -29,14 +30,19 @@
         getProjects().then(result => projects = result)
     }
 
+    let accessSettingsForProject: string | null = $state(null);
+
     let rowSelection: RowSelectionState = $state({});
     const table = $derived(projects === "loading" ? null : createSvelteTable({
         get data() {
             return projects as Project[];
         },
-        columns: columns(
-            reloadProjects
-        ),
+        columns: columns({
+            onReloadProjects: reloadProjects,
+            onOpenAccessSettingsForProject: (projectId) => {
+                accessSettingsForProject = projectId;
+            }
+        }),
         getCoreRowModel: getCoreRowModel(),
         getRowId: (row: Project) => row.project_id,
         enableRowSelection: true,
@@ -135,3 +141,10 @@
         {/if}
     </div>
 </div>
+
+{#if accessSettingsForProject}
+    <AccessStateDialog
+            onClose={() => accessSettingsForProject = null}
+            projectId={accessSettingsForProject}
+    />
+{/if}

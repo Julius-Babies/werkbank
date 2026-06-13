@@ -16,9 +16,11 @@
     let {
         project,
         onReloadProjects,
+        onOpenAccessSettingsForProject,
     }: {
         project: Project,
         onReloadProjects: () => void,
+        onOpenAccessSettingsForProject: (projectId: string) => void,
     } = $props();
 
     const DISABLED_TEXT_COLOR = "text-red-900";
@@ -54,6 +56,11 @@
         } finally {
             loadingOption = null
         }
+    }
+
+    function handleOpenSettings() {
+        isContextMenuOpen = false
+        onOpenAccessSettingsForProject(project.project_id)
     }
 </script>
 
@@ -110,7 +117,7 @@
 
         <DropdownMenuGroup>
             <DropdownMenuGroupHeading>{$_("userspace.projects.table.access_state.change.more")}</DropdownMenuGroupHeading>
-            <DropdownMenuItem>
+            <DropdownMenuItem onclick={handleOpenSettings}>
                 <div class="flex flex-col w-full">
                     <span class="font-normal">
                             {$_("userspace.projects.table.access_state.change.custom")}

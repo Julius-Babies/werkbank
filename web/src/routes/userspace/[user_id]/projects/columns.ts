@@ -8,9 +8,10 @@ import DataTableCheckbox from "./table/DataTableCheckbox.svelte";
 import ProjectActionsCell from "./table/ProjectActionsCell.svelte";
 import ProjectAccessStateCell from "./table/access_state/ProjectAccessStateCell.svelte";
 
-export const columns = (
-    onReloadProjects: () => void
-): ColumnDef<Project>[] => [
+export const columns = (config: {
+        onReloadProjects: () => void,
+        onOpenAccessSettingsForProject: (projectId: string) => void,
+    }): ColumnDef<Project>[] => [
     {
         accessorKey: "selection",
         meta: { compact: true },
@@ -67,7 +68,8 @@ export const columns = (
                 ProjectAccessStateCell as Component<{project: Project}>,
                 {
                     project: row.original,
-                    onReloadProjects: onReloadProjects,
+                    onReloadProjects: config.onReloadProjects,
+                    onOpenAccessSettingsForProject: config.onOpenAccessSettingsForProject,
                 }
             )
         }

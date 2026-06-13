@@ -18,8 +18,90 @@
   "userspace.projects.table.access_state.change.custom.description": "Ändere den Zugriff pro Service",
   "userspace.projects.table.access_state.disabled": "Deaktiviert",
   "userspace.projects.table.access_state.disabled.description": "Nur du kannst auf dieses Projekt zugreifen.",
-  "userspace.projects.table.access_state.restricted": "Restriktiert",
+  "userspace.projects.table.access_state.restricted": "Eingeschränkt",
   "userspace.projects.table.access_state.restricted.description": "Nur Benutzer mit explizitem Zugriff können dieses Projekt sehen.",
   "userspace.projects.table.access_state.open": "Offen",
-  "userspace.projects.table.access_state.open.description": "Jeder kann auf dieses Projekt zugreifen."
+  "userspace.projects.table.access_state.open.description": "Jeder kann auf dieses Projekt zugreifen.",
+
+  "userspace": {
+    "projects": {
+      "project": {
+        "access_settings": {
+          "dialog": {
+            "title": "Zugriffseinstellungen für Projekt {project}",
+            "description": "Um zu bestimmen, ob eine externe Anfrage an deine Projekt-Domain durchkommt und auf deine lokale Maschine weitergeleitet wird, muss die Anfrage gegen jede der folgenden Zugriffsregeln validiert werden.",
+            "project_access": {
+              "title": "1. Projektzugriff",
+              "disabled": {
+                "title": "Deaktiviert",
+                "description": "Nur du kannst auf dieses Projekt zugreifen."
+              },
+              "restricted": {
+                "title": "Eingeschränkt",
+                "description": "Nur Nutzer mit explizitem Zugriff können dieses Projekt sehen, entweder indem du ein Passwort mit ihnen teilst, falls sie kein WBCloud-Konto haben, oder indem du sie direkt einlädst. Du hast immer Zugriff auf dieses Projekt."
+              },
+              "open": {
+                "title": "Offen",
+                "description": "Jeder kann auf dieses Projekt zugreifen. Sei dir bewusst, dass dies ein Sicherheitsrisiko darstellen kann, da du damit Teile deiner lokalen Maschine dem Internet aussetzt."
+              },
+              "passwords": {
+                "title": "Passwörter",
+                "no_passwords": {
+                  "title": "Keine Passwörter",
+                  "description": "Du hast noch keine Passwörter erstellt. Um dein Projekt mit jemandem zu teilen, der kein WBCloud-Konto hat, kannst du ein neues Passwort erstellen."
+                },
+                  "create_new_password": {
+                    "button": "Neues Passwort erstellen",
+                    "dialog": {
+                      "title": "Neues Passwort",
+                      "description": "Erstelle ein neues Passwort, mit dem auf das Projekt zugegriffen werden kann.",
+                      "create_new": {
+                        "title": "Erstellen",
+                        "label": {
+                          "title": "Bezeichnung",
+                          "placeholder": "z.B. Kunden-Demo Q2",
+                          "description": "Gib diesem Passwort einen Namen.",
+                          "error": "Die Bezeichnung muss mindestens 3 Zeichen lang sein."
+                        },
+                        "password": {
+                          "title": "Passwort",
+                          "placeholder": "••••••",
+                          "description": "Gib ein neues Passwort ein.",
+                          "error": "Das Passwort muss mindestens 3 Zeichen lang sein."
+                        }
+                      },
+                      "use_existing": {
+                        "title": "Vorhandenes verwenden",
+                        "existing_password": {
+                          "title": "Vorhandenes Passwort"
+                        },
+                        "select": {
+                          "placeholder": "Wähle ein Passwort",
+                          "error": "Bitte wähle ein Passwort aus."
+                        }
+                      },
+                      "footer": {
+                        "cancel": "Abbrechen",
+                        "create_new": "Erstellen",
+                        "use_existing": "Verwenden"
+                      }
+                    }
+                  },
+                  "delete_password": {
+                    "dialog": {
+                      "title": "Passwort {label} löschen?",
+                      "description": "Das Passwort wird für dieses Projekt ungültig. Andere Projekte, die dieses Passwort verwenden, bleiben weiterhin damit zugänglich.",
+                      "footer": {
+                        "cancel": "Abbrechen",
+                        "delete": "Löschen"
+                      }
+                    }
+                  }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

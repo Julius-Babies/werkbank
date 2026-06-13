@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectConfigService">
+    <option name="keyComment" value="false" />
+    <option name="sorting" value="true" />
+    <option name="previewLocale" value="en" />
+    <option name="modules">
+      <map>
+        <entry key="frontend">
+          <value>
+            <ProjectConfigModuleState>
+              <option name="id" value="frontend" />
+              <option name="pathTemplate" value="$PROJECT_DIR$/web/src/lib/localization/{locale}.json" />
+              <option name="fileCodec" value="JSON" />
+              <option name="fileTemplate" value="[{fileKey}]" />
+              <option name="keyTemplate" value="" />
+              <option name="rootDirectory" value="$PROJECT_DIR$/web/src" />
+              <option name="defaultKeyPrefixes">
+                <set />
+              </option>
+              <option name="editorFlavorTemplate" value="$i18n.t(&quot;{i18nKey}&quot;)" />
+              <option name="editorRules">
+                <list />
+              </option>
+            </ProjectConfigModuleState>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>
