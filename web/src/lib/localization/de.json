@@ -1,6 +1,7 @@
 {
   "userspace.sidebar.home": "Dashboard",
   "userspace.sidebar.projects": "Projekte",
+  "userspace.sidebar.settings": "Einstellungen",
   "userspace.sidebar.logout": "Abmelden",
 
   "userspace.getting-started.title": "Beginne mit Werkbank Cloud.",
@@ -98,6 +99,64 @@
                     }
                   }
               }
+            }
+          }
+        }
+      }
+    },
+    "settings": {
+      "title": "Einstellungen",
+      "access": {
+        "title": "Zugriff",
+        "description": "Verwalte deinen Kontozugriff und die Berechtigungen."
+      },
+      "access_keys": {
+        "title": "Zugangsschlüssel",
+        "description": "Zugangsschlüssel werden verwendet, um deine Dienste zu authentifizieren und die Kommunikation zwischen ihnen zu ermöglichen.",
+        "create": "Erstellen",
+        "table": {
+          "name": "Name",
+          "created_at": "Erstellt am"
+        },
+        "delete_selected": "{count} ausgewählte Zugangschlüssel löschen",
+        "delete_dialog": {
+          "title": {
+            "single": "Zugangsschlüssel {label} löschen?",
+            "multiple": "{count} Zugangsschlüssel löschen?"
+          },
+          "description": "Diese Aktion kann nicht rückgängig gemacht werden.",
+          "footer": {
+            "cancel": "Abbrechen",
+            "delete": "Löschen"
+          }
+        },
+        "empty": {
+          "title": "Noch keine Zugangsschlüssel"
+        },
+        "new_dialog": {
+          "title": "Neuen Zugangsschlüssel erstellen",
+          "description": "Gib einen Namen ein und wir generieren einen Schlüssel für dich.",
+          "field": {
+            "name": {
+              "label": "Name",
+              "placeholder": "z.B. MacBook Air",
+              "error": "Der Name muss mindestens 3 Zeichen lang sein."
+            }
+          },
+          "button": {
+            "cancel": "Abbrechen",
+            "save": "Speichern"
+          },
+          "created": {
+            "title": "Zugangsschlüssel erstellt",
+            "description": "Kopiere den Schlüssel jetzt, du wirst ihn nicht mehr sehen können.",
+            "field": {
+              "key": {
+                "label": "Schlüssel"
+              }
+            },
+            "button": {
+              "copy_close": "Kopieren und schließen"
             }
           }
         }

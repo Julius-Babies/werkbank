@@ -3,6 +3,7 @@ package app.werkbank.plugins.proxy
 import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
+import app.werkbank.util.sha256
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTVerificationException
@@ -50,7 +51,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             if ('-' in destination) {
                 val (serviceName, projectName) = destination.split('-', limit = 2)
 
-                val requestedProject = db.query { Project.find { (Projects.name.lowerCase() eq projectName.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
+                val requestedProject = db.query { Project.find { (Projects.projectKey.lowerCase() eq projectName.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
                 if (requestedProject == null) {
                     call.respondText("Project not found", status = HttpStatusCode.NotFound)
                     return@onCall
@@ -64,7 +65,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 }
                 service = requestedService
             } else {
-                val requestedProject = db.query { Project.find { (Projects.name.lowerCase() eq destination.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
+                val requestedProject = db.query { Project.find { (Projects.projectKey.lowerCase() eq destination.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
                 if (requestedProject == null) {
                     call.respondText("Project not found", status = HttpStatusCode.NotFound)
                     return@onCall
@@ -86,6 +87,16 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         .build()
                     try {
                         val jwt = jwtVerifier.verify(cookieValue)
+
+                        if (jwt.audience.first() == "werkbank-projects") {
+                            val accessKey = db.query { AccessKey.find { AccessKeys.key eq cookieValue.sha256() }.firstOrNull() }
+                                ?: return@authorizationValidation false
+                            val user = db.query { accessKey.createdBy }
+                            val isOwner = db.query { project.owner.id.value == user.id.value }
+                            if (isOwner) return@authorizationValidation true
+                            return@authorizationValidation false
+                        }
+
                         if (jwt.audience.first() != "werkbank-project-${project.id.value.toHexString()}") return@authorizationValidation false
                         when (jwt.getClaim("source").asString()) {
                             "user" -> {

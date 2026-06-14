@@ -60,7 +60,7 @@
 
 <div class="flex flex-col overflow-y-auto">
     <div class="flex flex-row justify-between w-full">
-        <h1 class="text-2xl font-bold flex-1">{$_("userspace.projects.your-projects.title")}</h1>
+        <h1 class="text-3xl font-bold flex-1">{$_("userspace.projects.your-projects.title")}</h1>
         <NewProjectPopover>
             <Button
             >
@@ -112,7 +112,7 @@
                         </TableRow>
                     {:else}
                         <TableRow>
-                            <TableCell colspan={columns.length} class="h-24 text-center">
+                            <TableCell colspan={table?._getColumnDefs().length} class="h-24 text-center">
                                 <Empty>
                                     <EmptyHeader>
                                         <EmptyMedia variant="icon">

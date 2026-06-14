@@ -1,6 +1,7 @@
 {
   "userspace.sidebar.home": "Dashboard",
   "userspace.sidebar.projects": "Projects",
+  "userspace.sidebar.settings": "Settings",
   "userspace.sidebar.logout": "Logout",
 
   "userspace.getting-started.title": "Get started with Werkbank Cloud.",
@@ -98,6 +99,64 @@
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    "settings": {
+      "title": "Settings",
+      "access": {
+        "title": "Access",
+        "description": "Manage your account access and permissions."
+      },
+      "access_keys": {
+        "title": "Access Keys",
+        "description": "Access keys are used to authenticate your services to allow for communication between them.",
+        "create": "Create",
+        "table": {
+          "name": "Name",
+          "created_at": "Created At"
+        },
+        "delete_selected": "Delete {count} selected",
+        "delete_dialog": {
+          "title": {
+            "single": "Delete access key {label}?",
+            "multiple": "Delete {count} access keys?"
+          },
+          "description": "This action cannot be undone.",
+          "footer": {
+            "cancel": "Cancel",
+            "delete": "Delete"
+          }
+        },
+        "empty": {
+          "title": "No access keys yet"
+        },
+        "new_dialog": {
+          "title": "Create new access key",
+          "description": "Drop in a name and we generate a key for you.",
+          "field": {
+            "name": {
+              "label": "Name",
+              "placeholder": "e.g. MacBook Air",
+              "error": "Name must be at least 3 characters."
+            }
+          },
+          "button": {
+            "cancel": "Cancel",
+            "save": "Save"
+          },
+          "created": {
+            "title": "Access key created",
+            "description": "Make sure to copy the key now, you won't be able to see it again.",
+            "field": {
+              "key": {
+                "label": "Key"
+              }
+            },
+            "button": {
+              "copy_close": "Copy and Close"
             }
           }
         }

@@ -20,6 +20,7 @@ class User(id: EntityID<Id>): UuidEntity(id) {
 
     val certificates by Certificate referrersOn Certificates.user
     val projects by Project referrersOn Projects.owner
+    val accessKeys by AccessKey referrersOn AccessKeys.createdBy
 }
 
 object Users : UuidTable("users") {
