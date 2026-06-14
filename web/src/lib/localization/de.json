@@ -131,6 +131,13 @@
           "wbcloud": "Mit WBCloud anmelden"
         },
         "field_separator": "Oder melde dich mit einem berechtigten Benutzerkonto an"
+      },
+      "account-required": {
+        "title": "Auf {projectName} zugreifen als {ownerUsername}",
+        "description": "Du musst dich mit einem berechtigten Benutzerkonto anmelden, um auf dieses Projekt zuzugreifen.",
+        "button": {
+          "wbcloud": "Mit WBCloud anmelden"
+        }
       }
     }
   }

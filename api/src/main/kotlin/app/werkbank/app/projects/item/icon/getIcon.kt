@@ -13,18 +13,11 @@ fun Route.getIcon() {
 
     val db by inject<DatabaseManager>()
 
-    authenticate("jwt", optional = true) {
-        get {
-            val project = call.getProject() ?: return@get
-            when (project.accessState) {
-                Project.AccessState.Disabled -> return@get call.respondText("Project access is disabled for anonymous users. Please log in to access this project.", status = HttpStatusCode.Unauthorized)
-                else -> {}
-            }
-            db.query {
-                val blob = project.icon
-
-                call.respondBytes(blob.bytes)
-            }
+    get {
+        val project = call.getProject() ?: return@get
+        db.query {
+            val blob = project.icon
+            call.respondBytes(blob.bytes)
         }
     }
 }

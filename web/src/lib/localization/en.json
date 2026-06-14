@@ -131,6 +131,13 @@
           "wbcloud": "Login with WBCloud"
         },
         "field_separator": "Or login with a permitted user account"
+      },
+      "account-required": {
+        "title": "Access {projectName} by {ownerUsername}",
+        "description": "You need to login using a permitted account to access this project.",
+        "button": {
+          "wbcloud": "Login with WBCloud"
+        }
       }
     }
   }

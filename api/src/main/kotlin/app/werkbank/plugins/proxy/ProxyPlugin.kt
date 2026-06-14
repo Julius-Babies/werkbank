@@ -86,8 +86,15 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         .build()
                     try {
                         val jwt = jwtVerifier.verify(cookieValue)
+                        if (jwt.audience.first() != "werkbank-project-${project.id.value.toHexString()}") return@authorizationValidation false
                         when (jwt.getClaim("source").asString()) {
-                            "owner" -> return@authorizationValidation true
+                            "user" -> {
+                                val user = db.query { User.findById(Uuid.parse(jwt.getClaim("user_id").asString())) }
+                                if (user == null) return@authorizationValidation false
+                                val isOwner = db.query { project.owner.id.value == user.id.value }
+                                if (isOwner) return@authorizationValidation true
+                                return@authorizationValidation false
+                            }
                             "password" -> {
                                 if (project.accessState == Project.AccessState.Disabled) return@authorizationValidation false
                                 val passwordId = jwt.getClaim("password_id").asString()

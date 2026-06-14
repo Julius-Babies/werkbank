@@ -1,24 +1,25 @@
 <script lang="ts">
     import {Card, CardDescription, CardHeader, CardTitle} from "$lib/components/ui/card";
     import {page} from "$app/state";
-    import {Avatar, AvatarFallback, AvatarImage} from "$lib/components/ui/avatar";
     import {Field, FieldDescription, FieldError, FieldSeparator, FieldSet} from "$lib/components/ui/field";
     import {Label} from "$lib/components/ui/label";
     import {Input} from "$lib/components/ui/input";
     import {Button} from "$lib/components/ui/button";
     import {Alert, AlertDescription, AlertTitle} from "$lib/components/ui/alert";
     import {UserSwitchIcon} from "phosphor-svelte";
-    import { slide } from "svelte/transition";
-    import { Loader } from "@lucide/svelte";
+    import {slide} from "svelte/transition";
+    import {Loader} from "@lucide/svelte";
     import {_} from "svelte-i18n";
     import {onMount, tick} from "svelte";
+    import CardHead from "../../_lib/CardHead.svelte";
 
-    const proxyAuthSessionId = page.url.searchParams.get("proxy_auth_session_id");
-    const projectId = page.url.searchParams.get("project_id");
-    const projectName = page.url.searchParams.get("project_name");
-    const ownerUsername = page.url.searchParams.get("owner_username");
-    const ownerAvatarUrl = page.url.searchParams.get("owner_avatar_url");
+    const proxyAuthSessionId = page.url.searchParams.get("proxy_auth_session_id")!;
+    const projectId = page.url.searchParams.get("project_id")!;
+    const projectName = page.url.searchParams.get("project_name")!;
+    const ownerUsername = page.url.searchParams.get("owner_username")!;
+    const ownerAvatarUrl = page.url.searchParams.get("owner_avatar_url")!;
     const isWrongUserLoggedIn = page.url.searchParams.get("is_wrong_user_logged_in") === "true";
+    const wbCloudAuthUrl = page.url.searchParams.get("wbcloud_auth_url")!;
 
     let currentState: "ready" | "loading" | "error" | "invalid_password" = $state("ready");
     let passwordValue = $state("");
@@ -80,13 +81,7 @@
         <CardHeader>
             <CardTitle>
                 <div class="flex flex-col">
-                    <div class="relative self-center pb-4">
-                        <img src={"/api/projects/" + projectId + "/icon"} alt="Project Icon" class="size-12 rounded-md"/>
-                        <Avatar class="size-8 rounded-full absolute top-8 -right-4 border-4 border-background">
-                            <AvatarImage src={ownerAvatarUrl} alt={ownerUsername}/>
-                            <AvatarFallback class="rounded-lg">{ownerUsername}</AvatarFallback>
-                        </Avatar>
-                    </div>
+                    <CardHead projectId={projectId} ownerProfileIcon={ownerAvatarUrl} ownerUsername={ownerUsername} />
                     <span>{$_("proxy.auth.password.title", { values: { projectName, ownerUsername } })}</span>
                 </div>
             </CardTitle>
@@ -144,7 +139,7 @@
 
             <div class="h-2"></div>
 
-            <Button variant="outline">{$_("proxy.auth.password.button.wbcloud")}</Button>
+            <Button href={wbCloudAuthUrl} variant="outline">{$_("proxy.auth.password.button.wbcloud")}</Button>
         </CardHeader>
     </Card>
 </div>

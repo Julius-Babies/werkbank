@@ -1,5 +1,5 @@
 <script>
-    import {Button} from "$lib/components/ui/button/index.ts";
+    import {Button} from "$lib/components/ui/button";
 </script>
 
 <div class="flex w-full h-full justify-center items-center">
