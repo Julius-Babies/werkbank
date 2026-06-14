@@ -11,15 +11,10 @@ import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import es.jvbabi.kfile.File
 import http.httpClient
-import io.ktor.client.call.body
-import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
-import io.ktor.utils.io.ByteReadChannel
+import io.ktor.client.call.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.qualifier.named
@@ -108,7 +103,18 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
                 currentDirectory.resolve(".idea/icon.svg"),
             )
 
-            val file = imageFileOptions.firstOrNull { it.exists() }
+            val iconNames = listOf("favicon.svg", "app_icon-playstore.png")
+
+            var file = imageFileOptions.firstOrNull { it.exists() }
+            if (file == null) {
+                fun findImage(inDir: File): File? {
+                    val files = inDir.listFiles()
+                    files.firstOrNull { it.name in iconNames }?.let { return it }
+                    return files.filter { it.isDirectory() }.firstNotNullOfOrNull { findImage(it) }
+                }
+
+                file = findImage(currentDirectory)
+            }
             if (file != null) {
                 val uploadIconResult = client.post("https://${mainConfig.getConfig().werkbankCloudDomain}/api/projects/${data.projectId}/icon") {
                     bearerAuth(mainConfig.getConfig().auth!!.bearer)
