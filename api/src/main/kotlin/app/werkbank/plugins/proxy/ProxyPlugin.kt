@@ -214,6 +214,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
 
                 val response = result.await()
                 response.headers.forEach { (key, values) ->
+                    if (key == HttpHeaders.TransferEncoding) return@forEach
                     values.forEach { call.response.headers.append(key, it) }
                 }
                 call.respondOutputStream(
