@@ -144,7 +144,7 @@
 
 {#if accessSettingsForProject}
     <AccessStateDialog
-            onClose={() => accessSettingsForProject = null}
+            onClose={(reload) => {accessSettingsForProject = null; if (reload) reloadProjects()}}
             projectId={accessSettingsForProject}
     />
 {/if}

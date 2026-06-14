@@ -186,7 +186,12 @@
         </div>
 
         <DialogFooter>
-            <Button variant="outline">{$_("userspace.projects.project.access_settings.dialog.project_access.passwords.create_new_password.dialog.footer.cancel")}</Button>
+            <Button
+                    variant="outline"
+                    onclick={() => onClose(false)}
+            >
+                {$_("userspace.projects.project.access_settings.dialog.project_access.passwords.create_new_password.dialog.footer.cancel")}
+            </Button>
             <Button
                     variant="default"
                     disabled={isLoading}

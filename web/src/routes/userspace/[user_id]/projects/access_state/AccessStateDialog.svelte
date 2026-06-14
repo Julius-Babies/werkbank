@@ -16,13 +16,16 @@
     import {Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle} from "$lib/components/ui/empty";
     import NewPasswordDialog from "./NewPasswordDialog.svelte";
     import PasswordItem from "./PasswordItem.svelte";
+    import {setAccessState} from "../table/access_state/changeAccessState.ts";
+    import { slide } from "svelte/transition";
+    import { Loader } from "@lucide/svelte";
 
     let {
         projectId,
         onClose,
     }: {
         projectId: string,
-        onClose: () => void,
+        onClose: (reload: boolean) => void,
     } = $props();
 
     let accessState: ProjectAccessState | null = $state(null);
@@ -37,11 +40,30 @@
     }
 
     let showNewPasswordDialog = $state(false);
+
+    let isLoading = $state(false);
+
+    async function save() {
+        if (isLoading) return;
+        if (!accessState) return;
+        isLoading = true;
+        try {
+            const result = await setAccessState(
+                projectId,
+                accessState.project_access_state,
+            )
+            if (result) {
+                onClose(true);
+            }
+        } finally {
+            isLoading = false;
+        }
+    }
 </script>
 
 {#if accessState}
-    <Dialog open={true} onOpenChange={open => { if (!open) onClose() }}>
-        <DialogContent class="flex flex-col max-h-11/12 h-full overflow-hidden blur-fade">
+    <Dialog open={true} onOpenChange={open => { if (!open) onClose(false) }}>
+        <DialogContent class="flex flex-col max-h-11/12 h-fit overflow-hidden blur-fade">
             <DialogHeader>
                 <DialogTitle>
                     {$_("userspace.projects.project.access_settings.dialog.title", {values: {project: accessState.project_name}})}
@@ -57,10 +79,13 @@
 
                 <ButtonGroup class="flex flex-row w-full">
                     <Button variant={accessState.project_access_state === "disabled" ? "default" : "outline"}
+                            onclick={() => accessState!.project_access_state = "disabled"}
                             class="flex flex-1">{$_("userspace.projects.project.access_settings.dialog.project_access.disabled.title")}</Button>
                     <Button variant={accessState.project_access_state === "restricted" ? "default" : "outline"}
+                            onclick={() => accessState!.project_access_state = "restricted"}
                             class="flex flex-1">{$_("userspace.projects.project.access_settings.dialog.project_access.restricted.title")}</Button>
                     <Button variant={accessState.project_access_state === "open" ? "default" : "outline"}
+                            onclick={() => accessState!.project_access_state = "open"}
                             class="flex flex-1">{$_("userspace.projects.project.access_settings.dialog.project_access.open.title")}</Button>
                 </ButtonGroup>
 
@@ -127,22 +152,6 @@
                                 <TrashIcon/>
                             </Button>
                         </div>
-
-                        <div class="flex flex-row items-center justify-between p-2 gap-2 overflow-hidden">
-                            <div class="flex flex-row items-center gap-2 pl-1">
-                                <Avatar class="size-8 rounded-lg">
-                                    <AvatarImage src={"https://thispersondoesnotexist.com"} alt={"Julius Babies"}/>
-                                    <AvatarFallback class="rounded-lg">JB</AvatarFallback>
-                                </Avatar>
-                                <div class="flex flex-col items-start">
-                                    <span>Max-Mustermann</span>
-                                    <span class="text-xs text-neutral-600 font-medium">5 days ago</span>
-                                </div>
-                            </div>
-                            <Button variant="destructive" size="icon">
-                                <TrashIcon/>
-                            </Button>
-                        </div>
                     </div>
                     <div class="border-b-2 border-l-2 border-r-2 border-dashed rounded-b-lg border-neutral-300 text-foreground p-2 flex flex-row items-center justify-center gap-2 cursor-pointer transition-colors duration-100 hover:bg-neutral-100 select-none">
                         <PlusIcon/>
@@ -152,8 +161,18 @@
             </div>
 
             <DialogFooter>
-                <Button variant="outline">Cancel</Button>
-                <Button>Save</Button>
+                <Button
+                        variant="default"
+                        disabled={isLoading}
+                        onclick={save}
+                >
+                    {#if isLoading}
+                        <div class="aspect-square w-4 h-4 animate-spin" transition:slide={{ duration: 100, axis: "x" }}>
+                            <Loader />
+                        </div>
+                    {/if}
+                    Save
+                </Button>
             </DialogFooter>
         </DialogContent>
     </Dialog>
