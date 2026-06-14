@@ -120,7 +120,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
 
             if (!isAuthorized) {
 
-                val request = Request(
+                val proxyAuthSession = ProxyAuthSession(
                     path = call.request.uri,
                     project = project,
                     host = call.request.host(),
@@ -128,7 +128,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 )
 
                 val authSessionId = Uuid.random()
-                proxyAuthSessions[authSessionId] = request
+                proxyAuthSessions[authSessionId] = proxyAuthSession
 
                 val url = URLBuilder("https://${appConfig.appDomain}/api/proxy/auth/landing").apply {
                     parameters.append("proxy_auth_session_id", authSessionId.toString())
@@ -214,9 +214,9 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
     }
 }
 
-val proxyAuthSessions = mutableMapOf<Uuid, Request>()
+val proxyAuthSessions = mutableMapOf<Uuid, ProxyAuthSession>()
 
-data class Request(
+data class ProxyAuthSession(
     val path: String,
     val project: Project,
     val host: String,

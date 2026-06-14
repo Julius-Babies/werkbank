@@ -5,6 +5,7 @@ import app.werkbank.database.DatabaseManager
 import app.werkbank.database.Project
 import app.werkbank.database.User
 import app.werkbank.plugins.auth.UserPrincipal
+import app.werkbank.plugins.proxy.ProxyAuthSession
 import app.werkbank.plugins.proxy.proxyAuthSessions
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
@@ -54,25 +55,10 @@ fun Route.proxyAuthLanding() {
                         call.respondRedirect("https://$userDomain/api/proxy/auth/result?proxy_auth_session_id=$proxyAuthSessionId")
                         return@get
                     } else {
-                        val url = db.query {
-                            URLBuilder("https://${appConfig.appDomain}/proxy/auth/account-required").apply {
-                                parameters.append("project_id", project.id.value.toHexString())
-                                parameters.append("project_name", project.name)
-                                parameters.append("owner_id", project.owner.id.value.toHexString())
-                                parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                                parameters.append("owner_username", project.owner.username)
-                                parameters.append("is_wrong_user_logged_in", (principal != null).toString())
-
-                                val wbCloudAuthUrl = URLBuilder("https://${appConfig.appDomain}/api/login").apply {
-                                    parameters.append(
-                                        "redirect",
-                                        "https://${proxyAuthSession.host}${proxyAuthSession.path}"
-                                    )
-                                }
-
-                                parameters.append("wbcloud_auth_url", wbCloudAuthUrl.buildString())
-                            }
-                        }.build()
+                        val url = generateAccountRequiredUrl(
+                            isWrongUserLoggedIn = principal != null,
+                            proxyAuthSession = proxyAuthSession
+                        )
                         call.respondRedirect(url, permanent = false)
                         return@get
                     }
@@ -122,10 +108,12 @@ fun Route.proxyAuthLanding() {
                         return@get
                     }
 
-                    call.respond(
-                        message = "Wrong user account, password access is disabled. Log in as a permitted user to access this project.",
-                        status = HttpStatusCode.Unauthorized
+                    val url = generateAccountRequiredUrl(
+                        isWrongUserLoggedIn = principal != null,
+                        proxyAuthSession = proxyAuthSession
                     )
+
+                    call.respondRedirect(url, permanent = false)
                     return@get
                 }
                 Project.AccessState.Open -> {
@@ -153,4 +141,28 @@ private suspend fun generateJwtForUserAndProject(user: User, project: Project): 
             .withExpiresAt((Clock.System.now() + MAX_ACCESS_TOKEN_VALIDITY).toJavaInstant())
             .sign(Algorithm.HMAC256(appConfig.jwt.secret))
     }
+}
+
+private suspend fun generateAccountRequiredUrl(isWrongUserLoggedIn: Boolean, proxyAuthSession: ProxyAuthSession): Url {
+    val db = getKoin().get<DatabaseManager>()
+    val appConfig = getKoin().get<AppConfig>()
+    return db.query {
+        URLBuilder("https://${appConfig.appDomain}/proxy/auth/account-required").apply {
+            parameters.append("project_id", proxyAuthSession.project.id.value.toHexString())
+            parameters.append("project_name", proxyAuthSession.project.name)
+            parameters.append("owner_id", proxyAuthSession.project.owner.id.value.toHexString())
+            parameters.append("owner_avatar_url", proxyAuthSession.project.owner.profileImageUrl ?: "null")
+            parameters.append("owner_username", proxyAuthSession.project.owner.username)
+            parameters.append("is_wrong_user_logged_in", isWrongUserLoggedIn.toString())
+
+            val wbCloudAuthUrl = URLBuilder("https://${appConfig.appDomain}/api/login").apply {
+                parameters.append(
+                    "redirect",
+                    "https://${proxyAuthSession.host}${proxyAuthSession.path}"
+                )
+            }
+
+            parameters.append("wbcloud_auth_url", wbCloudAuthUrl.buildString())
+        }
+    }.build()
 }
