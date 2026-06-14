@@ -103,5 +103,35 @@
         }
       }
     }
+  },
+  "proxy": {
+    "auth": {
+      "password": {
+        "title": "Auf {projectName} von {ownerUsername} zugreifen",
+        "description": "Du musst ein Passwort eingeben, um auf dieses Projekt zuzugreifen.",
+        "error": {
+          "title": "Etwas ist schiefgelaufen",
+          "description": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut."
+        },
+        "wrong_user": {
+          "title": "Falscher Benutzer angemeldet",
+          "description": "Dein Benutzerkonto ist nicht berechtigt, auf dieses Projekt zuzugreifen. Du kannst zu einem anderen Konto wechseln oder ein Passwort verwenden, um fortzufahren."
+        },
+        "field": {
+          "label": "Passwort",
+          "placeholder": "••••••",
+          "description": "Frage den Projektbesitzer nach dem Passwort, falls du keines hast. Es können mehrere Passwörter gültig sein.",
+          "error": {
+            "empty": "Bitte gib ein Passwort ein.",
+            "invalid": "Ungültiges Passwort. Versuche es erneut."
+          }
+        },
+        "button": {
+          "continue": "Weiter",
+          "wbcloud": "Mit WBCloud anmelden"
+        },
+        "field_separator": "Oder melde dich mit einem berechtigten Benutzerkonto an"
+      }
+    }
   }
 }

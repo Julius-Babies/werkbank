@@ -4,6 +4,7 @@ import app.werkbank.app.projects.item.getProjectWithPrincipalAsOwner
 import app.werkbank.database.AccessPassword
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.ProjectPassword
+import app.werkbank.util.sha256
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -24,7 +25,7 @@ fun Route.createPassword() {
             db.query {
                 val password = AccessPassword.new {
                     this.label = request.label
-                    this.passwordHash = request.password
+                    this.passwordHash = request.password.sha256()
                     this.createdBy = project.owner
                 }
 

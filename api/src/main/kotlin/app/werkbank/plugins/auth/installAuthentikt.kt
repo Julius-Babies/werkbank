@@ -127,6 +127,17 @@ fun Application.installAuthentikt() {
                 val token = createToken(user)
                 val code = (1..3).map { Uuid.random().toHexString() }.joinToString("")
                 val userDomain = user.username.lowercase() + "." + appConfig.domainSuffix
+
+                cookie(
+                    Cookie(
+                        name = "wbcloud-token",
+                        value = token,
+                        path = "/",
+                        secure = true,
+                        httpOnly = true,
+                    )
+                )
+
                 tokenMap[code] = AuthRedirect(
                     token = token,
                     redirectUrl = session.attributes[redirectAttribute] ?: "https://$userDomain"

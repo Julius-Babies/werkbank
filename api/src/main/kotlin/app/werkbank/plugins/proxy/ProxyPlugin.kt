@@ -3,6 +3,9 @@ package app.werkbank.plugins.proxy
 import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
+import com.auth0.jwt.exceptions.JWTVerificationException
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -18,6 +21,7 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.lowerCase
 import org.koin.ktor.ext.inject
+import kotlin.uuid.Uuid
 
 val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
     val appConfig by application.inject<AppConfig>()
@@ -37,13 +41,6 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             val user = db.query { User.find { Users.username.lowerCase() eq username.lowercase() }.firstOrNull() }
             if (user == null) {
                 call.respondText("User not found", status = HttpStatusCode.NotFound)
-                return@onCall
-            }
-
-            val tunnel = tunnelManager.getTunnel(user)
-
-            if (tunnel == null) {
-                call.respondText("Tunnel not active, start with wb tunnel.", status = HttpStatusCode.ServiceUnavailable)
                 return@onCall
             }
 
@@ -76,10 +73,74 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 service = null
             }
 
-            // TODO: Check auth + service openness
+            val authCookieName = "werkbank-project-auth-token-${project.id.value.toHexString()}"
+            val cookieValue = call.request.cookies[authCookieName]
+
+            var isAuthorized = if (project.accessState == Project.AccessState.Open) true else run authorizationValidation@{
+                if (cookieValue == null) return@authorizationValidation false
+                else {
+                    val jwtVerifier = JWT
+                        .require(Algorithm.HMAC256(appConfig.jwt.secret))
+                        .withAudience("werkbank-project-${project.id.value.toHexString()}")
+                        .withIssuer("werkbank")
+                        .build()
+                    try {
+                        val jwt = jwtVerifier.verify(cookieValue)
+                        when (jwt.getClaim("source").asString()) {
+                            "owner" -> return@authorizationValidation true
+                            "password" -> {
+                                if (project.accessState == Project.AccessState.Disabled) return@authorizationValidation false
+                                val passwordId = jwt.getClaim("password_id").asString()
+                                val projectUsesPassword = db.query { project.passwords.any { password -> password.password.id.value.toHexString() == passwordId } }
+                                return@authorizationValidation projectUsesPassword
+                            }
+                        }
+                    } catch (_: JWTVerificationException) {
+                        return@authorizationValidation false
+                    }
+                }
+
+                return@authorizationValidation null
+            }
+
+            if (isAuthorized == null) {
+                call.respondText(
+                    "Something went wrong, we couldn't determine whether this request is authorized. We're sorry for the inconvenience. This is a bug, please report it to us.",
+                    status = HttpStatusCode.InternalServerError
+                )
+                return@onCall
+            }
+
+            if (!isAuthorized) {
+
+                val request = Request(
+                    path = call.request.uri,
+                    project = project,
+                    host = call.request.host(),
+                    headers = call.request.headers.entries().flatMap { entry -> entry.value.map { "${entry.key}=$it" } }
+                )
+
+                val authSessionId = Uuid.random()
+                proxyAuthSessions[authSessionId] = request
+
+                val url = URLBuilder("https://${appConfig.appDomain}/api/proxy/auth/landing").apply {
+                    parameters.append("proxy_auth_session_id", authSessionId.toString())
+                }
+                call.respondRedirect(url.build(), permanent = false)
+                return@onCall
+            }
+
+            require(isAuthorized) { "isAuthorized should be true" }
 
             val isWebSocket = call.request.httpMethod == HttpMethod.Get &&
                 call.request.headers["Upgrade"]?.lowercase() == "websocket"
+
+            val tunnel = tunnelManager.getTunnel(user)
+
+            if (tunnel == null) {
+                call.respondText("Tunnel not active, start with wb tunnel.", status = HttpStatusCode.ServiceUnavailable)
+                return@onCall
+            }
 
             if (isWebSocket) {
                 val wsProxy = tunnel.wsProxy(
@@ -145,3 +206,12 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
         }
     }
 }
+
+val proxyAuthSessions = mutableMapOf<Uuid, Request>()
+
+data class Request(
+    val path: String,
+    val project: Project,
+    val host: String,
+    val headers: List<String>,
+)

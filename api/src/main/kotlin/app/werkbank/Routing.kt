@@ -7,6 +7,9 @@ import app.werkbank.app.login.logout
 import app.werkbank.app.me.me
 import app.werkbank.app.projects.create.createProject
 import app.werkbank.app.projects.item.projectRoutes
+import app.werkbank.app.proxy.auth.password.proxyPassword
+import app.werkbank.app.proxy.auth.proxyAuthLanding
+import app.werkbank.app.proxy.auth.proxyAuthResult
 import app.werkbank.app.tunnel.tunnel
 import app.werkbank.app.webapp.projects.item.access.getState
 import app.werkbank.app.webapp.projects.item.access.passwords.getPasswordOptions
@@ -35,6 +38,22 @@ fun Application.configureRouting() {
 
                     route("/callback") {
                         callback()
+                    }
+                }
+
+                route("/proxy") {
+                    route("/auth") {
+                        route("/landing") {
+                            proxyAuthLanding()
+                        }
+
+                        route("/result") {
+                            proxyAuthResult()
+                        }
+
+                        route("/password") {
+                            proxyPassword()
+                        }
                     }
                 }
 

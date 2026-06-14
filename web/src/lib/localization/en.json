@@ -103,5 +103,35 @@
         }
       }
     }
+  },
+  "proxy": {
+    "auth": {
+      "password": {
+        "title": "Access {projectName} by {ownerUsername}",
+        "description": "You need to enter a password to access this project.",
+        "error": {
+          "title": "Something went wrong",
+          "description": "An unexpected error occurred. Please try again."
+        },
+        "wrong_user": {
+          "title": "Wrong user logged in",
+          "description": "Your user account is not allowed to access this project. You may switch to another account or use a password to continue."
+        },
+        "field": {
+          "label": "Password",
+          "placeholder": "••••••",
+          "description": "Ask the project owner for the password if you don't have it. Multiple passwords may be valid.",
+          "error": {
+            "empty": "Please enter a password.",
+            "invalid": "Invalid password. Try again."
+          }
+        },
+        "button": {
+          "continue": "Continue",
+          "wbcloud": "Login with WBCloud"
+        },
+        "field_separator": "Or login with a permitted user account"
+      }
+    }
   }
 }

@@ -10,6 +10,7 @@ import io.ktor.http.auth.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.auth.jwt.*
+import io.ktor.server.request.host
 import org.koin.ktor.ext.inject
 import kotlin.uuid.Uuid
 
@@ -35,7 +36,9 @@ fun Application.installAuthorization() {
                     return@authHeader parseAuthorizationHeader("Bearer $token")
                 }
 
-                val cookie = call.request.cookies["werkbank-token"]?.ifBlank { null }
+                val cookieName = if (call.request.host() == appConfig.appDomain) "wbcloud-token" else "werkbank-token"
+
+                val cookie = call.request.cookies[cookieName]?.ifBlank { null }
                 if (cookie != null) {
                     return@authHeader parseAuthorizationHeader("Bearer $cookie")
                 }
