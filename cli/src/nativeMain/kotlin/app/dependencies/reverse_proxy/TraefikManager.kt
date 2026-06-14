@@ -361,11 +361,11 @@ class TraefikManager : AppDependency, KoinComponent {
     private fun String.toTraefikHostRule(): String = when {
         startsWith("**.") -> {
             val base = removePrefix("**.").replace(".", "\\.")
-            "HostRegexp(`.+\\." + base + "`)"
+            "HostRegexp(`^.+\\.$base$`)"
         }
         startsWith("*.") -> {
             val base = removePrefix("*.").replace(".", "\\.")
-            "HostRegexp(`[^.]+\\." + base + "`)"
+            "HostRegexp(`^[^.]+\\.$base$`)"
         }
         else -> "Host(`$this`)"
     }
