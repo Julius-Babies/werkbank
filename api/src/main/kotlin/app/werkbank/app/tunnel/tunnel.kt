@@ -3,8 +3,8 @@ package app.werkbank.app.tunnel
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
-import app.werkbank.shared.tunnel.base64Chunks
 import app.werkbank.shared.tunnel.json
+import app.werkbank.shared.tunnel.rawChunks
 import io.ktor.http.*
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
@@ -33,34 +33,46 @@ fun Route.tunnel() {
 
             runCatching {
                 for (frame in incoming) {
-                    if (frame is Frame.Text) {
-                        when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
-                            is ClientMessage.HttpResponse -> {
-                                val requestId = message.requestId
-                                instance.pendingCalls[requestId]?.send(message)
-                            }
-                            is ClientMessage.HttpBody -> {
-                                val requestId = message.requestId
-                                instance.pendingCalls[requestId]?.send(message)
-                            }
-                            is ClientMessage.HttpEnd -> {
-                                val requestId = message.requestId
-                                instance.pendingCalls[requestId]?.send(message)
-                            }
-                            is ClientMessage.WsOpened -> {
-                                val requestId = message.requestId
-                                instance.pendingCalls[requestId]?.send(message)
-                            }
-                            is ClientMessage.WsText -> {
-                                instance.wsBridges[message.requestId]?.onTunnelMessage(message)
-                            }
-                            is ClientMessage.WsBinary -> {
-                                instance.wsBridges[message.requestId]?.onTunnelMessage(message)
-                            }
-                            is ClientMessage.WsClose -> {
-                                instance.wsBridges[message.requestId]?.onTunnelMessage(message)
+                    when (frame) {
+                        is Frame.Binary -> {
+                            val bytes = frame.readBytes()
+                            if (bytes.size < 16) continue
+                            val requestId = Uuid.fromByteArray(bytes.copyOfRange(0, 16))
+                            instance.pendingCalls[requestId]?.send(ClientMessage.HttpBody(
+                                requestId = requestId,
+                                body = Base64.encode(bytes.copyOfRange(16, bytes.size))
+                            ))
+                        }
+                        is Frame.Text -> {
+                            when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
+                                is ClientMessage.HttpResponse -> {
+                                    val requestId = message.requestId
+                                    instance.pendingCalls[requestId]?.send(message)
+                                }
+                                is ClientMessage.HttpBody -> {
+                                    val requestId = message.requestId
+                                    instance.pendingCalls[requestId]?.send(message)
+                                }
+                                is ClientMessage.HttpEnd -> {
+                                    val requestId = message.requestId
+                                    instance.pendingCalls[requestId]?.send(message)
+                                }
+                                is ClientMessage.WsOpened -> {
+                                    val requestId = message.requestId
+                                    instance.pendingCalls[requestId]?.send(message)
+                                }
+                                is ClientMessage.WsText -> {
+                                    instance.wsBridges[message.requestId]?.onTunnelMessage(message)
+                                }
+                                is ClientMessage.WsBinary -> {
+                                    instance.wsBridges[message.requestId]?.onTunnelMessage(message)
+                                }
+                                is ClientMessage.WsClose -> {
+                                    instance.wsBridges[message.requestId]?.onTunnelMessage(message)
+                                }
                             }
                         }
+                        else -> {}
                     }
                 }
             }.also {
@@ -143,11 +155,11 @@ class TunnelInstance(
             }
         ))
 
-        body?.base64Chunks { chunk ->
-            this.webSocketSession.sendSerialized<ServerMessage>(ServerMessage.HttpBody(
-                requestId = requestId,
-                body = chunk
-            ))
+        body?.rawChunks { rawBytes ->
+            val frameData = ByteArray(16 + rawBytes.size)
+            requestId.toByteArray().copyInto(frameData)
+            rawBytes.copyInto(frameData, 16)
+            webSocketSession.send(Frame.Binary(true, frameData))
         }
 
         this.webSocketSession.sendSerialized<ServerMessage>(ServerMessage.HttpEnd(

@@ -1,35 +1,15 @@
 package app.werkbank.shared.tunnel
 
-import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.readAvailable
-import kotlin.io.encoding.Base64
+import io.ktor.utils.io.*
 
-suspend fun ByteReadChannel.base64Chunks(
-    chunkSize: Int = 1024 * 1024,
-    emit: suspend (String) -> Unit
+suspend fun ByteReadChannel.rawChunks(
+    chunkSize: Int = 64 * 1024,
+    emit: suspend (ByteArray) -> Unit
 ) {
     val buffer = ByteArray(chunkSize)
-    var remainder = ByteArray(0)
-
-    while (!isClosedForRead) {
+    while (true) {
         val read = readAvailable(buffer)
-        if (read <= 0) continue
-
-        val combined = ByteArray(remainder.size + read)
-        remainder.copyInto(combined)
-        buffer.copyInto(combined, destinationOffset = remainder.size, endIndex = read)
-
-        val encodableLength = (combined.size / 3) * 3
-        val toEncode = combined.copyOfRange(0, encodableLength)
-
-        remainder = combined.copyOfRange(encodableLength, combined.size)
-
-        if (toEncode.isNotEmpty()) {
-            emit(Base64.encode(toEncode))
-        }
-    }
-
-    if (remainder.isNotEmpty()) {
-        emit(Base64.encode(remainder))
+        if (read <= 0) break
+        emit(buffer.copyOfRange(0, read))
     }
 }
