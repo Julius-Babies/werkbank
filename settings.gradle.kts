@@ -13,6 +13,7 @@ dependencyResolutionManagement {
     repositories {
         mavenCentral()
         mavenLocal()
+        google()
     }
     versionCatalogs {
         create("ktorLibs").from("io.ktor:ktor-version-catalog:3.5.0")

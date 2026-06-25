@@ -1,9 +1,15 @@
 import com.codingfeline.buildkonfig.compiler.FieldSpec
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.buildkonfig)
+}
+
+val localProperties = Properties().apply {
+    load(project.rootProject.file("local.properties").inputStream())
 }
 
 group = "app.werkbank"
@@ -30,6 +36,7 @@ kotlin {
     sourceSets {
         nativeMain.dependencies {
             implementation(project(":shared"))
+            implementation(libs.compose.runtime)
             implementation(libs.kaml)
             implementation(libs.clikt)
             implementation(libs.docker.kt)
@@ -42,6 +49,7 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.datetime)
             implementation(libs.koin.core)
+            implementation(libs.mosaic)
             implementation(libs.table.tui)
         }
         macosMain.dependencies {
@@ -50,7 +58,7 @@ kotlin {
     }
 }
 
-val isDevelopment = properties.getOrDefault("cli.dev", "null").toString().toBooleanStrictOrNull() ?: run {
+val isDevelopment = localProperties.getOrDefault("cli.dev", "null").toString().toBooleanStrictOrNull() ?: run {
     project.logger.warn("w: cli.dev property not set, defaulting to true")
     true
 }
