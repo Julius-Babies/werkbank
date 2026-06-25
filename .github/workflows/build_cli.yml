@@ -65,6 +65,9 @@ jobs:
             **/gradle.properties
             **/libs.versions.toml
 
+      - name: Configure
+        run: echo "cli.dev=false" >> local.properties
+
       - name: Build CLI
         run: ./gradlew ${{ matrix.gradle-task }} --no-daemon
 

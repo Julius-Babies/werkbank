@@ -1,6 +1,9 @@
+import com.codingfeline.buildkonfig.compiler.FieldSpec
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.buildkonfig)
 }
 
 group = "app.werkbank"
@@ -44,5 +47,18 @@ kotlin {
         macosMain.dependencies {
             implementation(ktorLibs.client.darwin)
         }
+    }
+}
+
+val isDevelopment = properties.getOrDefault("cli.dev", "null").toString().toBooleanStrictOrNull() ?: run {
+    project.logger.warn("w: cli.dev property not set, defaulting to true")
+    true
+}
+
+buildkonfig {
+    packageName = "app.werkbank"
+
+    defaultConfigs {
+        buildConfigField(FieldSpec.Type.BOOLEAN, "isDevelopment", isDevelopment.toString())
     }
 }

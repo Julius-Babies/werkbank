@@ -7,6 +7,8 @@ import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import http.httpClient
+import http.isServerNotRunningException
+import http.isTimeoutException
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -103,16 +105,30 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                                     targetUrl = target.url,
                                                 )
 
-                                                val response = client.prepareRequest(
-                                                    urlString = target.url,
-                                                ) {
-                                                    method = HttpMethod(msg.method)
-                                                    msg.headers.forEach { header ->
-                                                        val (key, value) = header.split(": ", limit = 2)
-                                                        headers.append(key, value)
+                                                val response = try {
+                                                    client.prepareRequest(
+                                                        urlString = target.url,
+                                                    ) {
+                                                        method = HttpMethod(msg.method)
+                                                        msg.headers.forEach { header ->
+                                                            val (key, value) = header.split(": ", limit = 2)
+                                                            headers.append(key, value)
+                                                        }
+                                                        if (channel != null) setBody(channel)
+                                                    }.execute()
+                                                } catch (e: Exception) {
+                                                    if (e.isTimeoutException()) {
+                                                        sendSerialized<ClientMessage>(ClientMessage.Timeout(requestId = msg.requestId))
+                                                        return@launch
                                                     }
-                                                    if (channel != null) setBody(channel)
-                                                }.execute()
+
+                                                    if (e.isServerNotRunningException()) {
+                                                        sendSerialized<ClientMessage>(ClientMessage.ServerNotRuning(msg.requestId))
+                                                        return@launch
+                                                    }
+                                                    println(buildStyledString { red { +"Failed to connect to tunnel: ${e.stackTraceToString()}" } })
+                                                    return@launch
+                                                }
 
                                                 sendSerialized<ClientMessage>(ClientMessage.HttpResponse(
                                                     requestId = msg.requestId,

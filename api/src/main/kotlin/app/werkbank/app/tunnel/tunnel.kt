@@ -31,51 +31,73 @@ fun Route.tunnel() {
             val instance = TunnelInstance(this)
             tunnelManager.onNewIncomingTunnel(user.user, instance)
 
-            runCatching {
+            try {
                 for (frame in incoming) {
                     when (frame) {
                         is Frame.Binary -> {
                             val bytes = frame.readBytes()
                             if (bytes.size < 16) continue
                             val requestId = Uuid.fromByteArray(bytes.copyOfRange(0, 16))
-                            instance.pendingCalls[requestId]?.send(ClientMessage.HttpBody(
-                                requestId = requestId,
-                                body = Base64.encode(bytes.copyOfRange(16, bytes.size))
-                            ))
+                            instance.pendingCalls[requestId]?.send(
+                                ClientMessage.HttpBody(
+                                    requestId = requestId,
+                                    body = Base64.encode(bytes.copyOfRange(16, bytes.size))
+                                )
+                            )
                         }
+
                         is Frame.Text -> {
                             when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
                                 is ClientMessage.HttpResponse -> {
                                     val requestId = message.requestId
                                     instance.pendingCalls[requestId]?.send(message)
                                 }
+
                                 is ClientMessage.HttpBody -> {
                                     val requestId = message.requestId
                                     instance.pendingCalls[requestId]?.send(message)
                                 }
+
+                                is ClientMessage.Timeout -> {
+                                    val requestId = message.requestId
+                                    instance.pendingCalls[requestId]?.send(message)
+                                }
+
+                                is ClientMessage.ServerNotRuning -> {
+                                    val requestId = message.requestId
+                                    instance.pendingCalls[requestId]?.send(message)
+                                }
+
                                 is ClientMessage.HttpEnd -> {
                                     val requestId = message.requestId
                                     instance.pendingCalls[requestId]?.send(message)
                                 }
+
                                 is ClientMessage.WsOpened -> {
                                     val requestId = message.requestId
                                     instance.pendingCalls[requestId]?.send(message)
                                 }
+
                                 is ClientMessage.WsText -> {
                                     instance.wsBridges[message.requestId]?.onTunnelMessage(message)
                                 }
+
                                 is ClientMessage.WsBinary -> {
                                     instance.wsBridges[message.requestId]?.onTunnelMessage(message)
                                 }
+
                                 is ClientMessage.WsClose -> {
                                     instance.wsBridges[message.requestId]?.onTunnelMessage(message)
                                 }
                             }
                         }
+
                         else -> {}
                     }
                 }
-            }.also {
+            } catch (e: Exception) {
+                println("Tunnel connection closed: ${e.message}")
+            } finally {
                 tunnelManager.onTunnelClosed(user.user)
             }
         }
@@ -86,6 +108,7 @@ class TunnelInstance(
     val webSocketSession: DefaultWebSocketServerSession,
 ) {
     typealias RequestId = Uuid
+
     val pendingCalls = mutableMapOf<RequestId, Channel<ClientMessage>>()
     val wsBridges = mutableMapOf<RequestId, WsBridge>()
 
@@ -104,7 +127,8 @@ class TunnelInstance(
         val channel = Channel<ClientMessage>()
         pendingCalls[requestId] = channel
 
-        webSocketSession.sendSerialized<ServerMessage>(ServerMessage.WsOpen(
+        webSocketSession.sendSerialized<ServerMessage>(
+            ServerMessage.WsOpen(
             requestId = requestId,
             project = projectName,
             service = serviceName,
@@ -144,7 +168,8 @@ class TunnelInstance(
         val incomingChannel = Channel<ClientMessage>()
         pendingCalls[requestId] = incomingChannel
 
-        this.webSocketSession.sendSerialized<ServerMessage>(ServerMessage.HttpRequest(
+        this.webSocketSession.sendSerialized<ServerMessage>(
+            ServerMessage.HttpRequest(
             requestId = requestId,
             project = projectName,
             service = serviceName,
@@ -162,40 +187,61 @@ class TunnelInstance(
             webSocketSession.send(Frame.Binary(true, frameData))
         }
 
-        this.webSocketSession.sendSerialized<ServerMessage>(ServerMessage.HttpEnd(
-            requestId = requestId
-        ))
+        this.webSocketSession.sendSerialized<ServerMessage>(
+            ServerMessage.HttpEnd(
+                requestId = requestId
+            )
+        )
 
         val responseBodyChannel = ByteChannel()
         val result = CompletableDeferred<Response>()
         coroutineScope.launch {
             for (incoming in incomingChannel) {
-                when (incoming) {
-                    is ClientMessage.HttpResponse -> result.complete(Response(
-                        status = HttpStatusCode.fromValue(incoming.statusCode),
-                        headers = incoming.headers
-                            .map { it.split(": ", limit = 2) }
-                            .map { it.component1() to it.component2() }
-                            .groupBy { it.first }
-                            .mapValues { it.value.map { it.second } },
-                        body = responseBodyChannel
-                    ))
-                    is ClientMessage.HttpBody -> {
-                        val bytes = Base64.decode(incoming.body)
-                        responseBodyChannel.writeFully(bytes)
-                        responseBodyChannel.flush()
+                try {
+                    when (incoming) {
+                        is ClientMessage.Timeout -> throw TimeoutException()
+                        is ClientMessage.ServerNotRuning -> throw ServerNotRunningException()
+                        is ClientMessage.HttpResponse -> result.complete(
+                            Response(
+                                status = HttpStatusCode.fromValue(incoming.statusCode),
+                                headers = incoming.headers
+                                    .map { it.split(": ", limit = 2) }
+                                    .map { it.component1() to it.component2() }
+                                    .groupBy { it.first }
+                                    .mapValues { it.value.map { it.second } },
+                                body = responseBodyChannel
+                            )
+                        )
+
+                        is ClientMessage.HttpBody -> {
+                            val bytes = Base64.decode(incoming.body)
+                            responseBodyChannel.writeFully(bytes)
+                            responseBodyChannel.flush()
+                        }
+
+                        is ClientMessage.HttpEnd -> {
+                            responseBodyChannel.flushAndClose()
+                            pendingCalls[requestId]?.close()
+                            pendingCalls.remove(requestId)
+                        }
+
+                        else -> {}
                     }
-                    is ClientMessage.HttpEnd -> {
-                        responseBodyChannel.flushAndClose()
-                        pendingCalls[requestId]?.close()
-                        pendingCalls.remove(requestId)
-                    }
-                    else -> {}
+                } catch (e: Exception) {
+                    pendingCalls[requestId]?.close()
+                    pendingCalls.remove(requestId)
+                    result.completeExceptionally(e)
                 }
             }
         }
 
         return result
+    }
+
+    fun close() {
+        this.pendingCalls.values.forEach {
+            it.close(TunnelClosedException())
+        }
     }
 
     data class Response(
@@ -215,8 +261,21 @@ class WsBridge(
     suspend fun send(frame: Frame) {
         when (frame) {
             is Frame.Text -> tunnelInstance.sendMessage(ServerMessage.WsText(requestId, frame.readText()))
-            is Frame.Binary -> tunnelInstance.sendMessage(ServerMessage.WsBinary(requestId, Base64.encode(frame.readBytes())))
-            is Frame.Close -> tunnelInstance.sendMessage(ServerMessage.WsClose(requestId, frame.readReason()?.code?.toInt() ?: 1000, frame.readReason()?.message ?: ""))
+            is Frame.Binary -> tunnelInstance.sendMessage(
+                ServerMessage.WsBinary(
+                    requestId,
+                    Base64.encode(frame.readBytes())
+                )
+            )
+
+            is Frame.Close -> tunnelInstance.sendMessage(
+                ServerMessage.WsClose(
+                    requestId,
+                    frame.readReason()?.code?.toInt() ?: 1000,
+                    frame.readReason()?.message ?: ""
+                )
+            )
+
             else -> {}
         }
     }
@@ -235,3 +294,7 @@ class WsBridge(
         tunnelInstance.wsBridges.remove(requestId)
     }
 }
+
+class TimeoutException : Exception()
+class ServerNotRunningException : Exception()
+class TunnelClosedException : Exception()

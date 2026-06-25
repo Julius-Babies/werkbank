@@ -53,3 +53,5 @@ bin/
 ### Project ###
 data
 web/build
+
+local.properties

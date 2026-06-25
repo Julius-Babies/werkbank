@@ -16,6 +16,18 @@ sealed class ClientMessage {
     ): ClientMessage()
 
     @Serializable
+    @SerialName("http.error.timeout")
+    data class Timeout(
+        @SerialName("request_id") val requestId: Uuid,
+    ): ClientMessage()
+
+    @Serializable
+    @SerialName("http.error.server_not_running")
+    data class ServerNotRuning(
+        @SerialName("request_id") val requestId: Uuid,
+    ): ClientMessage()
+
+    @Serializable
     @SerialName("http.body")
     data class HttpBody(
         @SerialName("request_id") val requestId: Uuid,

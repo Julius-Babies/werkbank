@@ -19,7 +19,8 @@ class TunnelManager {
     }
 
     suspend fun onTunnelClosed(user: User) {
-        tunnels.remove(user.id.value)
+        val tunnel = tunnels.remove(user.id.value)
+        tunnel?.close()
         tunnelsFlow[user.id.value]?.forEach { it.send(null) }
     }
 

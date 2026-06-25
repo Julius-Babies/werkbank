@@ -1,5 +1,8 @@
 package app.werkbank.plugins.proxy
 
+import app.werkbank.app.tunnel.ServerNotRunningException
+import app.werkbank.app.tunnel.TimeoutException
+import app.werkbank.app.tunnel.TunnelClosedException
 import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
@@ -7,12 +10,16 @@ import app.werkbank.util.sha256
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTVerificationException
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.websocket.*
 import io.ktor.util.*
+import io.ktor.utils.io.copyTo
 import io.ktor.utils.io.jvm.javaio.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
@@ -156,7 +163,13 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             val tunnel = tunnelManager.getTunnel(user)
 
             if (tunnel == null) {
-                call.respondText("Tunnel not active, start with wb tunnel.", status = HttpStatusCode.ServiceUnavailable)
+                val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-not-running").apply {
+                    parameters.append("project_id", project.id.value.toHexString())
+                    parameters.append("owner_id", project.owner.id.value.toHexString())
+                    parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
+                    parameters.append("owner_username", project.owner.username)
+                } }.build()
+                call.respondWebpage(url)
                 return@onCall
             }
 
@@ -198,21 +211,50 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     }
                 })
             } else {
-                val result = tunnel.request(
-                    method = call.request.httpMethod,
-                    projectName = project.projectKey,
-                    serviceName = service?.serviceKey,
-                    path = call.request.uri,
-                    headers = call.request.headers.toMap(),
-                    body = when (call.request.httpMethod) {
-                        HttpMethod.Get -> null
-                        else -> call.receiveChannel()
-                    },
-                    coroutineScope = CoroutineScope(currentCoroutineContext())
-                )
+                val response = try {
+                    val result = tunnel.request(
+                        method = call.request.httpMethod,
+                        projectName = project.projectKey,
+                        serviceName = service?.serviceKey,
+                        path = call.request.uri,
+                        headers = call.request.headers.toMap(),
+                        body = when (call.request.httpMethod) {
+                            HttpMethod.Get -> null
+                            else -> call.receiveChannel()
+                        },
+                        coroutineScope = CoroutineScope(currentCoroutineContext())
+                    )
+                    result.await()
+                } catch (_: TimeoutException) {
+                    val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout").apply {
+                        parameters.append("project_id", project.id.value.toHexString())
+                        parameters.append("owner_id", project.owner.id.value.toHexString())
+                        parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
+                        parameters.append("owner_username", project.owner.username)
+                    } }.build()
+                    call.respondWebpage(url)
+                    return@onCall
+                } catch (_: TunnelClosedException) {
+                    val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed").apply {
+                        parameters.append("project_id", project.id.value.toHexString())
+                        parameters.append("owner_id", project.owner.id.value.toHexString())
+                        parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
+                        parameters.append("owner_username", project.owner.username)
+                    } }.build()
+                    call.respondWebpage(url)
+                    return@onCall
+                } catch (_: ServerNotRunningException) {
+                    val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running").apply {
+                        parameters.append("project_id", project.id.value.toHexString())
+                        parameters.append("owner_id", project.owner.id.value.toHexString())
+                        parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
+                        parameters.append("owner_username", project.owner.username)
+                        parameters.append("service_name", service?.serviceKey ?: "null")
+                    } }.build()
+                    call.respondWebpage(url)
+                    return@onCall
+                }
 
-
-                val response = result.await()
                 response.headers.forEach { (key, values) ->
                     if (key == HttpHeaders.TransferEncoding) return@forEach
                     values.forEach { call.response.headers.append(key, it) }
@@ -234,3 +276,17 @@ data class ProxyAuthSession(
     val host: String,
     val headers: List<String>,
 )
+
+private suspend fun ApplicationCall.respondWebpage(url: Url) {
+    val client = HttpClient()
+    val response = client.get(url)
+    val contentType = response.contentType()
+    val status = response.status
+    val channel = response.bodyAsChannel()
+
+    respondBytesWriter(status = status, contentType = contentType) {
+        channel.copyTo(this@respondBytesWriter)
+    }
+
+    client.close()
+}

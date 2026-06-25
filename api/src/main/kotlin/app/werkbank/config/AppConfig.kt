@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 data class AppConfig(
     @SerialName("domain_suffix") val domainSuffix: String,
     @SerialName("app_domain") val appDomain: String,
+    @SerialName("local_web_root") val localWebRoot: String,
     @SerialName("database") val database: Database,
     @SerialName("github") val github: GitHub,
     @SerialName("cli") val cli: Cli,
