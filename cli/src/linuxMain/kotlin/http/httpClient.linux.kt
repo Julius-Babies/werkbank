@@ -10,3 +10,7 @@ actual fun httpClientBase(configure: HttpClientConfig<*>.() -> Unit): HttpClient
 actual fun Exception.isTimeoutException(): Boolean {
     TODO("Not yet implemented")
 }
+
+actual fun Exception.isServerNotRunningException(): Boolean {
+    TODO("Not yet implemented")
+}
