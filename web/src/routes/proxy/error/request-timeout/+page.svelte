@@ -1,10 +1,17 @@
 <script lang="ts">
     import {page} from "$app/state";
+    import {onMount} from "svelte";
     import CardHead from "../../auth/_lib/CardHead.svelte";
 
-    const projectId = page.url.searchParams.get("project_id")!;
-    const ownerUsername = page.url.searchParams.get("owner_username")!;
-    const ownerAvatarUrl = page.url.searchParams.get("owner_avatar_url")!;
+    let projectId = $state("");
+    let ownerUsername = $state("");
+    let ownerAvatarUrl = $state("");
+
+    onMount(() => {
+        projectId = page.url.searchParams.get("project_id")!;
+        ownerUsername = page.url.searchParams.get("owner_username")!;
+        ownerAvatarUrl = page.url.searchParams.get("owner_avatar_url")!;
+    });
 </script>
 
 <svelte:head>
@@ -13,7 +20,9 @@
 
 <div class="flex flex-col w-full h-full p-12">
 
-    <CardHead class="self-start" {projectId} {ownerUsername} ownerProfileIcon={ownerAvatarUrl} />
+    {#if projectId}
+        <CardHead class="self-start" {projectId} {ownerUsername} ownerProfileIcon={ownerAvatarUrl} />
+    {/if}
 
     <div class="text-4xl">
         The request timed out
