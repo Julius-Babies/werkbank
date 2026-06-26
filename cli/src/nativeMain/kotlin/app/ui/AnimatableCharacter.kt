@@ -11,7 +11,23 @@ import com.jakewharton.mosaic.ui.Text
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+
+object AnimatableCharacters {
+    val DotSpinner = listOf(
+        "⠋",
+        "⠙",
+        "⠹",
+        "⠸",
+        "⠼",
+        "⠴",
+        "⠦",
+        "⠧",
+        "⠇",
+        "⠏",
+    )
+}
 
 @Composable
 fun AnimatableCharacter(
@@ -30,6 +46,7 @@ fun AnimatableCharacter(
 @Composable
 fun AnimatableCharacter(
     characters: List<String>,
+    delay: Duration = 1.seconds,
     color: Color = Color.Unspecified,
     background: Color = Color.Unspecified,
 ) {
@@ -37,7 +54,7 @@ fun AnimatableCharacter(
     LaunchedEffect(Unit) {
         launch {
             while (isActive) {
-                delay(1.seconds)
+                delay(delay)
                 animationIndex++
             }
         }

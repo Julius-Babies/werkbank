@@ -2,6 +2,7 @@ package commands.tunnel
 
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.storage.isDevMode
 import app.ui.*
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.jakewharton.mosaic.LocalTerminalState
@@ -9,7 +10,6 @@ import com.jakewharton.mosaic.NonInteractivePolicy
 import com.jakewharton.mosaic.layout.*
 import com.jakewharton.mosaic.modifier.Modifier
 import com.jakewharton.mosaic.runMosaicBlocking
-import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.ui.*
 import kotlinx.coroutines.delay
 import org.koin.core.component.KoinComponent
@@ -74,54 +74,51 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                     TableConfig.ColumnConfig.ComposableColumnConfig(
                                         title = "TARGET",
                                         content = { request ->
-                                            Text(
-                                                value = buildAnnotatedString {
-                                                    append(request.project)
-                                                    append(".")
-                                                    append(request.service)
-                                                    append("/")
-                                                    append(request.path.removePrefix("/"))
+                                            Row {
+                                                Text(
+                                                    value = buildString {
+                                                        append(request.project)
+                                                        append(".")
+                                                    }
+                                                )
+                                                Text(
+                                                    value = request.service,
+                                                    textStyle = TextStyle.Italic
+                                                )
+                                                Text(
+                                                    value = "/${request.path.removePrefix("/")}"
+                                                )
+                                            }
+                                        },
+                                        width = ColumnWidth.Weight(6)
+                                    ),
+                                    TableConfig.ColumnConfig.StringColumnConfig(
+                                        title = "DESTINATION",
+                                        stringFromItem = { request -> request.targetUrl },
+                                        valueColor = Color.Unspecified,
+                                        width = ColumnWidth.Weight(6)
+                                    ),
+                                    TableConfig.ColumnConfig.ComposableColumnConfig(
+                                        title = "STATUS",
+                                        content = { request ->
+                                            when (request.result) {
+                                                null -> AnimatableCharacter(
+                                                    characters = AnimatableCharacters.DotSpinner,
+                                                    delay = 200.milliseconds,
+                                                )
+                                                is Request.Result.Timeout -> Text("Timeout", color = Color.Red)
+                                                is Request.Result.ServiceNotRunning -> Text("Down", color = Color.Red)
+                                                is Request.Result.Success -> Row {
+                                                    Text(request.result.statusCode.toString(), color = Color.Green)
+                                                    Text(" (${request.result.finishedAt.toEpochMilliseconds() - request.startedAt.toEpochMilliseconds()}ms)", color = Color.White)
                                                 }
-                                            )
-                                        }
+                                            }
+                                        },
+                                        width = ColumnWidth.Weight(1)
                                     )
                                 )
                             )
                         )
-
-//                    for (request in requests) {
-//                        val methodColor = when (request.method.uppercase()) {
-//                            "GET" -> Color.Green
-//                            "POST" -> Color.Yellow
-//                            "PUT" -> Color.Blue
-//                            "PATCH" -> Color.Magenta
-//                            "DELETE" -> Color.Red
-//                            "HEAD", "OPTIONS" -> Color.Cyan
-//                            "WEBSOCKET" -> Color.Cyan
-//                            else -> Color.Unspecified
-//                        }
-//                        val result = when (val r = request.result) {
-//                            is Request.Result.Success -> " ${r.statusCode}"
-//                            is Request.Result.Timeout -> " timeout"
-//                            is Request.Result.ServiceNotRunning -> " down"
-//                            null -> " ..."
-//                        }
-//                        Text(
-//                            value = " ${request.method.uppercase().padEnd(7)} ${request.project}.${request.service} /${request.path.removePrefix("/")}$result",
-//                            color = methodColor,
-//                        )
-//                    }
-                    }
-
-                    val statusLabel = when (state.connectionState) {
-                        is TunnelState.ConnectionState.Connected -> "Connected"
-                        is TunnelState.ConnectionState.Connecting -> "Connecting..."
-                        is TunnelState.ConnectionState.Retrying -> "Retrying..."
-                    }
-                    val statusColor = when (state.connectionState) {
-                        is TunnelState.ConnectionState.Connected -> Color.Green
-                        is TunnelState.ConnectionState.Connecting -> Color.Blue
-                        is TunnelState.ConnectionState.Retrying -> Color.Red
                     }
 
                     Box(
@@ -142,18 +139,8 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                 }
                                 is TunnelState.ConnectionState.Connecting -> {
                                     AnimatableCharacter(
-                                        characters = listOf(
-                                            "⠋",
-                                            "⠙",
-                                            "⠹",
-                                            "⠸",
-                                            "⠼",
-                                            "⠴",
-                                            "⠦",
-                                            "⠧",
-                                            "⠇",
-                                            "⠏",
-                                        ),
+                                        characters = AnimatableCharacters.DotSpinner,
+                                        delay = 200.milliseconds,
                                         color = Color.Blue,
                                     )
                                     Text(
@@ -179,6 +166,7 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                     )
                                 }
                             }
+                            if (isDevMode) Text(" (Dev) ", color = Color.Yellow)
                             Spacer(Modifier.weight(1f, true))
                             Text(
                                 value = "CTRL+C to exit",
