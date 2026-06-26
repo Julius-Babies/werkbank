@@ -133,9 +133,12 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                         color = Color.Green,
                                     )
                                     Text(
-                                        " Connected",
+                                        " Connected ",
                                         color = Color.Green,
                                     )
+                                    if (connectionState.currentPing != null) {
+                                        Text("(${connectionState.currentPing.inWholeMilliseconds}ms)", color = Color.Unspecified)
+                                    }
                                 }
                                 is TunnelState.ConnectionState.Connecting -> {
                                     AnimatableCharacter(

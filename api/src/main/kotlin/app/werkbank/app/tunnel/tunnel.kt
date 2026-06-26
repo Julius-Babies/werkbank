@@ -89,6 +89,9 @@ fun Route.tunnel() {
                                 is ClientMessage.WsClose -> {
                                     instance.wsBridges[message.requestId]?.onTunnelMessage(message)
                                 }
+                                is ClientMessage.Ping -> {
+                                    sendSerialized<ServerMessage>(ServerMessage.Pong(message.requestId))
+                                }
                             }
                         }
 

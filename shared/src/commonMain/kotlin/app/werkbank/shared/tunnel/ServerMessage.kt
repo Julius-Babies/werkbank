@@ -62,4 +62,10 @@ sealed class ServerMessage {
         @SerialName("code") val code: Int,
         @SerialName("reason") val reason: String,
     ): ServerMessage()
+
+    @Serializable
+    @SerialName("pong")
+    data class Pong(
+        @SerialName("request_id") val requestId: Uuid,
+    ): ServerMessage()
 }

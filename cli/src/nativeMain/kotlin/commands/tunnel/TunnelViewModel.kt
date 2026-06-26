@@ -25,6 +25,7 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readBytes
 import io.ktor.websocket.readReason
 import io.ktor.websocket.readText
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -32,7 +33,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
@@ -42,6 +45,8 @@ import kotlin.collections.set
 import kotlin.io.encoding.Base64
 import kotlin.system.exitProcess
 import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -94,7 +99,23 @@ class TunnelViewModel: KoinComponent {
                             bearerAuth(authToken)
                         }
                     ) serverSession@{
-                        state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected) }
+                        var currentPingId: Uuid? = null
+                        var lastPingStart: Instant? = null
+                        var currentPingLatch = CompletableDeferred(Unit)
+                        launch {
+                            while (this@serverSession.isActive) {
+                                lastPingStart = Clock.System.now()
+                                currentPingId = Uuid.random()
+                                sendSerialized<ClientMessage>(ClientMessage.Ping(currentPingId))
+                                currentPingLatch = CompletableDeferred()
+                                withTimeout(15.seconds) {
+                                    currentPingLatch.await()
+                                }
+                                state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = Clock.System.now() - lastPingStart)) }
+                                delay(500.milliseconds)
+                            }
+                        }
+                        state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = null)) }
 
                         for (message in incoming) {
                             when (message) {
@@ -248,6 +269,10 @@ class TunnelViewModel: KoinComponent {
                                             wsProxyState[msg.requestId]?.close(CloseReason(msg.code.toShort(), msg.reason))
                                             wsProxyState.remove(msg.requestId)
                                         }
+                                        is ServerMessage.Pong -> {
+                                            require(currentPingId == msg.requestId)
+                                            currentPingLatch.complete(Unit)
+                                        }
                                     }
                                 }
                                 else -> {}
@@ -271,7 +296,7 @@ data class TunnelState(
     val connectionState: ConnectionState = ConnectionState.Connecting,
 ) {
     sealed class ConnectionState {
-        data object Connected: ConnectionState()
+        data class Connected(val currentPing: Duration?): ConnectionState()
         data object Connecting: ConnectionState()
         data class Retrying(val waitUntil: Instant, val throwable: Throwable): ConnectionState()
     }
