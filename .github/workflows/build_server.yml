@@ -51,6 +51,8 @@ jobs:
             **/*.gradle.kts
             **/gradle.properties
             **/libs.versions.toml
+      - name: Configure
+        run: echo "cli.dev=false" >> local.properties
       - name: Build server
         run: ./gradlew :api:fatJar --no-daemon
       - name: Rename artifact
