@@ -11,6 +11,6 @@ actual fun Exception.isTimeoutException(): Boolean {
     TODO("Not yet implemented")
 }
 
-actual fun Exception.isServerNotRunningException(): Boolean {
+actual fun Exception.isServiceNotRunningException(): Boolean {
     TODO("Not yet implemented")
 }

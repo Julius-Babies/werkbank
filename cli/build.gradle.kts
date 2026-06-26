@@ -23,6 +23,10 @@ kotlin {
     )
     applyDefaultHierarchyTemplate()
 
+    compilerOptions {
+        freeCompilerArgs.add("-Xexplicit-context-arguments")
+    }
+
     targets.forEach { target ->
         target.apply {
             binaries {

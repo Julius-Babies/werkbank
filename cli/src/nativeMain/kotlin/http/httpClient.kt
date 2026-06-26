@@ -29,4 +29,4 @@ fun httpClient(): HttpClient {
 }
 
 expect fun Exception.isTimeoutException(): Boolean
-expect fun Exception.isServerNotRunningException(): Boolean
+expect fun Exception.isServiceNotRunningException(): Boolean

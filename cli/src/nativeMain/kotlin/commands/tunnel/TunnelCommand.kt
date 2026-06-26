@@ -1,289 +1,201 @@
 package commands.tunnel
 
-import app.config.MainConfig
-import app.werkbank.shared.tunnel.ClientMessage
-import app.werkbank.shared.tunnel.ServerMessage
-import app.werkbank.shared.tunnel.json
-import app.werkbank.shared.tunnel.rawChunks
+import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.ui.*
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
-import http.httpClient
-import http.isServerNotRunningException
-import http.isTimeoutException
-import io.ktor.client.plugins.websocket.*
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import io.ktor.http.*
-import io.ktor.utils.io.*
-import io.ktor.websocket.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.coroutineScope
+import com.jakewharton.mosaic.LocalTerminalState
+import com.jakewharton.mosaic.NonInteractivePolicy
+import com.jakewharton.mosaic.layout.*
+import com.jakewharton.mosaic.modifier.Modifier
+import com.jakewharton.mosaic.runMosaicBlocking
+import com.jakewharton.mosaic.text.buildAnnotatedString
+import com.jakewharton.mosaic.ui.*
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.format
-import kotlinx.datetime.format.Padding
-import kotlinx.datetime.format.char
-import kotlinx.datetime.toLocalDateTime
 import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
-import util.buildStyledString
-import kotlin.io.encoding.Base64
-import kotlin.system.exitProcess
 import kotlin.time.Clock
-import kotlin.time.Duration.Companion.seconds
-import kotlin.uuid.Uuid
+import kotlin.time.Duration.Companion.milliseconds
 
 class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
 
-    private val mainConfig by inject<MainConfig>()
-    val tunnelRequestResolver = TunnelRequestResolver()
-    private val client = httpClient()
-
     override suspend fun run() {
-        coroutineScope {
-            val authToken = mainConfig.getConfig().auth?.bearer ?: run {
-                println(buildStyledString {
-                    red { +"You are not logged into your Werkbank cloud account." }
-                    +" "
-                    +"Use "
-                    blue { +"wb login" }
-                    +" to log in."
-                })
-                exitProcess(1)
-            }
+        val viewModel = TunnelViewModel()
 
-            val requestBodies = mutableMapOf<Uuid, ByteWriteChannel>()
-            val wsProxyState = mutableMapOf<Uuid, DefaultClientWebSocketSession>()
+        print("\u001b[?1049h")
 
-            while (true) {
-                try {
-                    client.webSocket(
-                        urlString = "wss://${mainConfig.getConfig().werkbankCloudDomain}/api/tunnel",
-                        request = {
-                            bearerAuth(authToken)
-                        }
-                    ) serverSession@{
+        try {
+            runMosaicBlocking(NonInteractivePolicy.Ignore) {
+                val terminal = LocalTerminalState.current
+                val state by viewModel.state.collectAsStateWithLifecycle()
+                val requests by viewModel.requests.collectAsStateWithLifecycle()
 
-                        println(buildStyledString {
-                            green { +"Connected to your werkbank cloud tunnel" }
-                            +" (${mainConfig.getConfig().werkbankCloudDomain})"
-                        })
-
-                        for (message in incoming) {
-                            when (message) {
-                                is Frame.Binary -> {
-                                    val bytes = message.readBytes()
-                                    if (bytes.size < 16) continue
-                                    val id = Uuid.fromByteArray(bytes.copyOfRange(0, 16))
-                                    requestBodies[id]?.writeFully(bytes.copyOfRange(16, bytes.size))
-                                    requestBodies[id]?.flush()
-                                }
-                                is Frame.Text -> {
-                                    when (val msg = json.decodeFromString<ServerMessage>(message.readText())) {
-                                        is ServerMessage.HttpRequest -> {
-                                            if (msg.method != "GET") {
-                                                requestBodies[msg.requestId] = ByteChannel(autoFlush = true)
-                                            }
-
-                                            launch {
-                                                val channel = requestBodies[msg.requestId]
-                                                val target = tunnelRequestResolver.getTarget(
-                                                    projectKey = msg.project,
-                                                    serviceKey = msg.service,
-                                                    path = msg.path,
-                                                    isWebsocket = false,
-                                                ) ?: return@launch
-
-                                                printRequest(
-                                                    method = msg.method,
-                                                    projectKey = target.project.id,
-                                                    serviceKey = target.service.name,
-                                                    path = msg.path,
-                                                    targetUrl = target.url,
-                                                )
-
-                                                val response = try {
-                                                    client.prepareRequest(
-                                                        urlString = target.url,
-                                                    ) {
-                                                        method = HttpMethod(msg.method)
-                                                        msg.headers.forEach { header ->
-                                                            val (key, value) = header.split(": ", limit = 2)
-                                                            headers.append(key, value)
-                                                        }
-                                                        if (channel != null) setBody(channel)
-                                                    }.execute()
-                                                } catch (e: Exception) {
-                                                    if (e.isTimeoutException()) {
-                                                        sendSerialized<ClientMessage>(ClientMessage.Timeout(requestId = msg.requestId))
-                                                        return@launch
-                                                    }
-
-                                                    if (e.isServerNotRunningException()) {
-                                                        sendSerialized<ClientMessage>(ClientMessage.ServerNotRuning(msg.requestId))
-                                                        return@launch
-                                                    }
-                                                    println(buildStyledString { red { +"Failed to connect to tunnel: ${e.stackTraceToString()}" } })
-                                                    return@launch
-                                                }
-
-                                                sendSerialized<ClientMessage>(ClientMessage.HttpResponse(
-                                                    requestId = msg.requestId,
-                                                    statusCode = response.status.value,
-                                                    headers = response.headers.entries().flatMap { (key, values) ->
-                                                        values.map { "$key: $it" }
-                                                    }
-                                                ))
-
-                                                response.bodyAsChannel().rawChunks { rawBytes ->
-                                                    val frameData = ByteArray(16 + rawBytes.size)
-                                                    msg.requestId.toByteArray().copyInto(frameData)
-                                                    rawBytes.copyInto(frameData, 16)
-                                                    this@serverSession.send(Frame.Binary(true, frameData))
-                                                }
-
-                                                sendSerialized<ClientMessage>(ClientMessage.HttpEnd(
-                                                    requestId = msg.requestId
-                                                ))
-                                            }
-                                        }
-                                        is ServerMessage.HttpBody -> {
-                                            val bodyBytes = Base64.decode(msg.body)
-                                            requestBodies[msg.requestId]?.writeFully(bodyBytes)
-                                            requestBodies[msg.requestId]?.flush()
-                                        }
-                                        is ServerMessage.HttpEnd -> {
-                                            requestBodies[msg.requestId]?.flushAndClose()
-                                            requestBodies.remove(msg.requestId)
-                                        }
-                                        is ServerMessage.WsOpen -> {
-                                            launch {
-                                                val target = tunnelRequestResolver.getTarget(
-                                                    projectKey = msg.project,
-                                                    serviceKey = msg.service,
-                                                    path = msg.path,
-                                                    isWebsocket = true,
-                                                ) ?: return@launch
-
-                                                printRequest(
-                                                    method = "WEBSOCKET",
-                                                    projectKey = target.project.id,
-                                                    serviceKey = target.service.name,
-                                                    path = msg.path,
-                                                    targetUrl = target.url,
-                                                )
-
-                                                client.webSocket(urlString = target.url) {
-                                                    wsProxyState[msg.requestId] = this
-                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
-                                                        requestId = msg.requestId
-                                                    ))
-
-                                                    for (frame in incoming) {
-                                                        when (frame) {
-                                                            is Frame.Text -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
-                                                                requestId = msg.requestId,
-                                                                text = frame.readText()
-                                                            ))
-                                                            is Frame.Binary -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsBinary(
-                                                                requestId = msg.requestId,
-                                                                body = Base64.encode(frame.readBytes())
-                                                            ))
-                                                            is Frame.Close -> {
-                                                                this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
-                                                                    requestId = msg.requestId,
-                                                                    code = frame.readReason()?.code?.toInt() ?: 1000,
-                                                                    reason = frame.readReason()?.message ?: ""
-                                                                ))
-                                                                break
-                                                            }
-                                                            else -> {}
-                                                        }
-                                                    }
-                                                }
-
-                                                wsProxyState.remove(msg.requestId)
-                                            }
-                                        }
-                                        is ServerMessage.WsText -> {
-                                            wsProxyState[msg.requestId]?.send(Frame.Text(msg.text))
-                                        }
-                                        is ServerMessage.WsBinary -> {
-                                            wsProxyState[msg.requestId]?.send(Frame.Binary(true, Base64.decode(msg.body)))
-                                        }
-                                        is ServerMessage.WsClose -> {
-                                            wsProxyState[msg.requestId]?.close(CloseReason(msg.code.toShort(), msg.reason))
-                                            wsProxyState.remove(msg.requestId)
-                                        }
-                                    }
-                                }
-                                else -> {}
+                Column(
+                    modifier = Modifier
+                        .width(terminal.size.columns)
+                        .requiredHeight(terminal.size.rows - 1)
+                        .onKeyEvent { event ->
+                            if (event.ctrl && event.key == "c") {
+                                viewModel.onCancel()
+                                false
+                            } else {
+                                false
                             }
                         }
+                ) {
+                    Column(modifier = Modifier.fillMaxHeight().padding(top = 1)) {
+                        Table(
+                            TableData(requests),
+                            TableConfig(
+                                titleColor = Color.White,
+                                columnConfigs = listOf(
+                                    TableConfig.ColumnConfig.ComposableColumnConfig(
+                                        title = "METHOD",
+                                        content = { request ->
+                                            val (foreground, background) = when (request.method.uppercase()) {
+                                                "GET" -> Color.Green to Color.Unspecified
+                                                "POST" -> Color.Yellow to Color.Unspecified
+                                                "PUT" -> Color.Blue to Color.Unspecified
+                                                "PATCH" -> Color.Magenta to Color.Unspecified
+                                                "DELETE" -> Color.Red to Color.Unspecified
+                                                "HEAD" -> Color.Cyan to Color.Unspecified
+                                                "OPTIONS" -> Color.Cyan to Color.Unspecified
+                                                "WEBSOCKET" -> Color.Yellow to Color.Unspecified
+                                                else -> Color.Black to Color.Unspecified
+                                            }
+
+                                            Text(
+                                                value = request.method.uppercase(),
+                                                color = foreground,
+                                                background = background,
+                                            )
+                                        },
+                                        width = ColumnWidth.Fixed(10)
+                                    ),
+                                    TableConfig.ColumnConfig.ComposableColumnConfig(
+                                        title = "TARGET",
+                                        content = { request ->
+                                            Text(
+                                                value = buildAnnotatedString {
+                                                    append(request.project)
+                                                    append(".")
+                                                    append(request.service)
+                                                    append("/")
+                                                    append(request.path.removePrefix("/"))
+                                                }
+                                            )
+                                        }
+                                    )
+                                )
+                            )
+                        )
+
+//                    for (request in requests) {
+//                        val methodColor = when (request.method.uppercase()) {
+//                            "GET" -> Color.Green
+//                            "POST" -> Color.Yellow
+//                            "PUT" -> Color.Blue
+//                            "PATCH" -> Color.Magenta
+//                            "DELETE" -> Color.Red
+//                            "HEAD", "OPTIONS" -> Color.Cyan
+//                            "WEBSOCKET" -> Color.Cyan
+//                            else -> Color.Unspecified
+//                        }
+//                        val result = when (val r = request.result) {
+//                            is Request.Result.Success -> " ${r.statusCode}"
+//                            is Request.Result.Timeout -> " timeout"
+//                            is Request.Result.ServiceNotRunning -> " down"
+//                            null -> " ..."
+//                        }
+//                        Text(
+//                            value = " ${request.method.uppercase().padEnd(7)} ${request.project}.${request.service} /${request.path.removePrefix("/")}$result",
+//                            color = methodColor,
+//                        )
+//                    }
                     }
-                } catch (e: Exception) {
-                    println(buildStyledString { red { +"Failed to connect to tunnel: ${e.stackTraceToString()}" } })
-                    delay(5.seconds)
+
+                    val statusLabel = when (state.connectionState) {
+                        is TunnelState.ConnectionState.Connected -> "Connected"
+                        is TunnelState.ConnectionState.Connecting -> "Connecting..."
+                        is TunnelState.ConnectionState.Retrying -> "Retrying..."
+                    }
+                    val statusColor = when (state.connectionState) {
+                        is TunnelState.ConnectionState.Connected -> Color.Green
+                        is TunnelState.ConnectionState.Connecting -> Color.Blue
+                        is TunnelState.ConnectionState.Retrying -> Color.Red
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .width(terminal.size.columns)
+                    ) {
+                        Row {
+                            when (val connectionState = state.connectionState) {
+                                is TunnelState.ConnectionState.Connected -> {
+                                    AnimatableCharacter(
+                                        characters = listOf("•", "●"),
+                                        color = Color.Green,
+                                    )
+                                    Text(
+                                        " Connected",
+                                        color = Color.Green,
+                                    )
+                                }
+                                is TunnelState.ConnectionState.Connecting -> {
+                                    AnimatableCharacter(
+                                        characters = listOf(
+                                            "⠋",
+                                            "⠙",
+                                            "⠹",
+                                            "⠸",
+                                            "⠼",
+                                            "⠴",
+                                            "⠦",
+                                            "⠧",
+                                            "⠇",
+                                            "⠏",
+                                        ),
+                                        color = Color.Blue,
+                                    )
+                                    Text(
+                                        " Connecting..."
+                                    )
+                                }
+                                is TunnelState.ConnectionState.Retrying -> {
+                                    var remainingSeconds by remember { mutableStateOf(connectionState.waitUntil.epochSeconds - Clock.System.now().epochSeconds) }
+                                    LaunchedEffect(Unit) {
+                                        while (remainingSeconds > 0) {
+                                            remainingSeconds = connectionState.waitUntil.epochSeconds - Clock.System.now().epochSeconds
+                                            delay(50.milliseconds)
+                                        }
+                                    }
+                                    Text(
+                                        value = buildString {
+                                            append("Retrying in ")
+                                            append(remainingSeconds)
+                                            append(" second")
+                                            if (remainingSeconds != 1L) append("s")
+                                            append("...")
+                                        }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.weight(1f, true))
+                            Text(
+                                value = "CTRL+C to exit",
+                                color = Color.Blue,
+                            )
+                        }
+                    }
                 }
             }
+        } finally {
+            print("\u001b[?1049l")
         }
-    }
 
-    companion object {
-
-        private val mutex = Mutex()
-
-        context(scope: CoroutineScope)
-        fun printRequest(
-            method: String,
-            projectKey: String,
-            serviceKey: String,
-            path: String,
-            targetUrl: String
-        ) {
-            scope.launch {
-                mutex.withLock {
-                    println(buildStyledString {
-                        blue {
-                            val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-                            +now.format(LocalDateTime.Format {
-                                hour(Padding.ZERO)
-                                char(':')
-                                minute(Padding.ZERO)
-                                char(':')
-                                second(Padding.ZERO)
-                            })
-                        }
-                        + " "
-                        fun String.methodPadding() = " ${this.uppercase().padEnd(9, ' ')} "
-                        when (val method = method.uppercase()) {
-                            "GET" -> bgGreen { black { +method.methodPadding() } }
-                            "POST" -> bgYellow { black { +method.methodPadding() } }
-                            "PUT" -> bgBlue { white { +method.methodPadding() } }
-                            "PATCH" -> bgPurple { white { +method.methodPadding() } }
-                            "DELETE" -> bgRed { white { +method.methodPadding() } }
-                            "HEAD" -> bgGray { white { +method.methodPadding() } }
-                            "OPTIONS" -> bgGray { white { +method.methodPadding() } }
-                            "WEBSOCKET" -> bgCyan { black { +method.methodPadding() } }
-                            else -> +method.methodPadding()
-                        }
-                        +" "
-                        bold {
-                            +projectKey
-                            +"."
-                            italic { +serviceKey }
-                        }
-                        +" / "
-                        +path.removePrefix("/")
-                        +"->"
-                        +" "
-                        gray { +targetUrl }
-                    })
-                }
-            }
+        when (val s = viewModel.state.value.connectionState) {
+            is TunnelState.ConnectionState.Connected -> println("Tunnel closed")
+            is TunnelState.ConnectionState.Connecting -> println("Tunnel interrupted")
+            is TunnelState.ConnectionState.Retrying -> println("Tunnel connection failed")
         }
     }
 }

@@ -18,7 +18,7 @@ actual fun Exception.isTimeoutException(): Boolean {
     return this.origin.code == NSURLErrorTimedOut
 }
 
-actual fun Exception.isServerNotRunningException(): Boolean {
+actual fun Exception.isServiceNotRunningException(): Boolean {
     if (this !is DarwinHttpRequestException) return false
     return this.origin.domain == NSURLErrorDomain
 }
