@@ -1,4 +1,4 @@
-package app.certificates
+package app.werkbank.app.certificates
 
 import app.werkbank.config.AppConfig
 import app.werkbank.database.Certificate
@@ -34,7 +34,7 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
     private val cache = ConcurrentHashMap<String, CertKeyPair>()
     private val logger = KtorSimpleLogger("ServerKeyManager")
 
-    private data class CertKeyPair(val cert: X509Certificate, val key: PrivateKey)
+    private data class CertKeyPair(val certs: List<X509Certificate>, val key: PrivateKey)
 
     override fun getClientAliases(
         keyType: String?,
@@ -68,7 +68,7 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
 
     override fun getCertificateChain(alias: String?): Array<out X509Certificate?>? {
         val username = alias ?: return null
-        return resolve(username)?.let { arrayOf(it.cert) }
+        return resolve(username)?.certs?.toTypedArray()
     }
 
     override fun getPrivateKey(alias: String?): PrivateKey? {
@@ -118,8 +118,8 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
                 }
                 logger.trace("resolve: found cert record {}", certRecord.id)
 
-                val cert = parseCertificate(certRecord.certificate.bytes)
-                if (cert == null) {
+                val certs = parseCertificateChain(certRecord.certificate.bytes)
+                if (certs.isEmpty()) {
                     logger.warn("resolve: failed to parse certificate for $username")
                     return@queryBlocking null
                 }
@@ -130,7 +130,7 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
                     return@queryBlocking null
                 }
 
-                CertKeyPair(cert, key)
+                CertKeyPair(certs, key)
             }
         } catch (e: Exception) {
             logger.error("resolve: exception for $username: ${e.message}")
@@ -144,11 +144,12 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
         return pair
     }
 
-    private fun parseCertificate(pemBytes: ByteArray): X509Certificate? = try {
+    private fun parseCertificateChain(pemBytes: ByteArray): List<X509Certificate> = try {
+        @Suppress("UNCHECKED_CAST")
         CertificateFactory.getInstance("X.509")
-            .generateCertificate(ByteArrayInputStream(pemBytes)) as X509Certificate
+            .generateCertificates(ByteArrayInputStream(pemBytes)) as List<X509Certificate>
     } catch (_: Exception) {
-        null
+        emptyList()
     }
 
     private fun parsePrivateKey(pemBytes: ByteArray): PrivateKey? = try {
