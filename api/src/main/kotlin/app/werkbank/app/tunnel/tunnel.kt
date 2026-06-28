@@ -266,8 +266,9 @@ class WsBridge(
             is Frame.Text -> tunnelInstance.sendMessage(ServerMessage.WsText(requestId, frame.readText()))
             is Frame.Binary -> tunnelInstance.sendMessage(
                 ServerMessage.WsBinary(
-                    requestId,
-                    Base64.encode(frame.readBytes())
+                    requestId = requestId,
+                    fin = frame.fin,
+                    body = Base64.encode(frame.readBytes())
                 )
             )
 

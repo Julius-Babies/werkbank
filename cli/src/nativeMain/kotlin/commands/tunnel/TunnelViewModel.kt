@@ -5,50 +5,26 @@ import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
-import http.httpClient
 import http.httpClientBase
 import http.isServiceNotRunningException
 import http.isTimeoutException
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
-import io.ktor.client.plugins.websocket.WebSockets
-import io.ktor.client.plugins.websocket.pingInterval
-import io.ktor.client.plugins.websocket.sendSerialized
-import io.ktor.client.plugins.websocket.webSocket
-import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.prepareRequest
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsChannel
-import io.ktor.http.HttpMethod
-import io.ktor.serialization.kotlinx.KotlinxWebsocketSerializationConverter
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.utils.io.ByteChannel
-import io.ktor.utils.io.ByteWriteChannel
-import io.ktor.utils.io.writeFully
-import io.ktor.websocket.CloseReason
-import io.ktor.websocket.Frame
-import io.ktor.websocket.close
-import io.ktor.websocket.readBytes
-import io.ktor.websocket.readReason
-import io.ktor.websocket.readText
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.websocket.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.*
+import io.ktor.serialization.kotlinx.json.*
+import io.ktor.utils.io.*
+import io.ktor.websocket.*
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
-import kotlin.collections.component1
-import kotlin.collections.component2
-import kotlin.collections.set
 import kotlin.io.encoding.Base64
 import kotlin.system.exitProcess
 import kotlin.time.Clock
@@ -282,7 +258,7 @@ class TunnelViewModel: KoinComponent {
                                             wsProxyState[msg.requestId]?.send(Frame.Text(msg.text))
                                         }
                                         is ServerMessage.WsBinary -> {
-                                            wsProxyState[msg.requestId]?.send(Frame.Binary(true, Base64.decode(msg.body)))
+                                            wsProxyState[msg.requestId]?.send(Frame.Binary(msg.fin, Base64.decode(msg.body)))
                                         }
                                         is ServerMessage.WsClose -> {
                                             wsProxyState[msg.requestId]?.close(CloseReason(msg.code.toShort(), msg.reason))

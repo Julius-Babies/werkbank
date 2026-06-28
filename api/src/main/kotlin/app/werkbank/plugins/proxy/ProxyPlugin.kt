@@ -186,7 +186,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         for (frame in incoming) {
                             when (frame) {
                                 is Frame.Text -> wsProxy.send(Frame.Text(frame.readText()))
-                                is Frame.Binary -> wsProxy.send(Frame.Binary(true, frame.readBytes()))
+                                is Frame.Binary -> wsProxy.send(Frame.Binary(frame.fin, frame.readBytes()))
                                 is Frame.Close -> {
                                     wsProxy.send(frame.readReason()?.let { Frame.Close(it) } ?: Frame.Close())
                                     break
