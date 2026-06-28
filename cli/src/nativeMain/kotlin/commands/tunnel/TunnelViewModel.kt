@@ -6,9 +6,13 @@ import app.werkbank.shared.tunnel.ServerMessage
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
 import http.httpClient
+import http.httpClientBase
 import http.isServiceNotRunningException
 import http.isTimeoutException
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.pingInterval
 import io.ktor.client.plugins.websocket.sendSerialized
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.bearerAuth
@@ -16,6 +20,8 @@ import io.ktor.client.request.prepareRequest
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpMethod
+import io.ktor.serialization.kotlinx.KotlinxWebsocketSerializationConverter
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
@@ -36,6 +42,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
@@ -59,7 +66,19 @@ class TunnelViewModel: KoinComponent {
 
     private val mainConfig by inject<MainConfig>()
     private val tunnelRequestResolver = TunnelRequestResolver()
-    private val client = httpClient()
+    private val client = httpClientBase {
+        followRedirects = false
+        install(WebSockets) {
+            pingInterval = 15.seconds
+            contentConverter = KotlinxWebsocketSerializationConverter(json)
+        }
+
+        install(ContentNegotiation) {
+            json(Json {
+                ignoreUnknownKeys = true
+            })
+        }
+    }
 
     private val authToken: String
 
