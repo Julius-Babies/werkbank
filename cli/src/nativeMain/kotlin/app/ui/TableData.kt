@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import com.jakewharton.mosaic.layout.drawBehind
 import com.jakewharton.mosaic.layout.fillMaxSize
 import com.jakewharton.mosaic.layout.offset
+import com.jakewharton.mosaic.layout.width
 import com.jakewharton.mosaic.modifier.Modifier
 import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
@@ -115,7 +116,7 @@ fun <T> Table(tableData: TableData<T>, tableConfig: TableConfig<T>, modifier: Mo
 						is TableConfig.ColumnConfig.ComposableColumnConfig -> columnConfig.title
 					}
 					if (title.isNotEmpty()) {
-						val displayTitle = if (title.length < columnWidth) title else title.substring(0, columnWidth)
+						val displayTitle = if (title.length < columnWidth) title else title.substring(0, (columnWidth - 3).coerceAtLeast(0)) + "..."
 						drawText(
 							row = 0,
 							column = column,
@@ -131,7 +132,7 @@ fun <T> Table(tableData: TableData<T>, tableConfig: TableConfig<T>, modifier: Mo
 								val text = if (string.length < columnWidth) {
 									string
 								} else {
-									string.substring(0, columnWidth)
+									string.substring(0, (columnWidth - 3).coerceAtLeast(0)) + "..."
 								}
 								drawText(
 									row = index + 1,
@@ -180,7 +181,7 @@ fun <T> Table(tableData: TableData<T>, tableConfig: TableConfig<T>, modifier: Mo
 				val columnWidth = widths[columnIndex]
 				if (columnConfig is TableConfig.ColumnConfig.ComposableColumnConfig) {
 					lastRange.forEachIndexed { index, item ->
-						Box(modifier = Modifier.offset(x = column, y = index + 1)) {
+						Box(modifier = Modifier.offset(x = column, y = index + 1).width(columnWidth)) {
 							columnConfig.content(item)
 						}
 					}

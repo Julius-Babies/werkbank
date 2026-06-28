@@ -71,25 +71,18 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                         },
                                         width = ColumnWidth.Fixed(10)
                                     ),
-                                    TableConfig.ColumnConfig.ComposableColumnConfig(
+                                    TableConfig.ColumnConfig.StringColumnConfig(
                                         title = "TARGET",
-                                        content = { request ->
-                                            Row {
-                                                Text(
-                                                    value = buildString {
-                                                        append(request.project)
-                                                        append(".")
-                                                    }
-                                                )
-                                                Text(
-                                                    value = request.service,
-                                                    textStyle = TextStyle.Italic
-                                                )
-                                                Text(
-                                                    value = "/${request.path.removePrefix("/")}"
-                                                )
+                                        stringFromItem = { request ->
+                                            buildString {
+                                                append(request.project)
+                                                append(".")
+                                                append(request.service)
+                                                append("/")
+                                                append(request.path.removePrefix("/"))
                                             }
                                         },
+                                        valueColor = Color.Unspecified,
                                         width = ColumnWidth.Weight(6)
                                     ),
                                     TableConfig.ColumnConfig.StringColumnConfig(
@@ -109,12 +102,20 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                                 is Request.Result.Timeout -> Text("Timeout", color = Color.Red)
                                                 is Request.Result.ServiceNotRunning -> Text("Down", color = Color.Red)
                                                 is Request.Result.Success -> Row {
+                                                    val ms = request.result.finishedAt.toEpochMilliseconds() - request.startedAt.toEpochMilliseconds()
+                                                    val timeText = if (ms >= 100_000L) {
+                                                        val secs = ms / 1000
+                                                        val dec = (ms % 1000) / 100
+                                                        "${secs}.${dec}s"
+                                                    } else {
+                                                        "${ms}ms"
+                                                    }
                                                     Text(request.result.statusCode.toString(), color = Color.Green)
-                                                    Text(" (${request.result.finishedAt.toEpochMilliseconds() - request.startedAt.toEpochMilliseconds()}ms)", color = Color.White)
+                                                    Text(" ($timeText)", color = Color.White)
                                                 }
                                             }
                                         },
-                                        width = ColumnWidth.Weight(1)
+                                        width = ColumnWidth.Fixed(16)
                                     )
                                 )
                             )
