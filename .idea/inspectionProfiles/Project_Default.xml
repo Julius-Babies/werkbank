@@ -6,5 +6,11 @@
         <language minSize="47" name="Kotlin" />
       </Languages>
     </inspection_tool>
+    <inspection_tool class="MultiplatformPreviewAnnotationInFunctionWithParameters" enabled="true" level="ERROR" enabled_by_default="true">
+      <option name="composableFile" value="true" />
+    </inspection_tool>
+    <inspection_tool class="MultiplatformPreviewMultipleParameterProviders" enabled="true" level="ERROR" enabled_by_default="true">
+      <option name="composableFile" value="true" />
+    </inspection_tool>
   </profile>
 </component>

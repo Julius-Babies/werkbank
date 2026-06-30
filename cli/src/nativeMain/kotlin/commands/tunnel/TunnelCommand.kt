@@ -3,14 +3,20 @@ package commands.tunnel
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.storage.isDevMode
-import app.ui.*
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.jakewharton.mosaic.LocalTerminalState
 import com.jakewharton.mosaic.NonInteractivePolicy
 import com.jakewharton.mosaic.layout.*
 import com.jakewharton.mosaic.modifier.Modifier
 import com.jakewharton.mosaic.runMosaicBlocking
-import com.jakewharton.mosaic.ui.*
+import app.ui.*
+import com.jakewharton.mosaic.ui.Box
+import com.jakewharton.mosaic.ui.Color
+import com.jakewharton.mosaic.ui.Column
+import com.jakewharton.mosaic.ui.Row
+import com.jakewharton.mosaic.ui.Spacer
+import commands.tunnel.ui.RequestTable
+import commands.tunnel.ui.details.RequestDetailsPanel
 import kotlinx.coroutines.delay
 import org.koin.core.component.KoinComponent
 import kotlin.time.Clock
@@ -29,11 +35,11 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                 val state by viewModel.state.collectAsStateWithLifecycle()
                 val requests by viewModel.requests.collectAsStateWithLifecycle()
 
-                Column(
-                    modifier = Modifier
-                        .width(terminal.size.columns)
-                        .requiredHeight(terminal.size.rows - 1)
-                        .onKeyEvent { event ->
+				Column(
+					modifier = Modifier
+						.width(terminal.size.columns)
+						.height(terminal.size.rows)
+						.onKeyEvent { event ->
                             if (event.ctrl && event.key == "c") {
                                 viewModel.onCancel()
                                 false
@@ -42,89 +48,78 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                             }
                         }
                 ) {
-                    Column(modifier = Modifier.fillMaxHeight().padding(top = 1)) {
-                        Table(
-                            TableData(requests),
-                            TableConfig(
-                                titleColor = Color.White,
-                                columnConfigs = listOf(
-                                    TableConfig.ColumnConfig.ComposableColumnConfig(
-                                        title = "METHOD",
-                                        content = { request ->
-                                            val (foreground, background) = when (request.method.uppercase()) {
-                                                "GET" -> Color.Green to Color.Unspecified
-                                                "POST" -> Color.Yellow to Color.Unspecified
-                                                "PUT" -> Color.Blue to Color.Unspecified
-                                                "PATCH" -> Color.Magenta to Color.Unspecified
-                                                "DELETE" -> Color.Red to Color.Unspecified
-                                                "HEAD" -> Color.Cyan to Color.Unspecified
-                                                "OPTIONS" -> Color.Cyan to Color.Unspecified
-                                                "WEBSOCKET" -> Color.Yellow to Color.Unspecified
-                                                else -> Color.Black to Color.Unspecified
-                                            }
+                    Column(Modifier.weight(1f, true).fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f, true)
+                                .padding(top = 2)
+                                .onKeyEvent { event ->
+                                    if (state.showRequestDetailsPanel) return@onKeyEvent false
+                                    when (event.key) {
+                                        "ArrowDown" -> {
+                                            viewModel.onSelectPrevious()
+                                            return@onKeyEvent true
+                                        }
+                                        "ArrowUp" -> {
+                                            viewModel.onSelectNext()
+                                            return@onKeyEvent true
+                                        }
+                                        "Home" -> {
+                                            viewModel.onSelectLatest()
+                                            return@onKeyEvent true
+                                        }
+                                        "End" -> {
+                                            viewModel.onSelectOldest()
+                                            return@onKeyEvent true
+                                        }
+                                        "Enter" -> {
+                                            if (state.highlightedRequestId != null) viewModel.onShowRequestDetails()
+                                            return@onKeyEvent true
+                                        }
+                                    }
 
-                                            Text(
-                                                value = request.method.uppercase(),
-                                                color = foreground,
-                                                background = background,
-                                            )
-                                        },
-                                        width = ColumnWidth.Fixed(10)
-                                    ),
-                                    TableConfig.ColumnConfig.StringColumnConfig(
-                                        title = "TARGET",
-                                        stringFromItem = { request ->
-                                            buildString {
-                                                append(request.project)
-                                                append(".")
-                                                append(request.service)
-                                                append("/")
-                                                append(request.path.removePrefix("/"))
-                                            }
-                                        },
-                                        valueColor = Color.Unspecified,
-                                        width = ColumnWidth.Weight(6)
-                                    ),
-                                    TableConfig.ColumnConfig.StringColumnConfig(
-                                        title = "DESTINATION",
-                                        stringFromItem = { request -> request.targetUrl },
-                                        valueColor = Color.Unspecified,
-                                        width = ColumnWidth.Weight(6)
-                                    ),
-                                    TableConfig.ColumnConfig.ComposableColumnConfig(
-                                        title = "STATUS",
-                                        content = { request ->
-                                            when (request.result) {
-                                                null -> AnimatableCharacter(
-                                                    characters = AnimatableCharacters.DotSpinner,
-                                                    delay = 200.milliseconds,
-                                                )
-                                                is Request.Result.Timeout -> Text("Timeout", color = Color.Red)
-                                                is Request.Result.ServiceNotRunning -> Text("Down", color = Color.Red)
-                                                is Request.Result.Success -> Row {
-                                                    val ms = request.result.finishedAt.toEpochMilliseconds() - request.startedAt.toEpochMilliseconds()
-                                                    val timeText = if (ms >= 100_000L) {
-                                                        val secs = ms / 1000
-                                                        val dec = (ms % 1000) / 100
-                                                        "${secs}.${dec}s"
-                                                    } else {
-                                                        "${ms}ms"
-                                                    }
-                                                    Text(request.result.statusCode.toString(), color = Color.Green)
-                                                    Text(" ($timeText)", color = Color.White)
-                                                }
-                                            }
-                                        },
-                                        width = ColumnWidth.Fixed(16)
-                                    )
-                                )
+                                    return@onKeyEvent false
+                                }
+                        ) {
+                            RequestTable(
+                                state = state,
+                                requests = requests,
                             )
-                        )
+                        }
+                        if (state.showRequestDetailsPanel) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f, true)
+                                    .onKeyEvent { event ->
+                                        when (event.key) {
+                                            "Escape" -> {
+                                                viewModel.onHideRequestDetails()
+                                                return@onKeyEvent true
+                                            }
+                                            "ArrowDown" -> {
+                                                viewModel.onSelectPrevious()
+                                                return@onKeyEvent true
+                                            }
+                                            "ArrowUp" -> {
+                                                viewModel.onSelectNext()
+                                                return@onKeyEvent true
+                                            }
+                                        }
+
+                                        return@onKeyEvent false
+                                    }
+                            ) {
+                                RequestDetailsPanel(
+                                    request = requests.first { it.requestId == state.highlightedRequestId },
+                                )
+                            }
+                        }
                     }
 
                     Box(
                         modifier = Modifier
                             .width(terminal.size.columns)
+                            .height(1)
                     ) {
                         Row {
                             when (val connectionState = state.connectionState) {
@@ -168,9 +163,15 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                             append("...")
                                         }
                                     )
+                                    Text(" ")
+                                    Text(
+                                        value = connectionState.throwable.message ?: "Unknown error",
+                                        color = Color.Red,
+                                    )
                                 }
                             }
                             if (isDevMode) Text(" (Dev) ", color = Color.Yellow)
+                            if (state.highlightedRequestId != null) Text(" " + state.highlightedRequestId, color = Color.Blue)
                             Spacer(Modifier.weight(1f, true))
                             Text(
                                 value = "CTRL+C to exit",

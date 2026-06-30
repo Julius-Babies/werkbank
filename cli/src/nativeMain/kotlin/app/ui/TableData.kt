@@ -75,23 +75,32 @@ fun <T> Table(tableData: TableData<T>, tableConfig: TableConfig<T>, modifier: Mo
 	var layoutHeight by remember { mutableIntStateOf(0) }
 
 	fun List<TableConfig.ColumnConfig<*>>.computeWidths(totalWidth: Int): List<Int> {
-		val fixedWidthsSum = sumOf {
+		val separatorCount = size - 1
+		val fixedWidths = map {
 			when (val w = it.width) {
 				is ColumnWidth.Fixed -> w.width
 				is ColumnWidth.Weight -> 0
 			}
 		}
+		val fixedSum = fixedWidths.sum()
+		val adjustedFixed = if (fixedSum + separatorCount > totalWidth) {
+			val available = (totalWidth - separatorCount).coerceAtLeast(0)
+			if (fixedSum > 0) fixedWidths.map { it * available / fixedSum } else fixedWidths
+		} else {
+			fixedWidths
+		}
+		val adjustedFixedSum = adjustedFixed.sum()
 		val totalWeights = sumOf {
 			when (val w = it.width) {
 				is ColumnWidth.Weight -> w.weight
 				is ColumnWidth.Fixed -> 0
 			}
 		}
-		val availableWidth = totalWidth - fixedWidthsSum - (size - 1)
+		val availableWidth = totalWidth - adjustedFixedSum - separatorCount
 		val widthSinglePart = if (totalWeights > 0) availableWidth / totalWeights else 0
-		return map {
-			when (val w = it.width) {
-				is ColumnWidth.Fixed -> w.width
+		return mapIndexed { index, config ->
+			when (val w = config.width) {
+				is ColumnWidth.Fixed -> adjustedFixed[index]
 				is ColumnWidth.Weight -> w.weight * widthSinglePart
 			}
 		}

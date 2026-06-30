@@ -15,6 +15,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.util.toMap
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
@@ -24,8 +25,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import platform.posix.stat
 import util.buildStyledString
 import kotlin.io.encoding.Base64
+import kotlin.native.identityHashCode
 import kotlin.system.exitProcess
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -145,6 +148,10 @@ class TunnelViewModel: KoinComponent {
                                                     path = msg.path,
                                                     targetUrl = target.url,
                                                     startedAt = Clock.System.now(),
+                                                    headers = msg.headers.map { header ->
+                                                        val (key, value) = header.split(": ")
+                                                        key to value
+                                                    },
                                                     result = null
                                                 ) }
 
@@ -193,7 +200,18 @@ class TunnelViewModel: KoinComponent {
                                                     requestId = msg.requestId
                                                 ))
 
-                                                _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.Success(Clock.System.now(), response.status.value)) else it } }
+                                                _requests.update { list ->
+                                                    list.map { request ->
+                                                        if (request.requestId != msg.requestId) return@map request
+                                                        request.copy(
+                                                            result = Request.Result.Success(
+                                                                finishedAt = Clock.System.now(),
+                                                                statusCode = response.status.value,
+                                                                headers = response.headers.toMap().flatMap { (key, values) -> values.map { value -> key to value } },
+                                                            )
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                         is ServerMessage.HttpBody -> {
@@ -285,10 +303,56 @@ class TunnelViewModel: KoinComponent {
     fun onCancel() {
         viewModelScope.cancel()
     }
+
+    fun onSelectPrevious() {
+        state.update { state ->
+            val requests = requests.value
+            val currentSelectedIndex = (state.highlightedRequestId?.let { requests.indexOf(requests.first { it.requestId == state.highlightedRequestId }) } ?: -1).takeIf { it != -1 } ?: (requests.size - 1)
+            val targetIndex = (currentSelectedIndex - 1).coerceAtLeast(0)
+            val highlightedRequestId = requests.getOrNull(targetIndex)?.requestId
+            state.copy(highlightedRequestId = highlightedRequestId)
+        }
+    }
+
+    fun onSelectNext() {
+        state.update { state ->
+            val requests = requests.value
+            val currentSelectedIndex = (state.highlightedRequestId?.let { requests.indexOf(requests.first { it.requestId == state.highlightedRequestId }) } ?: -1).takeIf { it != -1 } ?: -1
+            val targetIndex = (currentSelectedIndex + 1).coerceAtMost(requests.size - 1)
+            val highlightedRequestId = requests.getOrNull(targetIndex)?.requestId
+            state.copy(highlightedRequestId = highlightedRequestId)
+        }
+    }
+
+    fun onSelectLatest() {
+        state.update { state ->
+            state.copy(highlightedRequestId = requests.value.lastOrNull()?.requestId)
+        }
+    }
+
+    fun onSelectOldest() {
+        state.update { state ->
+            state.copy(highlightedRequestId = requests.value.firstOrNull()?.requestId)
+        }
+    }
+
+    fun onShowRequestDetails() {
+        state.update { state ->
+            state.copy(showRequestDetailsPanel = true)
+        }
+    }
+
+    fun onHideRequestDetails() {
+        state.update { state ->
+            state.copy(showRequestDetailsPanel = false)
+        }
+    }
 }
 
 data class TunnelState(
     val connectionState: ConnectionState = ConnectionState.Connecting,
+    val highlightedRequestId: Uuid? = null,
+    val showRequestDetailsPanel: Boolean = false,
 ) {
     sealed class ConnectionState {
         data class Connected(val currentPing: Duration?): ConnectionState()
@@ -305,6 +369,7 @@ data class Request(
     val path: String,
     val targetUrl: String,
     val startedAt: Instant,
+    val headers: List<Pair<String, String>>,
     val result: Result?,
 ) {
     sealed class Result {
@@ -313,6 +378,7 @@ data class Request(
         data class Success(
             override val finishedAt: Instant,
             val statusCode: Int,
+            val headers: List<Pair<String, String>>,
         ): Result()
 
         data class Timeout(override val finishedAt: Instant): Result()
