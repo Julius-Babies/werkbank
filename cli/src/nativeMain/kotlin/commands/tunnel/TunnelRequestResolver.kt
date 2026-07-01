@@ -63,7 +63,7 @@ class TunnelRequestResolver: KoinComponent {
                     })
                     return null
                 }
-                targetUrl = "localhost:$port${path}"
+                targetUrl = "127.0.0.1:$port${path}"
             }
             WerkbankConfig.Project.Service.ServiceState.Docker -> {
                 val dockerConfig = project.getConfig().services.first { it.name == service.name }.modes.docker
