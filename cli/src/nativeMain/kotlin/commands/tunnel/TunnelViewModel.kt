@@ -106,10 +106,13 @@ class TunnelViewModel: KoinComponent {
                                 currentPingId = Uuid.random()
                                 sendSerialized<ClientMessage>(ClientMessage.Ping(currentPingId))
                                 currentPingLatch = CompletableDeferred()
-                                withTimeout(15.seconds) {
+                                val ok = withTimeoutOrNull(15.seconds) {
                                     currentPingLatch.await()
+                                    true
+                                } ?: false
+                                if (ok) {
+                                    state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = Clock.System.now() - lastPingStart)) }
                                 }
-                                state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = Clock.System.now() - lastPingStart)) }
                                 delay(500.milliseconds)
                             }
                         }

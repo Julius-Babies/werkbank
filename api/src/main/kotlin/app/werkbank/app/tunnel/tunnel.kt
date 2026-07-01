@@ -18,6 +18,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
 import org.koin.ktor.ext.inject
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
@@ -112,8 +113,8 @@ class TunnelInstance(
 ) {
     typealias RequestId = Uuid
 
-    val pendingCalls = mutableMapOf<RequestId, Channel<ClientMessage>>()
-    val wsBridges = mutableMapOf<RequestId, WsBridge>()
+    val pendingCalls = ConcurrentHashMap<RequestId, Channel<ClientMessage>>()
+    val wsBridges = ConcurrentHashMap<RequestId, WsBridge>()
 
     suspend fun sendMessage(message: ServerMessage) {
         webSocketSession.sendSerialized<ServerMessage>(message)
@@ -149,11 +150,10 @@ class TunnelInstance(
             throw IllegalStateException("Expected WsOpened but got $response")
         }
 
-        pendingCalls.remove(requestId)
-        channel.close()
-
         val bridge = WsBridge(requestId, this)
         wsBridges[requestId] = bridge
+        pendingCalls.remove(requestId)
+        channel.close()
         return bridge
     }
 
@@ -245,6 +245,9 @@ class TunnelInstance(
         this.pendingCalls.values.forEach {
             it.close(TunnelClosedException())
         }
+        this.wsBridges.values.toList().forEach {
+            it.close()
+        }
     }
 
     data class Response(
@@ -288,7 +291,10 @@ class WsBridge(
         when (message) {
             is ClientMessage.WsText -> _incomingFrames.trySend(Frame.Text(message.text))
             is ClientMessage.WsBinary -> _incomingFrames.trySend(Frame.Binary(true, Base64.decode(message.body)))
-            is ClientMessage.WsClose -> close()
+            is ClientMessage.WsClose -> {
+                _incomingFrames.trySend(Frame.Close(CloseReason(message.code.toShort(), message.reason)))
+                close()
+            }
             else -> {}
         }
     }
