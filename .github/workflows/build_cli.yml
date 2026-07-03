@@ -38,16 +38,19 @@ jobs:
             name: linux-x64
             gradle-task: ":cli:linkReleaseExecutableLinuxX64"
             artifact-path: "cli/build/bin/linuxX64/releaseExecutable/cli.kexe"
+            mosaic-native-target: "LinuxX64"
 
           - os: ubuntu-latest
             name: linux-arm64
             gradle-task: ":cli:linkReleaseExecutableLinuxArm64"
             artifact-path: "cli/build/bin/linuxArm64/releaseExecutable/cli.kexe"
+            mosaic-native-target: "LinuxArm64"
 
           - os: macos-latest
             name: macos-arm64
             gradle-task: ":cli:linkReleaseExecutableMacosArm64"
             artifact-path: "cli/build/bin/macosArm64/releaseExecutable/cli.kexe"
+            mosaic-native-target: "MacosArm64"
 
     runs-on: ${{ matrix.os }}
 
@@ -65,15 +68,32 @@ jobs:
           cache: 'gradle'
           cache-dependency-path: |
             **/*.gradle.kts
+            **/*.gradle
             **/gradle.properties
             **/libs.versions.toml
+
+      - name: Get mosaic submodule commit hash
+        id: mosaic-hash
+        run: echo "hash=$(git ls-tree HEAD mosaic | awk '{print $3}')" >> $GITHUB_OUTPUT
+
+      - name: Cache Mosaic prebuilt artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/com/jakewharton/mosaic
+          key: mosaic-${{ runner.os }}-${{ steps.mosaic-hash.outputs.hash }}
 
       - name: Configure
         run: echo "cli.dev=false" >> local.properties
 
       - name: Precompile Mosaic
         working-directory: ./mosaic
-        run: ./gradlew publishToMavenLocal -PsignAllPublications=false -x spotlessKotlinCheck -x spotlessKotlinApply -x dokkaHtml -x dokkaJavadoc -x dokkaGfm -x apiCheck --no-daemon
+        run: |
+          ./gradlew publishKotlinMultiplatformPublicationToMavenLocal publish${{ matrix.mosaic-native-target }}PublicationToMavenLocal \
+            -PsignAllPublications=false \
+            -x spotlessKotlinCheck -x spotlessKotlinApply \
+            -x dokkaHtml -x dokkaJavadoc -x dokkaGfm \
+            -x apiCheck \
+            --no-daemon
 
       - name: Build CLI
         run: ./gradlew ${{ matrix.gradle-task }} --no-daemon

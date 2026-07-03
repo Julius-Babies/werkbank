@@ -6,12 +6,13 @@ plugins {
 }
 
 tasks.register<Exec>("precompileMosaic") {
-    description = "Build mosaic and publish it to MavenLocal so the main build can use configuration cache."
+    description = "Build mosaic and publish to MavenLocal so the main build can use configuration cache."
     workingDir = file("mosaic")
     commandLine(
         "./gradlew",
         "publishToMavenLocal",
         "-PsignAllPublications=false",
+        "-x", ":mosaic-tty:jvmJniZigBuild",
         "-x", "spotlessKotlinCheck",
         "-x", "spotlessKotlinApply",
         "-x", "dokkaHtml",
