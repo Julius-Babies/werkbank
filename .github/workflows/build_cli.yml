@@ -71,6 +71,10 @@ jobs:
       - name: Configure
         run: echo "cli.dev=false" >> local.properties
 
+      - name: Precompile Mosaic
+        working-directory: ./mosaic
+        run: ./gradlew publishToMavenLocal -PsignAllPublications=false -x spotlessKotlinCheck -x spotlessKotlinApply -x dokkaHtml -x dokkaJavadoc -x dokkaGfm -x apiCheck --no-daemon
+
       - name: Build CLI
         run: ./gradlew ${{ matrix.gradle-task }} --no-daemon
 

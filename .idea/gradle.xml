@@ -4,39 +4,6 @@
   <component name="GradleSettings">
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
-        <compositeConfiguration>
-          <compositeBuild compositeDefinitionSource="SCRIPT">
-            <builds>
-              <build path="$PROJECT_DIR$/mosaic" name="mosaic">
-                <projects>
-                  <project path="$PROJECT_DIR$/mosaic" />
-                  <project path="$PROJECT_DIR$/mosaic/mosaic-animation" />
-                  <project path="$PROJECT_DIR$/mosaic/mosaic-runtime" />
-                  <project path="$PROJECT_DIR$/mosaic/mosaic-terminal" />
-                  <project path="$PROJECT_DIR$/mosaic/mosaic-testing" />
-                  <project path="$PROJECT_DIR$/mosaic/mosaic-tty" />
-                  <project path="$PROJECT_DIR$/mosaic/mosaic-tty-terminal" />
-                  <project path="$PROJECT_DIR$/mosaic/samples" />
-                  <project path="$PROJECT_DIR$/mosaic/samples/counter" />
-                  <project path="$PROJECT_DIR$/mosaic/samples/demo" />
-                  <project path="$PROJECT_DIR$/mosaic/samples/java-tty" />
-                  <project path="$PROJECT_DIR$/mosaic/samples/jest" />
-                  <project path="$PROJECT_DIR$/mosaic/samples/robot" />
-                  <project path="$PROJECT_DIR$/mosaic/samples/rrtop" />
-                  <project path="$PROJECT_DIR$/mosaic/samples/snake" />
-                  <project path="$PROJECT_DIR$/mosaic/tools" />
-                  <project path="$PROJECT_DIR$/mosaic/tools/raw-mode-echo" />
-                  <project path="$PROJECT_DIR$/mosaic/tools/terminal-capability" />
-                </projects>
-              </build>
-              <build path="$PROJECT_DIR$/mosaic/build-support" name="build-support">
-                <projects>
-                  <project path="$PROJECT_DIR$/mosaic/build-support" />
-                </projects>
-              </build>
-            </builds>
-          </compositeBuild>
-        </compositeConfiguration>
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
         <option name="gradleJvm" value="temurin-26" />
         <option name="modules">
@@ -44,25 +11,6 @@
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/api" />
             <option value="$PROJECT_DIR$/cli" />
-            <option value="$PROJECT_DIR$/mosaic" />
-            <option value="$PROJECT_DIR$/mosaic/build-support" />
-            <option value="$PROJECT_DIR$/mosaic/mosaic-animation" />
-            <option value="$PROJECT_DIR$/mosaic/mosaic-runtime" />
-            <option value="$PROJECT_DIR$/mosaic/mosaic-terminal" />
-            <option value="$PROJECT_DIR$/mosaic/mosaic-testing" />
-            <option value="$PROJECT_DIR$/mosaic/mosaic-tty" />
-            <option value="$PROJECT_DIR$/mosaic/mosaic-tty-terminal" />
-            <option value="$PROJECT_DIR$/mosaic/samples" />
-            <option value="$PROJECT_DIR$/mosaic/samples/counter" />
-            <option value="$PROJECT_DIR$/mosaic/samples/demo" />
-            <option value="$PROJECT_DIR$/mosaic/samples/java-tty" />
-            <option value="$PROJECT_DIR$/mosaic/samples/jest" />
-            <option value="$PROJECT_DIR$/mosaic/samples/robot" />
-            <option value="$PROJECT_DIR$/mosaic/samples/rrtop" />
-            <option value="$PROJECT_DIR$/mosaic/samples/snake" />
-            <option value="$PROJECT_DIR$/mosaic/tools" />
-            <option value="$PROJECT_DIR$/mosaic/tools/raw-mode-echo" />
-            <option value="$PROJECT_DIR$/mosaic/tools/terminal-capability" />
             <option value="$PROJECT_DIR$/shared" />
           </set>
         </option>
