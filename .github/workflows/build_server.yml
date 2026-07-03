@@ -21,6 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         name: Checkout
+        with:
+          submodules: recursive
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
       - name: Install dependencies
@@ -41,6 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         name: Checkout
+        with:
+          submodules: recursive
       - name: Setup JDK
         uses: actions/setup-java@v5
         with:
@@ -70,6 +74,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         name: Checkout
+        with:
+          submodules: recursive
       - name: Extract Docker image metadata
         id: meta
         uses: docker/metadata-action@v6

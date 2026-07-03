@@ -20,6 +20,12 @@ dependencyResolutionManagement {
     }
 }
 
+includeBuild("mosaic") {
+    dependencySubstitution {
+        substitute(module("com.jakewharton.mosaic:mosaic-runtime")).using(project(":mosaic-runtime"))
+    }
+}
+
 rootProject.name = "Werkbank"
 
 include(":api")

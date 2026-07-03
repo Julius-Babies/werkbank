@@ -5,6 +5,7 @@ on:
       - main
     paths:
       - 'cli/**'
+      - 'mosaic/**'
       - '.github/workflows/build_cli.yml'
   workflow_dispatch: {}
 
@@ -53,6 +54,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Setup JDK
         uses: actions/setup-java@v5

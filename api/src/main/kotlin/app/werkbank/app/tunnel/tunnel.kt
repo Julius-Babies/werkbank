@@ -17,6 +17,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
 import org.koin.ktor.ext.inject
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.encoding.Base64
@@ -142,7 +144,15 @@ class TunnelInstance(
             }
         ))
 
-        val response = channel.receive()
+        val response = withTimeoutOrNull(30.seconds) {
+            channel.receive()
+        }
+
+        if (response == null) {
+            pendingCalls.remove(requestId)
+            channel.close()
+            throw TunnelClosedException("WebSocket proxy timed out waiting for client")
+        }
 
         if (response !is ClientMessage.WsOpened) {
             pendingCalls.remove(requestId)
@@ -307,4 +317,4 @@ class WsBridge(
 
 class TimeoutException : Exception()
 class ServerNotRunningException : Exception()
-class TunnelClosedException : Exception()
+class TunnelClosedException(message: String? = null) : Exception(message)

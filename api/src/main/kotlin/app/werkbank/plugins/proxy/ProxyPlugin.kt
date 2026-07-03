@@ -174,12 +174,20 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             }
 
             if (isWebSocket) {
-                val wsProxy = tunnel.wsProxy(
-                    projectName = project.projectKey,
-                    serviceName = service?.serviceKey,
-                    path = call.request.uri,
-                    headers = call.request.headers.toMap(),
-                )
+                val wsProxy = try {
+                    tunnel.wsProxy(
+                        projectName = project.projectKey,
+                        serviceName = service?.serviceKey,
+                        path = call.request.uri,
+                        headers = call.request.headers.toMap(),
+                    )
+                } catch (_: TunnelClosedException) {
+                    call.respondText("Tunnel connection closed", status = HttpStatusCode.BadGateway)
+                    return@onCall
+                } catch (_: TimeoutException) {
+                    call.respondText("WebSocket proxy timed out", status = HttpStatusCode.GatewayTimeout)
+                    return@onCall
+                }
 
                 call.respond(WebSocketUpgrade(call) {
                     launch {

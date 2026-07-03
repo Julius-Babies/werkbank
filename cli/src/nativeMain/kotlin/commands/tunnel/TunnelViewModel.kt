@@ -243,36 +243,44 @@ class TunnelViewModel: KoinComponent {
 //                                                    targetUrl = target.url,
 //                                                )
 
-                                                client.webSocket(urlString = target.url) {
-                                                    wsProxyState[msg.requestId] = this
-                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
-                                                        requestId = msg.requestId
-                                                    ))
+                                                try {
+                                                    client.webSocket(urlString = target.url) {
+                                                        wsProxyState[msg.requestId] = this
+                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
+                                                            requestId = msg.requestId
+                                                        ))
 
-                                                    for (frame in incoming) {
-                                                        when (frame) {
-                                                            is Frame.Text -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
-                                                                requestId = msg.requestId,
-                                                                text = frame.readText()
-                                                            ))
-                                                            is Frame.Binary -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsBinary(
-                                                                requestId = msg.requestId,
-                                                                body = Base64.encode(frame.readBytes())
-                                                            ))
-                                                            is Frame.Close -> {
-                                                                this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                        for (frame in incoming) {
+                                                            when (frame) {
+                                                                is Frame.Text -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
                                                                     requestId = msg.requestId,
-                                                                    code = frame.readReason()?.code?.toInt() ?: 1000,
-                                                                    reason = frame.readReason()?.message ?: ""
+                                                                    text = frame.readText()
                                                                 ))
-                                                                break
+                                                                is Frame.Binary -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsBinary(
+                                                                    requestId = msg.requestId,
+                                                                    body = Base64.encode(frame.readBytes())
+                                                                ))
+                                                                is Frame.Close -> {
+                                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                                        requestId = msg.requestId,
+                                                                        code = frame.readReason()?.code?.toInt() ?: 1000,
+                                                                        reason = frame.readReason()?.message ?: ""
+                                                                    ))
+                                                                    break
+                                                                }
+                                                                else -> {}
                                                             }
-                                                            else -> {}
                                                         }
                                                     }
+                                                } catch (e: Exception) {
+                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                        requestId = msg.requestId,
+                                                        code = 1011,
+                                                        reason = e.message ?: "Failed to connect to local WebSocket service"
+                                                    ))
+                                                } finally {
+                                                    wsProxyState.remove(msg.requestId)
                                                 }
-
-                                                wsProxyState.remove(msg.requestId)
                                             }
                                         }
                                         is ServerMessage.WsText -> {
