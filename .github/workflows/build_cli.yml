@@ -90,6 +90,7 @@ jobs:
         run: |
           ./gradlew publishKotlinMultiplatformPublicationToMavenLocal publish${{ matrix.mosaic-native-target }}PublicationToMavenLocal \
             -PsignAllPublications=false \
+            -x :mosaic-tty:jvmJniZigBuild \
             -x spotlessKotlinCheck -x spotlessKotlinApply \
             -x dokkaHtml -x dokkaJavadoc -x dokkaGfm \
             -x apiCheck \
