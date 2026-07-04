@@ -67,11 +67,11 @@ class ImportCliBinaries: KoinComponent {
         val artifacts = workflowArtifacts.body<WorkflowArtifacts>().artifacts
 
         val cliMetadataDownloadUrl = artifacts.first { it.name == "cli-metadata" }.archiveDownloadUrl
-        val cliMetadataZipFile = File("tmp", "cli-metadata.json.zip")
+        val cliMetadataZipFile = File(appConfig.storage.temporaryDir, "cli-metadata.json.zip")
         download(cliMetadataDownloadUrl, cliMetadataZipFile)
         unzip(cliMetadataZipFile)
 
-        val cliMetadataFile = File("tmp", "cli-metadata.json")
+        val cliMetadataFile = File(appConfig.storage.temporaryDir, "cli-metadata.json")
 
         val cliMetadata = getCliMetadata(cliMetadataFile)
         val latestVersion = Version.parse(cliMetadata.version, strict = false)
@@ -94,10 +94,10 @@ class ImportCliBinaries: KoinComponent {
     }
 
     private suspend fun downloadCliBinary(variant: String, downloadUrl: String): File {
-        val zipFile = File("tmp", "$variant.zip")
+        val zipFile = File(appConfig.storage.temporaryDir, "$variant.zip")
         download(downloadUrl, zipFile)
         unzip(zipFile)
-        val cliFile = File("tmp", variant)
+        val cliFile = File(appConfig.storage.temporaryDir, variant)
         cliFile.setExecutable(true)
         return cliFile
     }
