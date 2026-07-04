@@ -14,13 +14,16 @@ import io.ktor.server.request.host
 import org.koin.ktor.ext.inject
 import kotlin.uuid.Uuid
 
+const val AUTH_USER_JWT = "auth-user-jwt"
+const val AUTH_GITHUB_ACTIONS_WERKBANK_REPOSITORY = "auth-github-actions-werkbank-repository"
+
 fun Application.installAuthorization() {
 
     val appConfig by inject<AppConfig>()
     val db by inject<DatabaseManager>()
 
     install(Authentication) {
-        jwt("jwt") {
+        jwt(AUTH_USER_JWT) {
             realm = "werkbank-jwt"
             verifier(
                 JWT
@@ -54,6 +57,14 @@ fun Application.installAuthorization() {
                 } else {
                     null
                 }
+            }
+        }
+
+        bearer(AUTH_GITHUB_ACTIONS_WERKBANK_REPOSITORY) {
+            realm = "werkbank-github-actions-repository"
+            authenticate { token ->
+                if (token.token != appConfig.github.webhookCliUpdateBearer) return@authenticate null
+                return@authenticate UserIdPrincipal("github-actions-werkbank-cli-update")
             }
         }
     }

@@ -1,5 +1,8 @@
 package app.werkbank
 
+import app.werkbank.app.cli.ImportCliBinaries
+import app.werkbank.app.cli.update.checkForUpdates
+import app.werkbank.app.cli.update.downloadCli
 import app.werkbank.app.login.callback
 import app.werkbank.app.login.github.loginWithGitHub
 import app.werkbank.app.login.login
@@ -25,6 +28,7 @@ import org.koin.ktor.ext.inject
 
 fun Application.configureRouting() {
     val appConfig by inject<AppConfig>()
+
     routing {
         host(Regex("^(([a-zA-Z0-9]|-)+\\.)?${appConfig.appDomain.replace(".", "\\.")}$")) {
             route("/api") {
@@ -106,6 +110,33 @@ fun Application.configureRouting() {
 
                     route("/ws") {
                         webappSocket()
+                    }
+                }
+
+                route("/cli") {
+                    route("/update") {
+                        route("/{channel}") {
+                            route("/check") {
+                                checkForUpdates()
+                            }
+
+                            route("/download") {
+                                route("/{variant}") {
+                                    downloadCli()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                route("/webhook") {
+                    route("/github") {
+                        route("/cli") {
+                            route("/release") {
+                                val importCliBinaries by inject<ImportCliBinaries>()
+                                importCliBinaries.installIn(this)
+                            }
+                        }
                     }
                 }
             }

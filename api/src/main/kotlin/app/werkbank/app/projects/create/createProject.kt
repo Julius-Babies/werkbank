@@ -9,6 +9,7 @@ import app.werkbank.database.Projects
 import app.werkbank.database.Service
 import app.werkbank.database.ServiceHelper
 import app.werkbank.database.Services
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.Werkbankfile
 import app.werkbank.shared.setup.SetupResponse
@@ -30,7 +31,7 @@ fun Route.createProject() {
     val dnsManager by inject<DnsManager>()
     val appConfig by inject<AppConfig>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         post {
             val principal = call.principal<UserPrincipal>()!!
             val werkbankFile = call.receive<Werkbankfile>()

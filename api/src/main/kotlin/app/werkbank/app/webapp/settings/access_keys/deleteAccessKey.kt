@@ -2,6 +2,7 @@ package app.werkbank.app.webapp.settings.access_keys
 
 import app.werkbank.database.AccessKey
 import app.werkbank.database.DatabaseManager
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import io.ktor.http.*
 import io.ktor.server.auth.*
@@ -15,7 +16,7 @@ fun Route.deleteAccessKey() {
 
     val db by inject<DatabaseManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         delete {
             val principal = call.principal<UserPrincipal>()!!
             val id = call.parameters["accessKeyId"]?.let { Uuid.parse(it) } ?: return@delete call.respondText(

@@ -16,6 +16,7 @@ data class AppConfig(
     @SerialName("cloudflare") val cloudflare: Cloudflare? = null,
     @SerialName("tls") val tls: Tls,
     @SerialName("otel") val otel: Otel,
+    @SerialName("storage") val storage: Storage,
 ) {
     @Serializable
     data class Database(
@@ -27,12 +28,15 @@ data class AppConfig(
         @SerialName("client_id") val clientId: String,
         @SerialName("client_secret") val clientSecret: String,
         @SerialName("redirect_uri") val redirectUri: String,
+        @SerialName("api_token") val apiToken: String,
+        @SerialName("webhook_cli_update_bearer") val webhookCliUpdateBearer: String,
     )
 
     @Serializable
     data class Cli(
         @SerialName("client_id") val clientId: String,
         @SerialName("client_secret") val clientSecret: String,
+        @SerialName("storage_dir") val storageDir: String,
     )
 
     @Serializable
@@ -85,5 +89,10 @@ data class AppConfig(
     data class Otel(
         @SerialName("endpoint") val endpoint: String,
         @SerialName("service_name") val serviceName: String,
+    )
+
+    @Serializable
+    data class Storage(
+        @SerialName("temporary_dir") val temporaryDir: String,
     )
 }

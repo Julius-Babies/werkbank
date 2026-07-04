@@ -31,6 +31,7 @@ dependencies {
     implementation(ktorLibs.server.callLogging)
     implementation(ktorLibs.server.websockets)
     implementation(ktorLibs.client.core)
+    implementation(ktorLibs.client.auth)
     implementation(ktorLibs.client.cio)
     implementation(ktorLibs.client.contentNegotiation)
     implementation(libs.exposed.core)
@@ -51,6 +52,7 @@ dependencies {
     implementation(libs.opentelemetry.exporter.otlp)
     implementation(libs.batik.transcoder)
     implementation(libs.batik.codec)
+    implementation(libs.semver)
     implementation(libs.kotlin.crypto.sha2)
 
     testImplementation(kotlin("test"))

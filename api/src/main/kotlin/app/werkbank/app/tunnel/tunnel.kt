@@ -1,5 +1,6 @@
 package app.werkbank.app.tunnel
 
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
@@ -28,7 +29,7 @@ fun Route.tunnel() {
 
     val tunnelManager by inject<TunnelManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         webSocket {
             val user = call.principal<UserPrincipal>()!!
             val instance = TunnelInstance(this)

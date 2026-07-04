@@ -1,6 +1,7 @@
 package app.werkbank.app.webapp.settings.access_keys
 
 import app.werkbank.database.DatabaseManager
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
@@ -16,7 +17,7 @@ fun Route.getAccessKeys() {
 
     val db by inject<DatabaseManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         get {
             val principal = call.principal<UserPrincipal>()!!
             db.query {

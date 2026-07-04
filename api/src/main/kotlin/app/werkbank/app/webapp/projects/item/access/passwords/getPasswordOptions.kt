@@ -4,6 +4,7 @@ import app.werkbank.app.projects.item.getProjectWithPrincipalAsOwner
 import app.werkbank.database.AccessPassword
 import app.werkbank.database.AccessPasswords
 import app.werkbank.database.DatabaseManager
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import io.ktor.server.auth.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -17,7 +18,7 @@ fun Route.getPasswordOptions() {
 
     val db by inject<DatabaseManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         get {
             val project = call.getProjectWithPrincipalAsOwner() ?: return@get
             db.query {

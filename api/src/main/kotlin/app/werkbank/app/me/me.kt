@@ -1,5 +1,6 @@
 package app.werkbank.app.me
 
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import es.jvbabi.authentikt.core.utils.buildGenericMap
 import es.jvbabi.authentikt.core.utils.respondGson
@@ -9,7 +10,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 
 fun Route.me() {
-    authenticate("jwt", optional = true) {
+    authenticate(AUTH_USER_JWT, optional = true) {
         get {
             val principal = call.principal<UserPrincipal>()
 

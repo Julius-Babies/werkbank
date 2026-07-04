@@ -4,6 +4,7 @@ import app.werkbank.app.projects.item.getProjectWithPrincipalAsOwner
 import app.werkbank.app.webapp.projects.ProjectResponse
 import app.werkbank.app.webapp.projects.toModel
 import app.werkbank.database.DatabaseManager
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -15,7 +16,7 @@ import org.koin.ktor.ext.inject
 fun Route.setAccess() {
     val db by inject<DatabaseManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         put {
             val project = call.getProjectWithPrincipalAsOwner() ?: return@put
 

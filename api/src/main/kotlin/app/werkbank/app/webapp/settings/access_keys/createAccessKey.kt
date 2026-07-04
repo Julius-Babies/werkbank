@@ -3,6 +3,7 @@ package app.werkbank.app.webapp.settings.access_keys
 import app.werkbank.config.AppConfig
 import app.werkbank.database.AccessKey
 import app.werkbank.database.DatabaseManager
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.util.sha256
 import com.auth0.jwt.JWT
@@ -25,7 +26,7 @@ fun Route.createAccessKey() {
     val db by inject<DatabaseManager>()
     val appConfig by inject<AppConfig>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         post {
             val principal = call.principal<UserPrincipal>()!!
             val request = call.receive<CreateAccessKeyRequest>()

@@ -4,6 +4,7 @@ import app.werkbank.app.projects.item.getProjectWithPrincipalAsOwner
 import app.werkbank.database.AccessPassword
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.ProjectPassword
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.util.sha256
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
@@ -17,7 +18,7 @@ import org.koin.ktor.ext.inject
 fun Route.createPassword() {
     val db by inject<DatabaseManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         post {
             val project = call.getProjectWithPrincipalAsOwner() ?: return@post
             val request = call.receive<CreatePasswordRequest>()

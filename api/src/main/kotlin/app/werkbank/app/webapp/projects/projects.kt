@@ -6,6 +6,7 @@ import app.werkbank.app.webapp.projects.ProjectResponse.AccessState.Open
 import app.werkbank.app.webapp.projects.ProjectResponse.AccessState.Restricted
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.Project
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import io.ktor.server.auth.*
 import io.ktor.server.response.respond
@@ -19,7 +20,7 @@ fun Route.webappProjects() {
 
     val db by inject<DatabaseManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         get {
             val principal = call.principal<UserPrincipal>()!!
 

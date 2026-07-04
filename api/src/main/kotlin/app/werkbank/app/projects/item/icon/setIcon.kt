@@ -2,6 +2,7 @@ package app.werkbank.app.projects.item.icon
 
 import app.werkbank.app.projects.item.getProjectWithPrincipalAsOwner
 import app.werkbank.database.DatabaseManager
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respondText
@@ -21,7 +22,7 @@ fun Route.setIcon() {
 
     val db by inject<DatabaseManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         post {
             val project = call.getProjectWithPrincipalAsOwner() ?: return@post
             val bytes = call.receive<ByteArray>()

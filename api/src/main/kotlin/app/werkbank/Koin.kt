@@ -4,12 +4,15 @@ import app.certificates.CertificateManager
 import app.certificates.LetsEncryptCertificateManager
 import app.certificates.LocalCertificateManager
 import app.queue.certificate.CertificateQueue
+import app.werkbank.app.cli.ImportCliBinaries
 import app.werkbank.app.dns.CloudflareDnsManagerImpl
 import app.werkbank.app.dns.DnsManager
 import app.werkbank.app.dns.LocalHostsDnsManagerImpl
 import app.werkbank.app.dns.local.SudoManager
 import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.config.AppConfig
+import app.werkbank.data.repository.CliBinaryRepository
+import app.werkbank.data.repository.CliBinaryRepositoryImpl
 import app.werkbank.database.DatabaseManager
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -23,7 +26,9 @@ import io.opentelemetry.kotlin.tracing.export.batchSpanProcessor
 import io.opentelemetry.kotlin.tracing.export.otlpHttpSpanExporter
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import org.koin.core.module.dsl.singleOf
 import org.koin.core.qualifier.named
+import org.koin.dsl.bind
 import org.koin.dsl.module
 import org.koin.ktor.plugin.Koin
 import org.koin.logger.slf4jLogger
@@ -103,6 +108,8 @@ fun Application.configureKoin(
             single { CertificateQueue() }
 
             single { TunnelManager() }
+            singleOf(::CliBinaryRepositoryImpl) bind CliBinaryRepository::class
+            single { ImportCliBinaries() }
         })
     }
 }

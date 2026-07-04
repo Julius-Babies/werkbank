@@ -4,6 +4,7 @@ import app.werkbank.config.AppConfig
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.Project
 import app.werkbank.database.User
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.plugins.proxy.ProxyAuthSession
 import app.werkbank.plugins.proxy.proxyAuthSessions
@@ -26,7 +27,7 @@ fun Route.proxyAuthLanding() {
     val db by inject<DatabaseManager>()
     val appConfig by inject<AppConfig>()
 
-    authenticate("jwt", optional = true) {
+    authenticate(AUTH_USER_JWT, optional = true) {
         get {
             val principal = call.principal<UserPrincipal>()
 

@@ -52,7 +52,8 @@ bin/
 .DS_Store
 
 ### Project ###
-data
+/data
+/tmp
 web/build
 
 local.properties

@@ -20,6 +20,7 @@ class DatabaseManager(
             SchemaUtils.create(Certificates)
             SchemaUtils.create(AccessPasswords, ProjectPasswords)
             SchemaUtils.create(AccessKeys)
+            SchemaUtils.create(KeyValues)
         }
     }
 

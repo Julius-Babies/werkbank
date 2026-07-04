@@ -1,6 +1,7 @@
 package app.werkbank.app.webapp.socket
 
 import app.werkbank.app.tunnel.TunnelManager
+import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import com.google.gson.Gson
 import io.ktor.server.auth.*
@@ -18,7 +19,7 @@ fun Route.webappSocket() {
 
     val tunnelManager by inject<TunnelManager>()
 
-    authenticate("jwt") {
+    authenticate(AUTH_USER_JWT) {
         webSocket {
             val principal = call.principal<UserPrincipal>()!!
 
