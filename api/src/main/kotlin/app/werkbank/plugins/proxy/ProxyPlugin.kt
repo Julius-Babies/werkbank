@@ -13,6 +13,7 @@ import com.auth0.jwt.exceptions.JWTVerificationException
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -169,7 +170,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
                     parameters.append("owner_username", project.owner.username)
                 } }.build()
-                call.respondWebpage(url)
+                call.respondWebpage(url, appConfig.appDomain)
                 return@onCall
             }
 
@@ -242,7 +243,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
                         parameters.append("owner_username", project.owner.username)
                     } }.build()
-                    call.respondWebpage(url)
+                    call.respondWebpage(url, appConfig.appDomain)
                     return@onCall
                 } catch (_: TunnelClosedException) {
                     val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed").apply {
@@ -251,7 +252,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
                         parameters.append("owner_username", project.owner.username)
                     } }.build()
-                    call.respondWebpage(url)
+                    call.respondWebpage(url, appConfig.appDomain)
                     return@onCall
                 } catch (_: ServerNotRunningException) {
                     val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running").apply {
@@ -261,7 +262,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         parameters.append("owner_username", project.owner.username)
                         parameters.append("service_name", service?.serviceKey ?: "null")
                     } }.build()
-                    call.respondWebpage(url)
+                    call.respondWebpage(url, appConfig.appDomain)
                     return@onCall
                 }
 
@@ -287,15 +288,16 @@ data class ProxyAuthSession(
     val headers: List<String>,
 )
 
-private suspend fun ApplicationCall.respondWebpage(url: Url) {
+private suspend fun ApplicationCall.respondWebpage(url: Url, appDomain: String) {
     val client = HttpClient()
     val response = client.get(url)
     val contentType = response.contentType()
     val status = response.status
-    val channel = response.bodyAsChannel()
+    val body = response.bodyAsText()
+    val fixedBody = body.replace("\"/_app/", "\"https://$appDomain/_app/")
 
-    respondBytesWriter(status = status, contentType = contentType) {
-        channel.copyTo(this@respondBytesWriter)
+    respondText(status = status, contentType = contentType) {
+        fixedBody
     }
 
     client.close()
