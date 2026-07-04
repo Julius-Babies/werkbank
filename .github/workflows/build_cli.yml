@@ -97,10 +97,17 @@ jobs:
     steps:
       - name: Create metadata
         run: |
-          cat << EOF > cli-metadata.json
-           {
-             "version": "${{ github.ref_name }}"
-           }
+          cat << 'EOF' > cli-metadata.json
+          {
+            "version": "${{ github.ref_name }}"
+          }
+          EOF
+
+      - name: Upload metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-metadata
+          path: cli-metadata.json
       - name: Upload metadata
         uses: actions/upload-artifact@v7
         with:
