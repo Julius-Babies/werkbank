@@ -19,6 +19,7 @@ import commands.service.ServiceCommand
 import commands.setup.SetupCommand
 import commands.tunnel.TunnelCommand
 import commands.up.UpCommand
+import commands.update.UpdateCommand
 import io.github.z4kn4fein.semver.Version
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -71,6 +72,7 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
             LoginCommand(),
             LogoutCommand(),
             TunnelCommand(),
+            UpdateCommand(),
         )
     }
 }

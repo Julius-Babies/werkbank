@@ -72,11 +72,16 @@ val cliVersion = localProperties["cli.version"]?.toString() ?: run {
     error("Missing cli.version property in local.properties")
 }
 
+val cliVariant = localProperties["cli.variant"]?.toString() ?: run {
+    error("Missing cli.variant property in local.properties")
+}
+
 buildkonfig {
     packageName = "app.werkbank"
 
     defaultConfigs {
         buildConfigField(FieldSpec.Type.BOOLEAN, "isDevelopment", isDevelopment.toString())
         buildConfigField(FieldSpec.Type.STRING, "version", cliVersion)
+        buildConfigField(FieldSpec.Type.STRING, "variant", cliVariant)
     }
 }
