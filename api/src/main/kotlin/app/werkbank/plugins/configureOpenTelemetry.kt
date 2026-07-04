@@ -4,6 +4,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.createApplicationPlugin
+import io.ktor.server.application.hooks.CallFailed
 import io.ktor.server.application.hooks.ResponseSent
 import io.ktor.server.application.install
 import io.ktor.server.plugins.origin
@@ -17,6 +18,7 @@ import io.ktor.util.AttributeKey
 import io.ktor.util.logging.KtorSimpleLogger
 import io.opentelemetry.kotlin.tracing.Span
 import io.opentelemetry.kotlin.tracing.SpanKind
+import io.opentelemetry.kotlin.tracing.StatusData
 import io.opentelemetry.kotlin.tracing.Tracer
 import org.koin.ktor.ext.inject
 
@@ -51,6 +53,15 @@ fun Application.configureOpenTelemetry() {
             span.setStringAttribute("http.request.user_agent", call.request.header(HttpHeaders.UserAgent) ?: "")
             call.attributes[rootSpanKey] = span
             call.attributes[tracerKey] = tracer
+        }
+
+        on(CallFailed) { call, error ->
+            try {
+                call.span.addEvent("exception", attributes = { setStringAttribute("stacktrace", error.stackTraceToString()) })
+                call.span.setStatus(StatusData.Error(error.message ?: "Unknown error"))
+            } catch (_: IllegalStateException) {
+                logger.warn("Failed to record exception on span.")
+            }
         }
 
         on(ResponseSent) { call ->
