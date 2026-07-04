@@ -15,7 +15,10 @@ fun Route.checkForUpdates() {
 
     get {
         val channel = call.parameters["channel"] ?: "production"
-        val currentVersion = Version.parse(call.parameters["current_version"]!!, strict = false)
+        val currentVersion = run {
+            val raw = call.parameters["current_version"] ?: return@run Version.parse("0.0.0", strict = false)
+            Version.parse(raw, strict = false)
+        }
         val variant = call.parameters["variant"]!!
 
         val latestVersion = cliBinaryRepository.getCurrentVersion(channel)
