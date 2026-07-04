@@ -125,6 +125,10 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v7
 
+      - name: Run CLI update webhook
+        run: |
+          curl -X POST -H "Authorization: Bearer ${{ secrets.WEBHOOK_CLI_UPDATE }}" https://wbspace.app/api/webhook/github/cli/release?run_id=${{ github.run_id }}
+
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
