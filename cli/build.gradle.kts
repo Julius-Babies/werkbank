@@ -54,6 +54,7 @@ kotlin {
             implementation(libs.kotlinx.datetime)
             implementation(libs.koin.core)
             implementation(libs.mosaic)
+            implementation(libs.semver)
             implementation(libs.table.tui)
         }
         macosMain.dependencies {
@@ -67,10 +68,15 @@ val isDevelopment = localProperties.getOrDefault("cli.dev", "null").toString().t
     true
 }
 
+val cliVersion = localProperties["cli.version"]?.toString() ?: run {
+    error("Missing cli.version property in local.properties")
+}
+
 buildkonfig {
     packageName = "app.werkbank"
 
     defaultConfigs {
         buildConfigField(FieldSpec.Type.BOOLEAN, "isDevelopment", isDevelopment.toString())
+        buildConfigField(FieldSpec.Type.STRING, "version", cliVersion)
     }
 }
