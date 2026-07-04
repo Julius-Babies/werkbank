@@ -37,6 +37,7 @@
 	"dependencies": {
 		"@julius-babies/authentikt-svelte": "^0.4.3",
 		"date-fns": "^4.4.0",
+		"dotenv": "^17.4.2",
 		"svelte-i18n": "^4.0.1"
 	}
 }

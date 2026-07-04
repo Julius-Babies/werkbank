@@ -1,4 +1,5 @@
 import adapter from '@sveltejs/adapter-node';
+import "dotenv/config"
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -12,6 +13,7 @@ const config = {
 		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 		adapter: adapter(),
 		paths: {
+			assets: process.env.PUBLIC_BASE_URL,
 			relative: false,
 		}
 	}
