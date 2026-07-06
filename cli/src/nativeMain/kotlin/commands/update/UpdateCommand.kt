@@ -8,13 +8,19 @@ import es.jvbabi.kfile.File
 import http.httpClient
 import io.github.z4kn4fein.semver.Version
 import io.ktor.client.call.*
+import io.ktor.client.plugins.onDownload
 import io.ktor.client.request.*
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.asByteWriteChannel
 import io.ktor.utils.io.copyTo
+import kotlinx.coroutines.delay
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import util.FileSizeFormatter
+import util.REPLACE_LINE
+import util.buildStyledString
+import kotlin.time.Duration.Companion.seconds
 
 class UpdateCommand: SuspendingCliktCommand("update"), KoinComponent {
 
@@ -29,26 +35,59 @@ class UpdateCommand: SuspendingCliktCommand("update"), KoinComponent {
 
         when (updateState) {
             UpdateResponse.NoUpdate -> {
-                println("You are already on the latest version")
+                println("\uD83C\uDF89 You are already on the latest version")
                 return
             }
-            is UpdateResponse.UpdateAvailable -> println("Update available: ${updateState.version} at ${updateState.downloadUrl}")
+            is UpdateResponse.UpdateAvailable -> {
+                println(buildStyledString { green { +"There's an update for wb-cli available:" } })
+                println()
+                println(buildStyledString {
+                    +"    "
+                    gray { +currentVersion.toString() }
+                    +"  →  "
+                    bold {
+                        aqua {
+                            +Version.parse(updateState.version, strict = false).toString()
+                        }
+                    }
+                })
+                println()
+            }
         }
 
         val targetFile = File.getTempDirectory().resolve("wbcliupdatefile")
-        val downloadResponse = httpClient().get(updateState.downloadUrl)
+        val downloadResponse = httpClient().prepareGet(updateState.downloadUrl) {
+            onDownload { downloadedBytes, ofBytes ->
+                val total = ofBytes ?: return@onDownload
+                val progress = downloadedBytes.toFloat() / total.toFloat()
+                val barWidth = 30
+                val filled = (progress * barWidth).toInt()
+                print(buildStyledString {
+                    +REPLACE_LINE
+                    +" "
+                    aqua { +"█".repeat(filled) }
+                    gray { +"░".repeat(barWidth - filled) }
+                    +" ${FileSizeFormatter.format(downloadedBytes)} / ${FileSizeFormatter.format(total)}"
+                })
+            }
+        }.execute()
         if (!downloadResponse.status.isSuccess()) {
             println("Failed to download update file: ${downloadResponse.status}")
             return
         }
 
-        println("Downloading update file...")
+        delay(1.seconds)
         downloadResponse.bodyAsChannel().copyTo(targetFile.sink().asByteWriteChannel())
+        println(buildStyledString {
+            +REPLACE_LINE
+            green { +"Download complete" }
+        })
 
-        println("Update downloaded")
-        println("Installing update...")
         targetFile.setExecutable(true)
         targetFile.copy(File.getCurrentExecutableFile())
-        println("Update installed")
+        println(buildStyledString {
+            green { +"Done! " }
+            +"Werkbank CLI has been updated to version ${updateState.version}"
+        })
     }
 }
