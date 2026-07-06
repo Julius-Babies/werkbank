@@ -111,7 +111,7 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
                     if (inDir.name in listOf("node_modules", ".git", ".idea", ".gradle", ".gradle-cache", ".gradle-wrapper", "build", "dist")) return null
                     val files = inDir.listFiles()
                     files.firstOrNull { it.name in iconNames }?.let { return it }
-                    return files.filter { it.isDirectory() }.firstNotNullOfOrNull { findImage(it) }
+                    return files.filter { it.isDirectory }.firstNotNullOfOrNull { findImage(it) }
                 }
 
                 file = findImage(currentDirectory)

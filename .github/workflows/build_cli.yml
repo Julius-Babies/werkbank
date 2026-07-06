@@ -63,6 +63,7 @@ jobs:
         run: |
           echo "cli.dev=false" >> local.properties
           echo "cli.version=${{ github.ref_name }}" >> local.properties
+          echo "cli.variant=${{ matrix.name }}" >> local.properties
 
       - name: Precompile Mosaic
         working-directory: ./mosaic

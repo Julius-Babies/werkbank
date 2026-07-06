@@ -161,11 +161,11 @@ class TraefikManager : AppDependency, KoinComponent {
 
                     fun appendFolder(folder: File) {
                         if (!folder.exists()) return
-                        val subfolders = folder.listFiles().filter { it.isDirectory() }
+                        val subfolders = folder.listFiles().filter { it.isDirectory }
                         subfolders.forEach { appendFolder(it) }
 
-                        val certFiles = folder.listFiles().filter { !it.isDirectory() && it.extension in listOf("pem", "crt") }
-                        val keyFiles = folder.listFiles().filter { !it.isDirectory() && it.extension == "key" }
+                        val certFiles = folder.listFiles().filter { !it.isDirectory && it.extension in listOf("pem", "crt") }
+                        val keyFiles = folder.listFiles().filter { !it.isDirectory && it.extension == "key" }
 
                         val pairs = certFiles
                             .associateWith { certFile ->

@@ -2,7 +2,10 @@ package app.werkbank.app.cli.update
 
 import app.werkbank.config.AppConfig
 import app.werkbank.data.repository.CliBinaryRepository
+import app.werkbank.shared.cli.update.UpdateResponse
 import io.github.z4kn4fein.semver.Version
+import io.ktor.http.URLBuilder
+import io.ktor.http.appendPathSegments
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.SerialName
@@ -33,18 +36,4 @@ fun Route.checkForUpdates() {
             downloadUrl = "https://${appConfig.appDomain}/api/cli/update/$channel/download/$variant"
         ))
     }
-}
-
-@Serializable
-private sealed class UpdateResponse {
-    @Serializable
-    @SerialName("no_update")
-    object NoUpdate : UpdateResponse()
-
-    @Serializable
-    @SerialName("update_available")
-    data class UpdateAvailable(
-        @SerialName("version") val version: String,
-        @SerialName("download_url") val downloadUrl: String,
-    ) : UpdateResponse()
 }
