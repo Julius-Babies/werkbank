@@ -11,6 +11,8 @@ import io.ktor.client.call.*
 import io.ktor.client.plugins.onDownload
 import io.ktor.client.request.*
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.URLBuilder
+import io.ktor.http.appendPathSegments
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.asByteWriteChannel
 import io.ktor.utils.io.copyTo
@@ -22,7 +24,7 @@ import util.REPLACE_LINE
 import util.buildStyledString
 import kotlin.time.Duration.Companion.seconds
 
-class UpdateCommand: SuspendingCliktCommand("update"), KoinComponent {
+class UpdateCommand : SuspendingCliktCommand("update"), KoinComponent {
 
     private val mainConfig by inject<MainConfig>()
 
@@ -30,7 +32,12 @@ class UpdateCommand: SuspendingCliktCommand("update"), KoinComponent {
         val currentVersion = Version.parse(BuildKonfig.version, strict = false)
 
         val updateState = httpClient()
-            .get("https://${mainConfig.getConfig().werkbankCloudDomain}/api/cli/update/${currentVersion.preRelease ?: "prod"}/check?variant=${BuildKonfig.variant}&current_version=$currentVersion")
+            .get(URLBuilder("https://${mainConfig.getConfig().werkbankCloudDomain}/api/cli/update/").apply {
+                appendPathSegments(currentVersion.preRelease ?: "prod")
+                appendPathSegments("check")
+                parameters.append("variant", BuildKonfig.variant)
+                parameters.append("current_version", currentVersion.toString())
+            }.buildString())
             .body<UpdateResponse>()
 
         when (updateState) {
@@ -38,6 +45,7 @@ class UpdateCommand: SuspendingCliktCommand("update"), KoinComponent {
                 println("\uD83C\uDF89 You are already on the latest version")
                 return
             }
+
             is UpdateResponse.UpdateAvailable -> {
                 println(buildStyledString { green { +"There's an update for wb-cli available:" } })
                 println()

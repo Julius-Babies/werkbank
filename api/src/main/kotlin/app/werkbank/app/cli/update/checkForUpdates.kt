@@ -4,6 +4,8 @@ import app.werkbank.config.AppConfig
 import app.werkbank.data.repository.CliBinaryRepository
 import app.werkbank.shared.cli.update.UpdateResponse
 import io.github.z4kn4fein.semver.Version
+import io.ktor.http.URLBuilder
+import io.ktor.http.appendPathSegments
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.SerialName
