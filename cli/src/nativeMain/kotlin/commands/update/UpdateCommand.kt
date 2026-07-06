@@ -22,7 +22,6 @@ class UpdateCommand: SuspendingCliktCommand("update"), KoinComponent {
 
     override suspend fun run() {
         val currentVersion = Version.parse(BuildKonfig.version, strict = false)
-        val client = httpClient()
 
         val updateState = httpClient()
             .get("https://${mainConfig.getConfig().werkbankCloudDomain}/api/cli/update/${currentVersion.preRelease ?: "prod"}/check?variant=${BuildKonfig.variant}&current_version=$currentVersion")
