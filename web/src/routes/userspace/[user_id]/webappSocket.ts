@@ -16,9 +16,9 @@ export default function () {
                 const message = JSON.parse(event.data);
 
                 if (message.type === "tunnel.inactive") {
-                    tunnelState.set({ active: false });
+                    tunnelState.set({ active: false, pingMs: null });
                 } else if (message.type === "tunnel.active") {
-                    tunnelState.set({ active: true });
+                    tunnelState.set({ active: true, pingMs: message.ping_ms ?? null });
                 }
             }
 

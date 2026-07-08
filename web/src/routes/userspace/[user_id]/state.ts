@@ -7,7 +7,8 @@ export let user = writable<{
 } | null>(null);
 
 export let tunnelState = writable<{
-    active: boolean
-} |null>(null);
+    active: boolean,
+    pingMs: number | null,
+} | null>(null);
 
 export let title = writable<string>("");

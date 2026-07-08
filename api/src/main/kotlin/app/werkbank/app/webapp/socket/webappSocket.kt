@@ -8,11 +8,14 @@ import io.ktor.server.auth.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.time.Duration.Companion.seconds
 import org.koin.ktor.ext.inject
 
 fun Route.webappSocket() {
@@ -31,11 +34,21 @@ fun Route.webappSocket() {
                     .receiveAsFlow()
                     .collect { tunnel ->
                         if (tunnel != null) {
-                            sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelActive)
+                            sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelActive(pingMs = tunnel.currentPingMs))
                         } else {
                             sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelInactive)
                         }
                     }
+            }
+
+            launch {
+                while (isActive) {
+                    delay(2.seconds)
+                    val tunnel = tunnelManager.getTunnel(principal.user)
+                    if (tunnel != null) {
+                        sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelActive(pingMs = tunnel.currentPingMs))
+                    }
+                }
             }
 
             try {
@@ -56,7 +69,9 @@ suspend fun DefaultWebSocketServerSession.sendJson(data: Map<String, Any?>) {
 sealed class WebAppServerMessage {
     @Serializable
     @SerialName("tunnel.active")
-    data object TunnelActive: WebAppServerMessage()
+    data class TunnelActive(
+        @SerialName("ping_ms") val pingMs: Long? = null,
+    ): WebAppServerMessage()
 
     @Serializable
     @SerialName("tunnel.inactive")

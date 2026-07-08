@@ -293,6 +293,9 @@ class TunnelViewModel: KoinComponent {
                                             wsProxyState[msg.requestId]?.close(CloseReason(msg.code.toShort(), msg.reason))
                                             wsProxyState.remove(msg.requestId)
                                         }
+                                        is ServerMessage.Ping -> {
+                                            sendSerialized<ClientMessage>(ClientMessage.Pong(msg.requestId))
+                                        }
                                         is ServerMessage.Pong -> {
                                             require(currentPingId == msg.requestId)
                                             currentPingLatch.complete(Unit)

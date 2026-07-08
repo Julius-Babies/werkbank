@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
@@ -34,6 +35,23 @@ fun Route.tunnel() {
             val user = call.principal<UserPrincipal>()!!
             val instance = TunnelInstance(this)
             tunnelManager.onNewIncomingTunnel(user.user, instance)
+
+            launch {
+                while (true) {
+                    val pingId = Uuid.random()
+                    val startTime = System.currentTimeMillis()
+                    val latch = instance.awaitPong(pingId)
+                    sendSerialized<ServerMessage>(ServerMessage.Ping(pingId))
+                    val ok = withTimeoutOrNull(5.seconds) {
+                        latch.await()
+                        true
+                    } ?: false
+                    if (ok) {
+                        instance.currentPingMs = System.currentTimeMillis() - startTime
+                    }
+                    delay(3.seconds)
+                }
+            }
 
             try {
                 for (frame in incoming) {
@@ -96,6 +114,10 @@ fun Route.tunnel() {
                                 is ClientMessage.Ping -> {
                                     sendSerialized<ServerMessage>(ServerMessage.Pong(message.requestId))
                                 }
+
+                                is ClientMessage.Pong -> {
+                                    instance.onPongReceived(message.requestId)
+                                }
                             }
                         }
 
@@ -118,6 +140,30 @@ class TunnelInstance(
 
     val pendingCalls = ConcurrentHashMap<RequestId, Channel<ClientMessage>>()
     val wsBridges = ConcurrentHashMap<RequestId, WsBridge>()
+
+    @Volatile
+    var currentPingMs: Long? = null
+
+    private val pingLock = Any()
+    private var pendingPingId: Uuid? = null
+    private var pendingPingLatch: CompletableDeferred<Unit>? = null
+
+    fun awaitPong(requestId: Uuid): CompletableDeferred<Unit> {
+        synchronized(pingLock) {
+            pendingPingId = requestId
+            val latch = CompletableDeferred<Unit>()
+            pendingPingLatch = latch
+            return latch
+        }
+    }
+
+    fun onPongReceived(requestId: Uuid) {
+        synchronized(pingLock) {
+            if (requestId == pendingPingId) {
+                pendingPingLatch?.complete(Unit)
+            }
+        }
+    }
 
     suspend fun sendMessage(message: ServerMessage) {
         webSocketSession.sendSerialized<ServerMessage>(message)

@@ -73,4 +73,10 @@ sealed class ClientMessage {
     data class Ping(
         @SerialName("request_id") val requestId: Uuid,
     ): ClientMessage()
+
+    @Serializable
+    @SerialName("pong")
+    data class Pong(
+        @SerialName("request_id") val requestId: Uuid,
+    ): ClientMessage()
 }

@@ -23,5 +23,8 @@
             </div>
         {/if}
         {$tunnelState?.active ? "Connected" : "Inactive"}
+        {#if $tunnelState?.pingMs != null}
+            <span class="ml-1">({$tunnelState.pingMs}ms)</span>
+        {/if}
     </div>
 </div>
