@@ -2,6 +2,7 @@ package commands
 
 import app.completion.setupCompletions
 import app.dependencies.openssl.OpensslHandler
+import app.storage.isDevMode
 import app.werkbank.BuildKonfig
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.core.subcommands
@@ -48,7 +49,12 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
         setupCompletions(this)
 
         if (showVersion) {
-            println(BuildKonfig.version)
+            println(buildStyledString {
+                +BuildKonfig.version
+                if (isDevMode) gray {
+                    +" (dev)"
+                }
+            })
             exitProcess(0)
         }
 
