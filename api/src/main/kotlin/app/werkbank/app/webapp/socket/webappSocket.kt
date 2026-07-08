@@ -39,7 +39,6 @@ fun Route.webappSocket() {
                         requestUpdatesJob = null
                         if (tunnel != null) {
                             sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelActive(pingMs = tunnel.currentPingMs))
-
                             tunnel.proxyRequests.value.forEach { record ->
                                 sendSerialized<WebAppServerMessage>(WebAppServerMessage.RequestUpdate(
                                     requestId = record.requestId.toString(),
