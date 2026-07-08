@@ -65,6 +65,12 @@ sealed class ServerMessage {
     ): ServerMessage()
 
     @Serializable
+    @SerialName("ping")
+    data class Ping(
+        @SerialName("request_id") val requestId: Uuid,
+    ): ServerMessage()
+
+    @Serializable
     @SerialName("pong")
     data class Pong(
         @SerialName("request_id") val requestId: Uuid,
