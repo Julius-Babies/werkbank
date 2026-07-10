@@ -5,7 +5,7 @@
     # Only allow origins that are the base domain or any subdomain thereof
     @static_and_subdomain_origin {
         path /_app/*
-        header Origin ~* ^https?://([^.]+\.)*BASE_DOMAIN_RE$
+        header Origin ~ ^https?://([^.]+\.)*BASE_DOMAIN_RE$
     }
     header @static_and_subdomain_origin Access-Control-Allow-Origin "{http.request.header.Origin}"
     header @static_and_subdomain_origin Vary Origin
