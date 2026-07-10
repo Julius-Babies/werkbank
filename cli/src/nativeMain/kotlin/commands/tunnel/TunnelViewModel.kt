@@ -6,19 +6,15 @@ import app.werkbank.shared.tunnel.ServerMessage
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
 import http.httpClientBase
-import http.isServiceNotRunningException
-import http.isTimeoutException
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.network.tls.*
 import io.ktor.serialization.kotlinx.*
 import io.ktor.serialization.kotlinx.json.*
-import io.ktor.util.toMap
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
@@ -28,10 +24,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import platform.posix.stat
 import util.buildStyledString
 import kotlin.io.encoding.Base64
-import kotlin.native.identityHashCode
 import kotlin.system.exitProcess
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -197,7 +191,10 @@ class TunnelViewModel: KoinComponent {
                                                     val (key, _) = header.split(": ", limit = 2)
                                                     if (key.equals("Host", ignoreCase = true)) return@forEach
                                                     if (key.equals("Transfer-Encoding", ignoreCase = true)) return@forEach
-                                                    if (key.equals("Content-Length", ignoreCase = true)) return@forEach
+                                                    // Keep the original Content-Length: the request body is relayed
+                                                    // verbatim, so it matches exactly. Without it (and without
+                                                    // Transfer-Encoding) HTTP/1.1 treats the request as bodyless and
+                                                    // the target server discards the streamed body bytes.
                                                     if (key.equals("Connection", ignoreCase = true)) return@forEach
                                                     output.writeFully("$header\r\n".encodeToByteArray())
                                                 }
@@ -211,7 +208,7 @@ class TunnelViewModel: KoinComponent {
                                                 }
 
                                                 val statusLine = try {
-                                                    input.readUTF8Line() ?: return@launch
+                                                    input.readLine() ?: return@launch
                                                 } catch (e: Exception) {
                                                     socket.close()
                                                     return@launch
@@ -219,7 +216,7 @@ class TunnelViewModel: KoinComponent {
 
                                                 val rawHeaders = mutableListOf<String>()
                                                 while (true) {
-                                                    val line = input.readUTF8Line() ?: break
+                                                    val line = input.readLine() ?: break
                                                     if (line.isEmpty()) break
                                                     rawHeaders.add(line)
                                                 }
@@ -239,14 +236,14 @@ class TunnelViewModel: KoinComponent {
                                                 if (isChunked) {
                                                     while (true) {
                                                         val sizeLine = try {
-                                                            input.readUTF8Line()
+                                                            input.readLine()
                                                         } catch (_: Exception) { null } ?: break
                                                         if (sizeLine.isEmpty()) continue
                                                         val chunkSize = sizeLine.toIntOrNull(16) ?: break
                                                         if (chunkSize == 0) {
                                                             while (true) {
                                                                 val trailerLine = try {
-                                                                    input.readUTF8Line()
+                                                                    input.readLine()
                                                                 } catch (_: Exception) { null } ?: break
                                                                 if (trailerLine.isEmpty()) break
                                                             }
