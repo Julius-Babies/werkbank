@@ -1,9 +1,18 @@
 :80 {
     log
 
+    # CORS headers for static assets (accessed cross-subdomain from user spaces)
+    # Only allow origins that are the base domain or any subdomain thereof
+    @static_and_subdomain_origin {
+        path /_app/*
+        header Origin ~* ^https?://([^.]+\.)*BASE_DOMAIN_RE$
+    }
+    header @static_and_subdomain_origin Access-Control-Allow-Origin "{http.request.header.Origin}"
+    header @static_and_subdomain_origin Vary Origin
+
     # 1. Match deep subdomains (2+ levels, e.g., sub.sub.BASE_DOMAIN)
     # This looks for at least two dots before the BASE_DOMAIN
-    @deep_subdomains header_regexp host Host `^([^.]+\.){2,}BASE_DOMAIN$`
+    @deep_subdomains header_regexp host Host `^([^.]+\.){2,}BASE_DOMAIN_RE$`
 
     handle @deep_subdomains {
         reverse_proxy localhost:8080
