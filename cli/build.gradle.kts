@@ -48,6 +48,7 @@ kotlin {
             implementation(libs.kfile)
             implementation(libs.kommand)
             implementation(ktorLibs.client.core)
+            implementation(ktorLibs.network)
             implementation(ktorLibs.client.websockets)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)

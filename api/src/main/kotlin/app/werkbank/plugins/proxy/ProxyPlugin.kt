@@ -15,13 +15,14 @@ import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
+import io.ktor.http.content.OutgoingContent
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.websocket.*
 import io.ktor.util.*
+import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.copyTo
-import io.ktor.utils.io.jvm.javaio.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -266,14 +267,18 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     return@onCall
                 }
 
-                response.headers.forEach { (key, values) ->
-                    if (key == HttpHeaders.TransferEncoding) return@forEach
-                    values.forEach { call.response.headers.append(key, it) }
-                }
-                call.respondOutputStream(
-                    status = response.status,
-                    producer = { response.body?.copyTo(this) }
-                )
+                call.respond(object : OutgoingContent.WriteChannelContent() {
+                    override val status: HttpStatusCode? get() = response.status
+                    override val headers: Headers get() = Headers.build {
+                        response.headers.forEach { (key, values) ->
+                            values.forEach { append(key, it) }
+                        }
+                    }
+
+                    override suspend fun writeTo(channel: ByteWriteChannel) {
+                        response.body?.copyTo(channel)
+                    }
+                })
             }
         }
     }
