@@ -31,6 +31,7 @@ exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "e
 exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
 exposed-dao = { module = "org.jetbrains.exposed:exposed-dao", version.ref = "exposed" }
 exposed-kotlinx-datetime = { module = "org.jetbrains.exposed:exposed-kotlin-datetime", version.ref = "exposed" }
+exposed-json = { module = "org.jetbrains.exposed:exposed-json", version.ref = "exposed" }
 hash-sha1 = { module = "org.kotlincrypto.hash:sha1", version.ref = "hash" }
 kaml = { module = "com.charleskorn.kaml:kaml", version.ref = "kaml" }
 kfile = { module = "io.github.julius-babies:kfile", version.ref = "kfile" }

@@ -75,6 +75,12 @@ fun Route.tunnel() {
 
                         is Frame.Text -> {
                             when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
+                                is ClientMessage.RequestResolved -> {
+                                    instance.updateProxyRequestRecord(message.requestId) {
+                                        it.copy(serviceName = message.service)
+                                    }
+                                }
+
                                 is ClientMessage.HttpResponse -> {
                                     val requestId = message.requestId
                                     instance.pendingCalls[requestId]?.send(message)

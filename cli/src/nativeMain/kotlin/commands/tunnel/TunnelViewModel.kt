@@ -142,6 +142,11 @@ class TunnelViewModel: KoinComponent {
                                                     isWebsocket = false,
                                                 ) ?: return@launch
 
+                                                sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
+                                                    requestId = msg.requestId,
+                                                    service = target.service.name,
+                                                ))
+
                                                 _requests.update { it + Request(
                                                     requestId = msg.requestId,
                                                     method = msg.method,
@@ -316,6 +321,11 @@ class TunnelViewModel: KoinComponent {
                                                     path = msg.path,
                                                     isWebsocket = true,
                                                 ) ?: return@launch
+
+                                                this@serverSession.sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
+                                                    requestId = msg.requestId,
+                                                    service = target.service.name,
+                                                ))
 
 //                                                printRequest(
 //                                                    method = "WEBSOCKET",

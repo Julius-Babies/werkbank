@@ -8,6 +8,13 @@ import kotlin.uuid.Uuid
 sealed class ClientMessage {
 
     @Serializable
+    @SerialName("request.resolved")
+    data class RequestResolved(
+        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("service") val service: String,
+    ): ClientMessage()
+
+    @Serializable
     @SerialName("http.response")
     data class HttpResponse(
         @SerialName("request_id") val requestId: Uuid,
