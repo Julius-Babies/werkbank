@@ -51,7 +51,7 @@ import {Loader2} from "@lucide/svelte";
         {#if request.target}
             <div class="flex flex-row items-center gap-1 rounded-full border border-gray-300 px-1">
                 <img src="/api/projects/{request.target.project_id}/icon" alt="project icon" class="size-3 rounded-sm" />
-                <span class="pb-0.5 text-xs text-gray-500">{request.target.project_name}</span>
+                <span class="text-xs text-gray-500">{request.target.project_name}</span>
                 {#if request.target.service_name}
                     <span class="pb-0.5 text-xs text-gray-500">/</span>
                     <span class="pb-0.5 text-xs text-gray-500">{request.target.service_name}</span>
