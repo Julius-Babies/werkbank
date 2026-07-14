@@ -18,7 +18,11 @@ function start_web {
 function start_proxy {
   echo "Starting Caddy reverse proxy..."
   cp /app/deploy/Caddyfile /tmp/Caddyfile
-  sed "s/BASE_DOMAIN/${PUBLIC_BASE_DOMAIN}/g" /tmp/Caddyfile > /tmp/Caddyfile.generated
+  ESCAPED_DOMAIN=$(echo "${PUBLIC_BASE_DOMAIN}" | sed 's/\./\\\\./g')
+  sed \
+    -e "s/BASE_DOMAIN_RE/${ESCAPED_DOMAIN}/g" \
+    -e "s/BASE_DOMAIN/${PUBLIC_BASE_DOMAIN}/g" \
+    /tmp/Caddyfile > /tmp/Caddyfile.generated
   caddy run --config /tmp/Caddyfile.generated --adapter caddyfile
 }
 

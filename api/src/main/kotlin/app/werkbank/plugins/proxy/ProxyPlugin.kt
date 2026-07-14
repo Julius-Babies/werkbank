@@ -4,7 +4,6 @@ import app.werkbank.app.tunnel.ServerNotRunningException
 import app.werkbank.app.tunnel.TimeoutException
 import app.werkbank.app.tunnel.TunnelClosedException
 import app.werkbank.app.tunnel.TunnelManager
-import app.werkbank.app.tunnel.TunnelRequestRecord
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
 import app.werkbank.util.sha256
@@ -16,15 +15,14 @@ import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
+import io.ktor.http.content.OutgoingContent
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.websocket.*
 import io.ktor.util.*
-import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.copyTo
-import io.ktor.utils.io.jvm.javaio.*
-import io.ktor.utils.io.readAvailable
 import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -33,7 +31,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.lowerCase
 import org.koin.ktor.ext.inject
-import java.io.File
 import kotlin.uuid.Uuid
 
 val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
@@ -226,74 +223,21 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     }
                 })
             } else {
-                val requestId = Uuid.random()
-                val startedAt = System.currentTimeMillis()
-                val tempDir = appConfig.storage.temporaryDir
-
-                val requestBodyBytes = if (call.request.httpMethod != HttpMethod.Get) {
-                    val channel = call.receiveChannel()
-                    val baos = java.io.ByteArrayOutputStream()
-                    val buf = ByteArray(4096)
-                    while (true) {
-                        val read = channel.readAvailable(buf)
-                        if (read == -1) break
-                        baos.write(buf, 0, read)
-                    }
-                    baos.toByteArray()
-                } else null
-
-                val requestBodyPath = requestBodyBytes?.let {
-                    val file = File(tempDir, "${requestId.toHexString()}.req.bin")
-                    file.parentFile.mkdirs()
-                    file.writeBytes(it)
-                    file.absolutePath
-                }
-
-                val record = TunnelRequestRecord(
-                    requestId = requestId,
-                    method = call.request.httpMethod.value,
-                    uri = call.request.uri,
-                    projectId = project.id.value.toHexString(),
-                    projectName = project.name,
-                    serviceName = service?.serviceKey,
-                    requestHeaders = call.request.headers.toMap(),
-                    responseHeaders = null,
-                    statusCode = null,
-                    error = null,
-                    startedAt = startedAt,
-                    sentToTunnelAt = null,
-                    responseStartedAt = null,
-                    completedAt = null,
-                    requestBodyPath = requestBodyPath,
-                    responseBodyPath = null,
-                )
-                tunnel.addProxyRequestRecord(record)
-
                 val response = try {
-                    tunnel.updateProxyRequestRecord(requestId) { it.copy(sentToTunnelAt = System.currentTimeMillis()) }
-
                     val result = tunnel.request(
                         method = call.request.httpMethod,
                         projectName = project.projectKey,
                         serviceName = service?.serviceKey,
                         path = call.request.uri,
                         headers = call.request.headers.toMap(),
-                        body = requestBodyBytes?.let { ByteReadChannel(it) },
-                        coroutineScope = CoroutineScope(currentCoroutineContext()),
-                        requestId = requestId,
+                        body = when (call.request.httpMethod) {
+                            HttpMethod.Get -> null
+                            else -> call.receiveChannel()
+                        },
+                        coroutineScope = CoroutineScope(currentCoroutineContext())
                     )
-
-                    val tunnelResponse = result.await()
-                    tunnel.updateProxyRequestRecord(requestId) {
-                        it.copy(
-                            responseStartedAt = System.currentTimeMillis(),
-                            responseHeaders = tunnelResponse.headers,
-                            statusCode = tunnelResponse.status.value,
-                        )
-                    }
-                    tunnelResponse
+                    result.await()
                 } catch (_: TimeoutException) {
-                    tunnel.updateProxyRequestRecord(requestId) { it.copy(error = "timeout", completedAt = System.currentTimeMillis()) }
                     val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout").apply {
                         parameters.append("project_id", project.id.value.toHexString())
                         parameters.append("owner_id", project.owner.id.value.toHexString())
@@ -303,7 +247,6 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     call.respondWebpage(url, appConfig.appDomain)
                     return@onCall
                 } catch (_: TunnelClosedException) {
-                    tunnel.updateProxyRequestRecord(requestId) { it.copy(error = "tunnel_closed", completedAt = System.currentTimeMillis()) }
                     val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed").apply {
                         parameters.append("project_id", project.id.value.toHexString())
                         parameters.append("owner_id", project.owner.id.value.toHexString())
@@ -313,7 +256,6 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     call.respondWebpage(url, appConfig.appDomain)
                     return@onCall
                 } catch (_: ServerNotRunningException) {
-                    tunnel.updateProxyRequestRecord(requestId) { it.copy(error = "server_not_running", completedAt = System.currentTimeMillis()) }
                     val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running").apply {
                         parameters.append("project_id", project.id.value.toHexString())
                         parameters.append("owner_id", project.owner.id.value.toHexString())
@@ -325,38 +267,18 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     return@onCall
                 }
 
-                response.headers.forEach { (key, values) ->
-                    if (key == HttpHeaders.TransferEncoding) return@forEach
-                    values.forEach { call.response.headers.append(key, it) }
-                }
-
-                val responseBodyFile = File(tempDir, "${requestId.toHexString()}.resp.bin")
-                call.respondOutputStream(
-                    status = response.status,
-                    producer = {
-                        response.body?.let { body ->
-                            val fos = responseBodyFile.outputStream()
-                            try {
-                                val buf = ByteArray(4096)
-                                while (true) {
-                                    val read = body.readAvailable(buf)
-                                    if (read == -1) break
-                                    fos.write(buf, 0, read)
-                                    write(buf, 0, read)
-                                }
-                            } finally {
-                                fos.close()
-                            }
+                call.respond(object : OutgoingContent.WriteChannelContent() {
+                    override val status: HttpStatusCode? get() = response.status
+                    override val headers: Headers get() = Headers.build {
+                        response.headers.forEach { (key, values) ->
+                            values.forEach { append(key, it) }
                         }
                     }
-                )
 
-                tunnel.updateProxyRequestRecord(requestId) {
-                    it.copy(
-                        completedAt = System.currentTimeMillis(),
-                        responseBodyPath = responseBodyFile.absolutePath,
-                    )
-                }
+                    override suspend fun writeTo(channel: ByteWriteChannel) {
+                        response.body?.copyTo(channel)
+                    }
+                })
             }
         }
     }

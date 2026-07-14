@@ -6,16 +6,15 @@ import app.werkbank.shared.tunnel.ServerMessage
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
 import http.httpClientBase
-import http.isServiceNotRunningException
-import http.isTimeoutException
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.network.selector.*
+import io.ktor.network.sockets.*
+import io.ktor.network.tls.*
 import io.ktor.serialization.kotlinx.*
 import io.ktor.serialization.kotlinx.json.*
-import io.ktor.util.toMap
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
@@ -25,10 +24,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import platform.posix.stat
 import util.buildStyledString
 import kotlin.io.encoding.Base64
-import kotlin.native.identityHashCode
 import kotlin.system.exitProcess
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -66,6 +63,8 @@ class TunnelViewModel: KoinComponent {
 
     private val _requests = MutableStateFlow<List<Request>>(emptyList())
     val requests: StateFlow<List<Request>> = _requests
+
+    private val selectorManager = SelectorManager(Dispatchers.Default)
 
     private val viewModelScope = CoroutineScope(Dispatchers.Default)
 
@@ -158,45 +157,123 @@ class TunnelViewModel: KoinComponent {
                                                     result = null
                                                 ) }
 
-                                                val response = try {
-                                                    client.prepareRequest(
-                                                        urlString = target.url,
-                                                    ) {
-                                                        method = HttpMethod(msg.method)
-                                                        msg.headers.forEach { header ->
-                                                            val (key, value) = header.split(": ", limit = 2)
-                                                            headers.append(key, value)
-                                                        }
-                                                        if (channel != null) setBody(channel)
-                                                    }.execute()
+                                                val targetUrl = URLBuilder(target.url).build()
+                                                val isHttps = targetUrl.protocol.name.equals("https", ignoreCase = true)
+                                                val host = targetUrl.host
+                                                val port = targetUrl.port
+                                                val path = targetUrl.fullPath
+
+                                                val socket = try {
+                                                    val raw = aSocket(selectorManager).tcp().connect(host, port)
+                                                    if (isHttps) raw.tls(coroutineContext = currentCoroutineContext()) else raw
                                                 } catch (e: Exception) {
-                                                    if (e.isTimeoutException()) {
+                                                    val isTimeout = e.message?.contains("timed out", ignoreCase = true) == true
+                                                    if (isTimeout) {
                                                         _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.Timeout(Clock.System.now())) else it } }
                                                         sendSerialized<ClientMessage>(ClientMessage.Timeout(requestId = msg.requestId))
-                                                        return@launch
-                                                    }
-
-                                                    if (e.isServiceNotRunningException()) {
+                                                    } else {
                                                         _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.ServiceNotRunning(Clock.System.now())) else it } }
                                                         sendSerialized<ClientMessage>(ClientMessage.ServerNotRuning(msg.requestId))
-                                                        return@launch
                                                     }
                                                     return@launch
                                                 }
 
+                                                val input = socket.openReadChannel()
+                                                val output = socket.openWriteChannel(autoFlush = true)
+
+                                                val requestLine = "${msg.method} $path HTTP/1.1\r\n"
+                                                output.writeFully(requestLine.encodeToByteArray())
+
+                                                val authority = if (port == targetUrl.protocol.defaultPort) host else "$host:$port"
+                                                output.writeFully("Host: $authority\r\n".encodeToByteArray())
+
+                                                msg.headers.forEach { header ->
+                                                    val (key, _) = header.split(": ", limit = 2)
+                                                    if (key.equals("Host", ignoreCase = true)) return@forEach
+                                                    if (key.equals("Transfer-Encoding", ignoreCase = true)) return@forEach
+                                                    // Keep the original Content-Length: the request body is relayed
+                                                    // verbatim, so it matches exactly. Without it (and without
+                                                    // Transfer-Encoding) HTTP/1.1 treats the request as bodyless and
+                                                    // the target server discards the streamed body bytes.
+                                                    if (key.equals("Connection", ignoreCase = true)) return@forEach
+                                                    output.writeFully("$header\r\n".encodeToByteArray())
+                                                }
+                                                output.writeFully("Connection: close\r\n".encodeToByteArray())
+                                                output.writeFully("\r\n".encodeToByteArray())
+
+                                                if (channel != null) {
+                                                    (channel as ByteReadChannel).rawChunks { rawBytes ->
+                                                        output.writeFully(rawBytes)
+                                                    }
+                                                }
+
+                                                val statusLine = try {
+                                                    input.readLine() ?: return@launch
+                                                } catch (e: Exception) {
+                                                    socket.close()
+                                                    return@launch
+                                                }
+
+                                                val rawHeaders = mutableListOf<String>()
+                                                while (true) {
+                                                    val line = input.readLine() ?: break
+                                                    if (line.isEmpty()) break
+                                                    rawHeaders.add(line)
+                                                }
+
+                                                val statusCode = statusLine.split(" ").getOrNull(1)?.toIntOrNull() ?: 0
+
+                                                val isChunked = rawHeaders.any { it.startsWith("Transfer-Encoding:", ignoreCase = true) && it.substringAfter(":").contains("chunked", ignoreCase = true) }
+
                                                 sendSerialized<ClientMessage>(ClientMessage.HttpResponse(
                                                     requestId = msg.requestId,
-                                                    statusCode = response.status.value,
-                                                    headers = response.headers.entries().flatMap { (key, values) ->
-                                                        values.map { "$key: $it" }
-                                                    }
+                                                    statusCode = statusCode,
+                                                    headers = if (isChunked) rawHeaders.filterNot { it.startsWith("Transfer-Encoding:", ignoreCase = true) } else rawHeaders
                                                 ))
 
-                                                response.bodyAsChannel().rawChunks { rawBytes ->
-                                                    val frameData = ByteArray(16 + rawBytes.size)
-                                                    msg.requestId.toByteArray().copyInto(frameData)
-                                                    rawBytes.copyInto(frameData, 16)
-                                                    this@serverSession.send(Frame.Binary(true, frameData))
+                                                val bodyBuffer = ByteArray(64 * 1024)
+
+                                                if (isChunked) {
+                                                    while (true) {
+                                                        val sizeLine = try {
+                                                            input.readLine()
+                                                        } catch (_: Exception) { null } ?: break
+                                                        if (sizeLine.isEmpty()) continue
+                                                        val chunkSize = sizeLine.toIntOrNull(16) ?: break
+                                                        if (chunkSize == 0) {
+                                                            while (true) {
+                                                                val trailerLine = try {
+                                                                    input.readLine()
+                                                                } catch (_: Exception) { null } ?: break
+                                                                if (trailerLine.isEmpty()) break
+                                                            }
+                                                            break
+                                                        }
+                                                        var remaining = chunkSize
+                                                        while (remaining > 0) {
+                                                            val toRead = minOf(remaining, bodyBuffer.size)
+                                                            val read = try {
+                                                                input.readAvailable(bodyBuffer, 0, toRead)
+                                                            } catch (_: Exception) { break }
+                                                            if (read <= 0) break
+                                                            val frameData = ByteArray(16 + read)
+                                                            msg.requestId.toByteArray().copyInto(frameData)
+                                                            bodyBuffer.copyInto(frameData, 16, 0, read)
+                                                            this@serverSession.send(Frame.Binary(true, frameData))
+                                                            remaining -= read
+                                                        }
+                                                    }
+                                                } else {
+                                                    while (!input.isClosedForRead) {
+                                                        val read = try {
+                                                            input.readAvailable(bodyBuffer)
+                                                        } catch (_: Exception) { break }
+                                                        if (read <= 0) break
+                                                        val frameData = ByteArray(16 + read)
+                                                        msg.requestId.toByteArray().copyInto(frameData)
+                                                        bodyBuffer.copyInto(frameData, 16, 0, read)
+                                                        this@serverSession.send(Frame.Binary(true, frameData))
+                                                    }
                                                 }
 
                                                 sendSerialized<ClientMessage>(ClientMessage.HttpEnd(
@@ -209,12 +286,17 @@ class TunnelViewModel: KoinComponent {
                                                         request.copy(
                                                             result = Request.Result.Success(
                                                                 finishedAt = Clock.System.now(),
-                                                                statusCode = response.status.value,
-                                                                headers = response.headers.toMap().flatMap { (key, values) -> values.map { value -> key to value } },
+                                                                statusCode = statusCode,
+                                                                headers = rawHeaders.map { header ->
+                                                                    val (key, value) = header.split(": ", limit = 2)
+                                                                    key to value
+                                                                },
                                                             )
                                                         )
                                                     }
                                                 }
+
+                                                socket.close()
                                             }
                                         }
                                         is ServerMessage.HttpBody -> {
