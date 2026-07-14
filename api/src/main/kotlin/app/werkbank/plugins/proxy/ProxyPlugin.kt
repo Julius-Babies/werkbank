@@ -4,6 +4,7 @@ import app.werkbank.app.tunnel.ServerNotRunningException
 import app.werkbank.app.tunnel.TimeoutException
 import app.werkbank.app.tunnel.TunnelClosedException
 import app.werkbank.app.tunnel.TunnelManager
+import app.werkbank.app.tunnel.TunnelRequestRecord
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
 import app.werkbank.util.sha256
@@ -223,6 +224,28 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     }
                 })
             } else {
+                val requestId = Uuid.random()
+                tunnel.addProxyRequestRecord(
+                    TunnelRequestRecord(
+                        requestId = requestId,
+                        method = call.request.httpMethod.value,
+                        uri = call.request.uri,
+                        projectId = project.id.value.toHexString(),
+                        projectName = project.projectKey,
+                        serviceName = service?.serviceKey,
+                        requestHeaders = call.request.headers.toMap(),
+                        responseHeaders = null,
+                        statusCode = null,
+                        error = null,
+                        startedAt = System.currentTimeMillis(),
+                        sentToTunnelAt = null,
+                        responseStartedAt = null,
+                        completedAt = null,
+                        requestBodyPath = null,
+                        responseBodyPath = null,
+                    )
+                )
+
                 val response = try {
                     val result = tunnel.request(
                         method = call.request.httpMethod,
@@ -234,10 +257,25 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                             HttpMethod.Get -> null
                             else -> call.receiveChannel()
                         },
-                        coroutineScope = CoroutineScope(currentCoroutineContext())
+                        coroutineScope = CoroutineScope(currentCoroutineContext()),
+                        requestId = requestId,
                     )
-                    result.await()
+                    tunnel.updateProxyRequestRecord(requestId) {
+                        it.copy(sentToTunnelAt = System.currentTimeMillis())
+                    }
+                    val response = result.await()
+                    tunnel.updateProxyRequestRecord(requestId) {
+                        it.copy(
+                            responseStartedAt = System.currentTimeMillis(),
+                            statusCode = response.status.value,
+                            responseHeaders = response.headers,
+                        )
+                    }
+                    response
                 } catch (_: TimeoutException) {
+                    tunnel.updateProxyRequestRecord(requestId) {
+                        it.copy(error = "Request timed out", completedAt = System.currentTimeMillis())
+                    }
                     val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout").apply {
                         parameters.append("project_id", project.id.value.toHexString())
                         parameters.append("owner_id", project.owner.id.value.toHexString())
@@ -247,6 +285,9 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     call.respondWebpage(url, appConfig.appDomain)
                     return@onCall
                 } catch (_: TunnelClosedException) {
+                    tunnel.updateProxyRequestRecord(requestId) {
+                        it.copy(error = "Tunnel connection closed", completedAt = System.currentTimeMillis())
+                    }
                     val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed").apply {
                         parameters.append("project_id", project.id.value.toHexString())
                         parameters.append("owner_id", project.owner.id.value.toHexString())
@@ -256,6 +297,9 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     call.respondWebpage(url, appConfig.appDomain)
                     return@onCall
                 } catch (_: ServerNotRunningException) {
+                    tunnel.updateProxyRequestRecord(requestId) {
+                        it.copy(error = "Service not running", completedAt = System.currentTimeMillis())
+                    }
                     val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running").apply {
                         parameters.append("project_id", project.id.value.toHexString())
                         parameters.append("owner_id", project.owner.id.value.toHexString())
@@ -276,7 +320,20 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     }
 
                     override suspend fun writeTo(channel: ByteWriteChannel) {
-                        response.body?.copyTo(channel)
+                        try {
+                            response.body?.copyTo(channel)
+                            tunnel.updateProxyRequestRecord(requestId) {
+                                it.copy(completedAt = System.currentTimeMillis())
+                            }
+                        } catch (e: Exception) {
+                            tunnel.updateProxyRequestRecord(requestId) {
+                                it.copy(
+                                    error = it.error ?: (e.message ?: "Response streaming failed"),
+                                    completedAt = System.currentTimeMillis(),
+                                )
+                            }
+                            throw e
+                        }
                     }
                 })
             }
