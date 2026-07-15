@@ -99,28 +99,12 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
                 )
             }
 
-            val imageFileOptions = listOf(
-                currentDirectory.resolve(".idea/icon.svg"),
-            )
-
-            val iconNames = listOf("favicon.svg", "app_icon-playstore.png", "logo.svg")
-
-            var file = imageFileOptions.firstOrNull { it.exists() }
-            if (file == null) {
-                fun findImage(inDir: File): File? {
-                    if (inDir.name in listOf("node_modules", ".git", ".idea", ".gradle", ".gradle-cache", ".gradle-wrapper", "build", "dist")) return null
-                    val files = inDir.listFiles()
-                    files.firstOrNull { it.name in iconNames }?.let { return it }
-                    return files.filter { it.isDirectory }.firstNotNullOfOrNull { findImage(it) }
-                }
-
-                file = findImage(currentDirectory)
-            }
-            if (file != null) {
-                println(buildStyledString { gray { +"Uploading icon from ${file.absolutePath}" } })
+            val icon = IconResolver.resolve(currentDirectory)
+            if (icon != null) {
+                println(buildStyledString { gray { +"Uploading icon from ${icon.sourcePath}" } })
                 val uploadIconResult = client.post("https://${mainConfig.getConfig().werkbankCloudDomain}/api/projects/${data.projectId}/icon") {
                     bearerAuth(mainConfig.getConfig().auth!!.bearer)
-                    setBody(file.readBytes())
+                    setBody(icon.bytes)
                 }
 
                 if (!uploadIconResult.status.isSuccess()) {
