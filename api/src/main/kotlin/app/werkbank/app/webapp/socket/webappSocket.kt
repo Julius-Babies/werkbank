@@ -1,6 +1,8 @@
 package app.werkbank.app.webapp.socket
 
 import app.werkbank.app.tunnel.TunnelManager
+import app.werkbank.database.TunnelRequest
+import app.werkbank.database.TunnelRequestResult
 import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import com.google.gson.Gson
@@ -133,7 +135,26 @@ sealed class WebAppServerMessage {
         @SerialName("sent_to_tunnel_at") val sentToTunnelAt: Long?,
         @SerialName("response_started_at") val responseStartedAt: Long?,
         @SerialName("completed_at") val completedAt: Long?,
-    ): WebAppServerMessage()
+    ): WebAppServerMessage() {
+        companion object {
+            fun from(request: TunnelRequest): RequestUpdate = RequestUpdate(
+                requestId = request.id.value.toString(),
+                method = request.method,
+                uri = request.uri,
+                target = RequestTarget(
+                    projectId = request.service.project.id.value.toString(),
+                    projectName = request.service.project.name,
+                    serviceName = request.service.serviceKey,
+                ),
+                statusCode = (request.result as? TunnelRequestResult.Success)?.statusCode,
+                error = (request.result as? TunnelRequestResult.Failure)?.error,
+                startedAt = request.startedAt.epochSeconds,
+                sentToTunnelAt = request.startedAt.epochSeconds,
+                responseStartedAt = request.responseReadyAt?.epochSeconds,
+                completedAt = request.responseReadyAt?.epochSeconds,
+            )
+        }
+    }
 
     @Serializable
     data class RequestTarget(

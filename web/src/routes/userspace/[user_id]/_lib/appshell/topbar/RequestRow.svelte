@@ -1,24 +1,14 @@
 <script lang="ts">
     import type {RequestUpdate} from "../../../state.ts";
-import {Loader2} from "@lucide/svelte";
+    import {Loader2} from "@lucide/svelte";
+    import {_} from "svelte-i18n";
+    import {methodColors} from "$lib/components/requests/colors";
 
     let {
         request,
     }: {
         request: RequestUpdate,
     } = $props();
-
-    const methodColors = {
-        GET: "text-green-600",
-        POST: "text-blue-600",
-        PUT: "text-amber-600",
-        PATCH: "text-purple-600",
-        DELETE: "text-red-600",
-        HEAD: "text-slate-600",
-        OPTIONS: "text-cyan-600",
-        TRACE: "text-pink-600",
-        CONNECT: "text-indigo-600",
-    } as const;
 
     function statusColor(status: number): string {
         if (status >= 100 && status < 200) return "text-sky-600";     // Informational
@@ -66,7 +56,7 @@ import {Loader2} from "@lucide/svelte";
             <span class="text-gray-500">{formatDuration(duration)}</span>
         {/if}
         {#if request.error}
-            <span class="text-red-600 uppercase">Err</span>
+            <span class="text-red-600 uppercase">{$_("userspace.tunnel.request.error")}</span>
         {:else if request.status_code}
             <span class={statusColor(request.status_code)}>{request.status_code}</span>
         {:else}

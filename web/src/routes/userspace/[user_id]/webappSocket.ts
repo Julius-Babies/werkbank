@@ -1,4 +1,6 @@
 import {latestRequests, MAX_LATEST_REQUESTS, tunnelState, user} from "./state.ts";
+import {page} from "$app/state";
+import {requests} from "./requests/requests.ts";
 
 let webSocket: WebSocket | null = null;
 
@@ -33,6 +35,19 @@ export default function () {
                         }
                         return next;
                     });
+
+                    if (page.route?.id?.startsWith("/userspace/[user_id]/requests")) {
+                        requests.update(list => {
+                            const idx = list.findIndex(r => r.request_id === message.request_id);
+                            let next;
+                            if (idx !== -1) {
+                                next = list.toSpliced(idx, 1, message);
+                            } else {
+                                next = [message, ...list];
+                            }
+                            return next;
+                        })
+                    }
                 }
             }
 

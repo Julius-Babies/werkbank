@@ -5,6 +5,7 @@
     import {ArrowRight, EthernetPort} from "@lucide/svelte";
     import RequestRow from "./RequestRow.svelte";
     import {Button} from "$lib/components/ui/button";
+    import {_} from "svelte-i18n";
 
     let classes = $derived.by(() => {
         switch ($tunnelState?.active) {
@@ -21,7 +22,7 @@
 <Popover>
     <PopoverTrigger>
         <div class="flex flex-row items-center gap-1">
-            <span class="text-neutral-500 font-mono text-xs font-bold uppercase">WB Tunnel Status:</span>
+            <span class="text-neutral-500 font-mono text-xs font-bold uppercase">{$_("userspace.tunnel.status.label")}</span>
             <div
                     class={`flex flex-row items-center border rounded-sm px-1 font-mono text-xs ${classes}`}
             >
@@ -29,7 +30,7 @@
                     <div class="w-2 h-2 rounded-full bg-green-500 mr-1">
                     </div>
                 {/if}
-                {$tunnelState?.active ? "Connected" : "Inactive"}
+                {$tunnelState?.active ? $_("userspace.tunnel.status.connected") : $_("userspace.tunnel.status.inactive")}
                 {#if $tunnelState?.pingMs != null}
                     <span class="ml-1">({$tunnelState.pingMs}ms)</span>
                 {/if}
@@ -40,10 +41,10 @@
     <PopoverContent class="w-xl">
         <div class="flex flex-col gap-1">
             {#if !$tunnelState?.active}
-                <div>Start the tunnel using <code>wb tunnel</code></div>
+                <div>{$_("userspace.tunnel.inactive_hint")} <code>wb tunnel</code></div>
             {:else}
                 <div>
-                    <span class="font-mono text-zinc-700 uppercase text-sm font-semibold">Incoming requests</span>
+                    <span class="font-mono text-zinc-700 uppercase text-sm font-semibold">{$_("userspace.tunnel.incoming_requests")}</span>
 
                     {#if $latestRequests.length === 0}
                         <Empty>
@@ -51,8 +52,8 @@
                                 <EmptyMedia variant="icon">
                                     <EthernetPort />
                                 </EmptyMedia>
-                                <EmptyTitle>No requests in this session</EmptyTitle>
-                                <EmptyDescription>Add a project and make your first HTTP-Request using your external domain!</EmptyDescription>
+                                <EmptyTitle>{$_("userspace.tunnel.empty.title")}</EmptyTitle>
+                                <EmptyDescription>{$_("userspace.tunnel.empty.description")}</EmptyDescription>
                             </EmptyHeader>
                         </Empty>
                     {:else}
@@ -67,7 +68,7 @@
                                 variant="outline"
                         >
                             <ArrowRight />
-                            All requests
+                            {$_("userspace.tunnel.all_requests")}
                         </Button>
                     {/if}
                 </div>

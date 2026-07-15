@@ -19,7 +19,7 @@
     } from "$lib/components/ui/sidebar";
     import {page} from "$app/state"
     import {EllipsisVertical, LogOutIcon, Pickaxe} from "@lucide/svelte";
-    import {FolderSimpleIcon, GearIcon, HouseIcon} from "phosphor-svelte";
+    import {FolderSimpleIcon, GearIcon, HouseIcon, ListDashesIcon} from "phosphor-svelte";
     import {
         DropdownMenu,
         DropdownMenuContent,
@@ -135,6 +135,12 @@
                                         title={$_("userspace.sidebar.projects")}
                                         isActive={page.url.pathname.startsWith("/projects")}
                                         onClick={() => goto("/projects")}
+                                />
+                                <SidebarItem
+                                        icon={ListDashesIcon}
+                                        title={$_("userspace.sidebar.requests")}
+                                        isActive={page.url.pathname.startsWith("/requests")}
+                                        onClick={() => goto("/requests")}
                                 />
                                 <SidebarItem
                                         icon={GearIcon}
