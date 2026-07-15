@@ -18,6 +18,7 @@
     import PageHead from "../_lib/appshell/page/PageHead.svelte";
     import PageTitle from "../_lib/appshell/page/PageTitle.svelte";
     import DataTable from "../_lib/appshell/page/DataTable.svelte";
+    import PageContent from "../_lib/appshell/page/PageContent.svelte";
 
     $effect(() => {
         title.set($_("userspace.projects.title"))
@@ -74,7 +75,7 @@
         </NewProjectPopover>
     </PageHead>
 
-    <div>
+    <PageContent>
         {#if projects === "loading" || !table}
             <ContentLoading />
         {:else}
@@ -103,7 +104,7 @@
                 {/snippet}
             </DataTable>
         {/if}
-    </div>
+    </PageContent>
 </Page>
 
 {#if accessSettingsForProject}
