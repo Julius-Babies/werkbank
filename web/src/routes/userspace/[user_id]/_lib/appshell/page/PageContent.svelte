@@ -8,6 +8,6 @@
     } = $props();
 </script>
 
-<div class="flex flex-col overflow-y-auto pt-2 h-full">
+<div class="flex flex-col overflow-y-auto py-2 px-4">
     {@render children?.()}
 </div>

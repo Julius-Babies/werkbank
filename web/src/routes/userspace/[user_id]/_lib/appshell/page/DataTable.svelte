@@ -7,9 +7,13 @@
     let {
         table,
         empty,
+        cellClass,
+        onRowClick,
     }: {
         table: TableType<any>,
-        empty?: Snippet
+        empty?: Snippet,
+        cellClass?: string,
+        onRowClick?: (row: any) => void,
     } = $props();
 </script>
 
@@ -36,10 +40,14 @@
 
     <TableBody>
         {#each table?.getRowModel().rows as row (row.id)}
-            <TableRow data-state={row.getIsSelected() && "selected"}>
+            <TableRow
+                    data-state={row.getIsSelected() && "selected"}
+                    onclick={onRowClick ? () => onRowClick(row.original) : undefined}
+                    class={onRowClick ? "cursor-pointer" : ""}
+            >
                 {#each row.getVisibleCells() as cell (cell.id)}
                     <TableCell
-                            class={cell.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : ""}
+                            class={(cell.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : "") + " " + (cellClass || "")}
                     >
                         <FlexRender
                                 content={cell.column.columnDef.cell}

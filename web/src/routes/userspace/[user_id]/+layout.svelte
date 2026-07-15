@@ -210,7 +210,7 @@
                         </div>
                     </header>
 
-                    <div class="flex flex-1 flex-col w-gfull h-full overflow-y-auto max-md:p-4 md:p-8">
+                    <div class="flex flex-1 flex-col w-gfull h-full overflow-y-auto max-md:p-2 md:p-4">
                         {@render children()}
                     </div>
                 </div>

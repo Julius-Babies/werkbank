@@ -6,6 +6,7 @@ import DataTableProjectCellCell from "./table/DataTableProjectCell.svelte";
 import type {Component} from "svelte";
 import DataTableUrlCell from "./table/DataTableUrlCell.svelte";
 import {unwrapFunctionStore, _} from "svelte-i18n";
+import DataTableResultCell from "./table/DataTableResultCell.svelte";
 
 const t = unwrapFunctionStore(_);
 
@@ -27,6 +28,17 @@ export const columns = (): ColumnDef<RequestUpdate>[] => [
         cell: ({row}) => {
             return renderComponent(
                 DataTableUrlCell as Component<{ request: RequestUpdate }>,
+                {request: row.original}
+            )
+        }
+    },
+    {
+        accessorKey: "result",
+        header: "RESULT",
+        meta: {compact: true},
+        cell: ({row}) => {
+            return renderComponent(
+                DataTableResultCell as Component<{ request: RequestUpdate }>,
                 {request: row.original}
             )
         }

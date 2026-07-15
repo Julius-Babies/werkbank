@@ -9,10 +9,12 @@
     } = $props();
 </script>
 
-<span class={(methodColors[request.method as keyof typeof methodColors] ?? "text-gray-600") + " font-mono text-sm tracking-tight font-bold"}>
-    {request.method}
-</span>
+<div class="flex flex-row gap-1">
+    <span class={(methodColors[request.method as keyof typeof methodColors] ?? "text-gray-600") + " font-mono text-sm tracking-tight font-bold"}>
+        {request.method}
+    </span>
 
-<span>
-    {request.uri}
-</span>
+    <span class="text-sm tracking-tight font-mono text-gray-600 font-medium">
+        {request.uri}
+    </span>
+</div>

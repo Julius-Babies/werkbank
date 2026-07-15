@@ -8,6 +8,6 @@
     } = $props();
 </script>
 
-<div class="flex flex-row justify-between w-full">
+<div class="flex flex-row justify-between w-full px-4 pt-2">
     {@render children?.()}
 </div>
