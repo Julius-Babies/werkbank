@@ -54,10 +54,18 @@ jobs:
         run: echo "hash=$(git ls-tree HEAD mosaic | awk '{print $3}')" >> $GITHUB_OUTPUT
 
       - name: Cache Mosaic prebuilt artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository/com/jakewharton/mosaic
           key: mosaic-${{ runner.os }}-${{ steps.mosaic-hash.outputs.hash }}
+
+      - name: Cache Konan (Kotlin/Native)
+        uses: actions/cache@v6
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/gradle.properties', '**/build.gradle.kts') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
 
       - name: Configure
         run: |
