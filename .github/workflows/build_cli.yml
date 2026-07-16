@@ -63,9 +63,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.konan
-          key: ${{ runner.os }}-konan-${{ hashFiles('**/gradle.properties', '**/build.gradle.kts') }}
-          restore-keys: |
-            ${{ runner.os }}-konan-
+          key: ${{ runner.os }}-konan
 
       - name: Configure
         run: |
