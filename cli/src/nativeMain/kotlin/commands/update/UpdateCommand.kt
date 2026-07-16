@@ -33,7 +33,7 @@ class UpdateCommand : SuspendingCliktCommand("update"), KoinComponent {
 
         val updateState = httpClient()
             .get(URLBuilder("https://${mainConfig.getConfig().werkbankCloudDomain}/api/cli/update/").apply {
-                appendPathSegments(currentVersion.preRelease ?: "prod")
+                appendPathSegments(currentVersion.preRelease ?: "production")
                 appendPathSegments("check")
                 parameters.append("variant", BuildKonfig.variant)
                 parameters.append("current_version", currentVersion.toString())
