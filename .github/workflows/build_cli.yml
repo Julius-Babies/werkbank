@@ -49,15 +49,11 @@ jobs:
             **/gradle.properties
             **/libs.versions.toml
 
-      - name: Get mosaic submodule commit hash
-        id: mosaic-hash
-        run: echo "hash=$(git ls-tree HEAD mosaic | awk '{print $3}')" >> $GITHUB_OUTPUT
-
       - name: Cache Mosaic prebuilt artifacts
         uses: actions/cache@v6
         with:
           path: ~/.m2/repository/com/jakewharton/mosaic
-          key: mosaic-${{ runner.os }}-${{ steps.mosaic-hash.outputs.hash }}
+          key: ${{ runner.os }}-mosaic
 
       - name: Cache Konan (Kotlin/Native)
         uses: actions/cache@v6
