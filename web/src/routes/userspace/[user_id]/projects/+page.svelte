@@ -1,7 +1,7 @@
 <script lang="ts">
     import {title} from "../state.ts";
     import {Button} from "$lib/components/ui/button";
-    import {Loader, PlusIcon} from "@lucide/svelte";
+    import {PlusIcon} from "@lucide/svelte";
     import {_} from 'svelte-i18n'
     import {getProjects, type Project} from "./getProjects.ts";
     import {onMount} from "svelte";
@@ -9,11 +9,16 @@
     import {createSvelteTable, FlexRender} from "$lib/components/ui/data-table";
     import {columns} from "./columns.ts";
     import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "$lib/components/ui/table";
-    import {Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle} from "$lib/components/ui/empty";
-    import {FolderSimpleDashedIcon, ArrowBendDownRightIcon} from "phosphor-svelte";
+    import {Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle} from "$lib/components/ui/empty";
+    import {ArrowBendDownRightIcon, FolderSimpleDashedIcon} from "phosphor-svelte";
     import NewProjectPopover from "./NewProjectPopover.svelte";
-    import {EmptyDescription} from "$lib/components/ui/empty";
     import AccessStateDialog from "./access_state/AccessStateDialog.svelte";
+    import ContentLoading from "../_lib/appshell/page/ContentLoading.svelte";
+    import Page from "../_lib/appshell/page/Page.svelte";
+    import PageHead from "../_lib/appshell/page/PageHead.svelte";
+    import PageTitle from "../_lib/appshell/page/PageTitle.svelte";
+    import DataTable from "../_lib/appshell/page/DataTable.svelte";
+    import PageContent from "../_lib/appshell/page/PageContent.svelte";
 
     $effect(() => {
         title.set($_("userspace.projects.title"))
@@ -58,9 +63,9 @@
     }));
 </script>
 
-<div class="flex flex-col overflow-y-auto">
-    <div class="flex flex-row justify-between w-full">
-        <h1 class="text-3xl font-bold flex-1">{$_("userspace.projects.your-projects.title")}</h1>
+<Page>
+    <PageHead>
+        <PageTitle>{$_("userspace.projects.title")}</PageTitle>
         <NewProjectPopover>
             <Button
             >
@@ -68,79 +73,39 @@
                 {$_("userspace.projects.your-projects.create")}
             </Button>
         </NewProjectPopover>
-    </div>
+    </PageHead>
 
-    <div>
-        {#if projects === "loading"}
-            <div class="flex flex-row gap-2 items-center w-full px-4 py-6 justify-center">
-                <div class="animate-spin aspect-square w-6 h-6"><Loader /></div>
-                <span>{$_("userspace.projects.your-projects.list.loading")}</span>
-            </div>
+    <PageContent>
+        {#if projects === "loading" || !table}
+            <ContentLoading />
         {:else}
-            <Table>
-                <TableHeader>
-                    {#each table?.getHeaderGroups() as headerGroup (headerGroup.id)}
-                        <TableRow>
-                            {#each headerGroup.headers as header (header.id)}
-                                <TableHead
-                                        colspan={header.colSpan}
-                                        class={header.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : ""}
-                                >
-                                    {#if !header.isPlaceholder}
-                                        <FlexRender
-                                                content={header.column.columnDef.header}
-                                                context={header.getContext()}
-                                        />
-                                    {/if}
-                                </TableHead>
-                            {/each}
-                        </TableRow>
-                    {/each}
-                </TableHeader>
+            <DataTable {table}>
+                {#snippet empty()}
+                    <Empty>
+                        <EmptyHeader>
+                            <EmptyMedia variant="icon">
+                                <FolderSimpleDashedIcon />
+                            </EmptyMedia>
+                            <EmptyTitle>{$_("userspace.projects.your-projects.list.empty.title")}</EmptyTitle>
+                            <EmptyDescription>{$_("userspace.projects.your-projects.list.empty.description")}</EmptyDescription>
+                        </EmptyHeader>
 
-                <TableBody>
-                    {#each table?.getRowModel().rows as row (row.id)}
-                        <TableRow data-state={row.getIsSelected() && "selected"}>
-                            {#each row.getVisibleCells() as cell (cell.id)}
-                                <TableCell>
-                                    <FlexRender
-                                            content={cell.column.columnDef.cell}
-                                            context={cell.getContext()}
-                                    />
-                                </TableCell>
-                            {/each}
-                        </TableRow>
-                    {:else}
-                        <TableRow>
-                            <TableCell colspan={table?._getColumnDefs().length} class="h-24 text-center">
-                                <Empty>
-                                    <EmptyHeader>
-                                        <EmptyMedia variant="icon">
-                                            <FolderSimpleDashedIcon />
-                                        </EmptyMedia>
-                                        <EmptyTitle>{$_("userspace.projects.your-projects.list.empty.title")}</EmptyTitle>
-                                        <EmptyDescription>{$_("userspace.projects.your-projects.list.empty.description")}</EmptyDescription>
-                                    </EmptyHeader>
-
-                                    <EmptyContent>
-                                        <div class="flex flex-row gap-2">
-                                            <NewProjectPopover>
-                                                <Button>
-                                                    <ArrowBendDownRightIcon />
-                                                    {$_("userspace.projects.your-projects.list.empty.create")}
-                                                </Button>
-                                            </NewProjectPopover>
-                                        </div>
-                                    </EmptyContent>
-                                </Empty>
-                            </TableCell>
-                        </TableRow>
-                    {/each}
-                </TableBody>
-            </Table>
+                        <EmptyContent>
+                            <div class="flex flex-row gap-2">
+                                <NewProjectPopover>
+                                    <Button>
+                                        <ArrowBendDownRightIcon />
+                                        {$_("userspace.projects.your-projects.list.empty.create")}
+                                    </Button>
+                                </NewProjectPopover>
+                            </div>
+                        </EmptyContent>
+                    </Empty>
+                {/snippet}
+            </DataTable>
         {/if}
-    </div>
-</div>
+    </PageContent>
+</Page>
 
 {#if accessSettingsForProject}
     <AccessStateDialog

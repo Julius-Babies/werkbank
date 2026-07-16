@@ -17,6 +17,9 @@ import app.werkbank.app.tunnel.tunnel
 import app.werkbank.app.webapp.projects.item.access.getState
 import app.werkbank.app.webapp.projects.item.access.passwords.getPasswordOptions
 import app.werkbank.app.webapp.projects.webappProjects
+import app.werkbank.app.webapp.requests.getRequests
+import app.werkbank.app.webapp.requests.item.downloadTunnelRequestBody
+import app.werkbank.app.webapp.requests.item.getRequest
 import app.werkbank.app.webapp.settings.access_keys.createAccessKey
 import app.werkbank.app.webapp.settings.access_keys.getAccessKeys
 import app.werkbank.app.webapp.settings.access_keys.deleteAccessKey
@@ -110,6 +113,18 @@ fun Application.configureRouting() {
 
                     route("/ws") {
                         webappSocket()
+                    }
+
+                    route("/requests") {
+                        route("/{requestId}") {
+                            route("/download-body") {
+                                downloadTunnelRequestBody()
+                            }
+
+                            getRequest()
+                        }
+
+                        getRequests()
                     }
                 }
 

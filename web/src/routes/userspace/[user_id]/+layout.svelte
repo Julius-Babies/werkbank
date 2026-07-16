@@ -19,7 +19,7 @@
     } from "$lib/components/ui/sidebar";
     import {page} from "$app/state"
     import {EllipsisVertical, LogOutIcon, Pickaxe} from "@lucide/svelte";
-    import {FolderSimpleIcon, GearIcon, HouseIcon} from "phosphor-svelte";
+    import {FolderSimpleIcon, GearIcon, HouseIcon, ListDashesIcon} from "phosphor-svelte";
     import {
         DropdownMenu,
         DropdownMenuContent,
@@ -137,6 +137,12 @@
                                         onClick={() => goto("/projects")}
                                 />
                                 <SidebarItem
+                                        icon={ListDashesIcon}
+                                        title={$_("userspace.sidebar.requests")}
+                                        isActive={page.url.pathname.startsWith("/requests")}
+                                        onClick={() => goto("/requests")}
+                                />
+                                <SidebarItem
                                         icon={GearIcon}
                                         title={$_("userspace.sidebar.settings")}
                                         isActive={page.url.pathname.startsWith("/settings")}
@@ -197,14 +203,14 @@
                         <div class="flex w-full items-center gap-1 px-4 lg:gap-2 lg:px-6">
                             <SidebarTrigger class="-ms-1"/>
                             <Separator orientation="vertical" class="mx-2 data-[orientation=vertical]:h-4"/>
-                            <h1 class="text-base font-medium">{$title}</h1>
+                            <h1 class="text-base font-medium line-clamp-1 text-ellipsis">{$title}</h1>
                             <div class="ms-auto flex items-center gap-2">
                                 <TunnelState />
                             </div>
                         </div>
                     </header>
 
-                    <div class="flex flex-1 flex-col w-gfull h-full overflow-y-auto max-md:p-4 md:p-8">
+                    <div class="flex flex-1 flex-col w-gfull h-full overflow-y-auto max-md:p-2 md:p-4">
                         {@render children()}
                     </div>
                 </div>

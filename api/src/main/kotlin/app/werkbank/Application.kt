@@ -5,12 +5,12 @@ import app.werkbank.plugins.auth.installAuthentikt
 import app.werkbank.plugins.auth.installAuthorization
 import app.werkbank.plugins.proxy.SubdomainHandler
 import app.werkbank.shared.tunnel.json
+import app.werkbank.util.launchConnectionJob
 import io.ktor.serialization.kotlinx.*
 import io.ktor.server.application.*
 import io.ktor.server.plugins.calllogging.*
 import io.ktor.server.request.*
 import io.ktor.server.websocket.*
-import kotlinx.coroutines.launch
 import org.koin.ktor.ext.inject
 import plugins.configureOpenTelemetry
 import java.io.File
@@ -38,5 +38,8 @@ fun Application.rootModule(
     }
 
     val certificateQueue by inject<CertificateQueue>()
-    launch { certificateQueue.start() }
+    // Must not run as a bare `launch` on the Application scope: an uncaught exception would cancel the
+    // application, after which the Koin plugin closes the root scope and every request fails with
+    // ClosedScopeException. launchConnectionJob contains and logs failures instead. See [launchConnectionJob].
+    launchConnectionJob(this, "certificate-queue") { certificateQueue.start() }
 }

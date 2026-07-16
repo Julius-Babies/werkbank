@@ -6,6 +6,7 @@ import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
+import app.werkbank.util.launchConnectionJob
 import io.ktor.http.*
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
@@ -17,6 +18,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
@@ -35,6 +42,23 @@ fun Route.tunnel() {
             val instance = TunnelInstance(this)
             tunnelManager.onNewIncomingTunnel(user.user, instance)
 
+            launchConnectionJob(call.application, "tunnel-ping") {
+                while (true) {
+                    val pingId = Uuid.random()
+                    val startTime = System.currentTimeMillis()
+                    val latch = instance.awaitPong(pingId)
+                    sendSerialized<ServerMessage>(ServerMessage.Ping(pingId))
+                    val ok = withTimeoutOrNull(5.seconds) {
+                        latch.await()
+                        true
+                    } ?: false
+                    if (ok) {
+                        instance.currentPingMs = System.currentTimeMillis() - startTime
+                    }
+                    delay(3.seconds)
+                }
+            }
+
             try {
                 for (frame in incoming) {
                     when (frame) {
@@ -52,6 +76,12 @@ fun Route.tunnel() {
 
                         is Frame.Text -> {
                             when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
+                                is ClientMessage.RequestResolved -> {
+                                    instance.updateProxyRequestRecord(message.requestId) {
+                                        it.copy(serviceName = message.service)
+                                    }
+                                }
+
                                 is ClientMessage.HttpResponse -> {
                                     val requestId = message.requestId
                                     instance.pendingCalls[requestId]?.send(message)
@@ -96,6 +126,10 @@ fun Route.tunnel() {
                                 is ClientMessage.Ping -> {
                                     sendSerialized<ServerMessage>(ServerMessage.Pong(message.requestId))
                                 }
+
+                                is ClientMessage.Pong -> {
+                                    instance.onPongReceived(message.requestId)
+                                }
                             }
                         }
 
@@ -118,6 +152,55 @@ class TunnelInstance(
 
     val pendingCalls = ConcurrentHashMap<RequestId, Channel<ClientMessage>>()
     val wsBridges = ConcurrentHashMap<RequestId, WsBridge>()
+
+    @Volatile
+    var currentPingMs: Long? = null
+
+    private val _proxyRequests = MutableStateFlow<List<TunnelRequestRecord>>(emptyList())
+    val proxyRequests: StateFlow<List<TunnelRequestRecord>> = _proxyRequests
+
+    private val _requestUpdates = MutableSharedFlow<TunnelRequestRecord>(extraBufferCapacity = 64)
+    val requestUpdates: SharedFlow<TunnelRequestRecord> = _requestUpdates
+
+    fun addProxyRequestRecord(record: TunnelRequestRecord) {
+        _proxyRequests.update { it + record }
+        _requestUpdates.tryEmit(record)
+    }
+
+    fun updateProxyRequestRecord(requestId: Uuid, update: (TunnelRequestRecord) -> TunnelRequestRecord) {
+        var updated: TunnelRequestRecord? = null
+        _proxyRequests.update { list ->
+            list.map {
+                if (it.requestId == requestId) {
+                    val new = update(it)
+                    updated = new
+                    new
+                } else it
+            }
+        }
+        updated?.let { _requestUpdates.tryEmit(it) }
+    }
+
+    private val pingLock = Any()
+    private var pendingPingId: Uuid? = null
+    private var pendingPingLatch: CompletableDeferred<Unit>? = null
+
+    fun awaitPong(requestId: Uuid): CompletableDeferred<Unit> {
+        synchronized(pingLock) {
+            pendingPingId = requestId
+            val latch = CompletableDeferred<Unit>()
+            pendingPingLatch = latch
+            return latch
+        }
+    }
+
+    fun onPongReceived(requestId: Uuid) {
+        synchronized(pingLock) {
+            if (requestId == pendingPingId) {
+                pendingPingLatch?.complete(Unit)
+            }
+        }
+    }
 
     suspend fun sendMessage(message: ServerMessage) {
         webSocketSession.sendSerialized<ServerMessage>(message)
@@ -176,8 +259,8 @@ class TunnelInstance(
         headers: Map<String, List<String>>,
         body: ByteReadChannel?,
         coroutineScope: CoroutineScope,
+        requestId: RequestId = Uuid.random(),
     ): Deferred<Response> {
-        val requestId: RequestId = Uuid.random()
 
         val incomingChannel = Channel<ClientMessage>()
         pendingCalls[requestId] = incomingChannel

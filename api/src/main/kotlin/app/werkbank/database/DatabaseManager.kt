@@ -21,6 +21,7 @@ class DatabaseManager(
             SchemaUtils.create(AccessPasswords, ProjectPasswords)
             SchemaUtils.create(AccessKeys)
             SchemaUtils.create(KeyValues)
+            SchemaUtils.create(TunnelRequests)
         }
     }
 

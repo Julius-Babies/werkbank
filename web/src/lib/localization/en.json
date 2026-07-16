@@ -1,6 +1,7 @@
 {
   "userspace.sidebar.home": "Dashboard",
   "userspace.sidebar.projects": "Projects",
+  "userspace.sidebar.requests": "Requests",
   "userspace.sidebar.settings": "Settings",
   "userspace.sidebar.logout": "Logout",
 

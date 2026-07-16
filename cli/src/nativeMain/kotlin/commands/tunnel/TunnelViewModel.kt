@@ -142,6 +142,11 @@ class TunnelViewModel: KoinComponent {
                                                     isWebsocket = false,
                                                 ) ?: return@launch
 
+                                                sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
+                                                    requestId = msg.requestId,
+                                                    service = target.service.name,
+                                                ))
+
                                                 _requests.update { it + Request(
                                                     requestId = msg.requestId,
                                                     method = msg.method,
@@ -317,6 +322,11 @@ class TunnelViewModel: KoinComponent {
                                                     isWebsocket = true,
                                                 ) ?: return@launch
 
+                                                this@serverSession.sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
+                                                    requestId = msg.requestId,
+                                                    service = target.service.name,
+                                                ))
+
 //                                                printRequest(
 //                                                    method = "WEBSOCKET",
 //                                                    projectKey = target.project.id,
@@ -374,6 +384,9 @@ class TunnelViewModel: KoinComponent {
                                         is ServerMessage.WsClose -> {
                                             wsProxyState[msg.requestId]?.close(CloseReason(msg.code.toShort(), msg.reason))
                                             wsProxyState.remove(msg.requestId)
+                                        }
+                                        is ServerMessage.Ping -> {
+                                            sendSerialized<ClientMessage>(ClientMessage.Pong(msg.requestId))
                                         }
                                         is ServerMessage.Pong -> {
                                             require(currentPingId == msg.requestId)
