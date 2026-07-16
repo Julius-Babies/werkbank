@@ -55,7 +55,7 @@
             {#if request === "loading"}
                 Request {requestId}
             {:else}
-                <span class={(methodColors[request.request.method as keyof typeof methodColors] ?? "text-gray-600") + " font-mono"}>{request.request.method}</span>
+                <span class={(methodColors[request.request.method as keyof typeof methodColors] ?? "text-gray-600")}>{request.request.method}</span>
                 <span>{request.request.uri}</span>
             {/if}
         </PageTitle>
@@ -75,7 +75,7 @@
 
             <div class="flex max-xl:flex-col xl:flex-row gap-2 pt-4">
                 <div class="flex-1 min-w-0 bg-zinc-50 p-4 rounded-sm overflow-hidden">
-                    <h2 class="font-mono font-semibold text-gray-800 uppercase">Request</h2>
+                    <h2 class="font-heading font-semibold text-gray-800 uppercase">Request</h2>
                     <HeaderTable headers={request.request.headers} />
 
                     {#if requestBodySize > 0}
@@ -95,9 +95,9 @@
                         class:text-red-800={request.response?.type === "error"}
                 >
                     <div class="flex flex-row items-center justify-between">
-                        <h2 class="font-mono font-semibold uppercase">Response</h2>
+                        <h2 class="font-heading font-semibold uppercase">Response</h2>
                         {#if request.response?.type === "success"}
-                            <h2 class={"font-mono font-semibold uppercase " + statusColor(request.response.status_code)}>{request.response.status_code}</h2>
+                            <h2 class={"font-heading font-semibold uppercase " + statusColor(request.response.status_code)}>{request.response.status_code}</h2>
                         {/if}
                     </div>
                     {#if request.response?.type === "success"}

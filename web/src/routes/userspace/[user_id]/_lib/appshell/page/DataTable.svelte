@@ -24,7 +24,7 @@
                 {#each headerGroup.headers as header (header.id)}
                     <TableHead
                             colspan={header.colSpan}
-                            class={header.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : "w-full max-w-0"}
+                            class={(header.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : "w-full max-w-0") + " font-heading"}
                     >
                         {#if !header.isPlaceholder}
                             <FlexRender

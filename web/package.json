@@ -35,6 +35,8 @@
 		"vite": "^8.0.7"
 	},
 	"dependencies": {
+		"@fontsource-variable/jetbrains-mono": "^5.2.8",
+		"@fontsource-variable/oxanium": "^5.2.8",
 		"@julius-babies/authentikt-svelte": "^0.4.3",
 		"@zerodevx/svelte-json-view": "^1.0.11",
 		"date-fns": "^4.4.0",
