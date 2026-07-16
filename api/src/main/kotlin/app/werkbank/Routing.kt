@@ -1,5 +1,6 @@
 package app.werkbank
 
+import app.werkbank.app.cli.download_certificate.downloadCertificates
 import app.werkbank.app.cli.ImportCliBinaries
 import app.werkbank.app.cli.update.checkForUpdates
 import app.werkbank.app.cli.update.downloadCli
@@ -129,6 +130,10 @@ fun Application.configureRouting() {
                 }
 
                 route("/cli") {
+                    route("/download-certificates") {
+                        downloadCertificates()
+                    }
+
                     route("/update") {
                         route("/{channel}") {
                             route("/check") {
