@@ -23,6 +23,8 @@ buildkonfig = "0.21.2"
 mosaic = "0.19.0-SNAPSHOT"
 semver = "3.1.0"
 compose-runtime = "1.8.2"
+brotli = "0.1.2"
+aircompressor = "2.0.3"
 
 [libraries]
 clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
@@ -56,6 +58,8 @@ batik-codec = { module = "org.apache.xmlgraphics:batik-codec", version.ref = "ba
 kotlin-crypto-sha2 = { module = "org.kotlincrypto.hash:sha2", version.ref = "kotlinCrypto" }
 mosaic = { module = "com.jakewharton.mosaic:mosaic-runtime", version.ref = "mosaic" }
 semver = { module = "io.github.z4kn4fein:semver", version.ref = "semver" }
+brotli-dec = { module = "org.brotli:dec", version.ref = "brotli" }
+aircompressor = { module = "io.airlift:aircompressor", version.ref = "aircompressor" }
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-runtime" }
 
 [plugins]

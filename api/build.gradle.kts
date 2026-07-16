@@ -55,6 +55,8 @@ dependencies {
     implementation(libs.batik.codec)
     implementation(libs.semver)
     implementation(libs.kotlin.crypto.sha2)
+    implementation(libs.brotli.dec)
+    implementation(libs.aircompressor)
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.server.testHost)

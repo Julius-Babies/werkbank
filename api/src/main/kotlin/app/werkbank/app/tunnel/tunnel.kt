@@ -6,6 +6,7 @@ import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
+import app.werkbank.util.launchConnectionJob
 import io.ktor.http.*
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
@@ -41,7 +42,7 @@ fun Route.tunnel() {
             val instance = TunnelInstance(this)
             tunnelManager.onNewIncomingTunnel(user.user, instance)
 
-            launch {
+            launchConnectionJob(call.application, "tunnel-ping") {
                 while (true) {
                     val pingId = Uuid.random()
                     val startTime = System.currentTimeMillis()

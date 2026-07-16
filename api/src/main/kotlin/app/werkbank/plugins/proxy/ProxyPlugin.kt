@@ -8,6 +8,7 @@ import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.app.tunnel.TunnelRequestRecord
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
+import app.werkbank.util.launchConnectionJob
 import app.werkbank.util.sha256
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
@@ -32,7 +33,6 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.launch
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.eq
@@ -202,7 +202,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 }
 
                 call.respond(WebSocketUpgrade(call) {
-                    launch {
+                    launchConnectionJob(call.application, "ws-proxy-client-to-tunnel") {
                         for (frame in incoming) {
                             when (frame) {
                                 is Frame.Text -> wsProxy.send(Frame.Text(frame.readText()))
@@ -218,7 +218,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         }
                     }
 
-                    launch {
+                    launchConnectionJob(call.application, "ws-proxy-tunnel-to-client") {
                         for (frame in wsProxy.incomingFrames) {
                             when (frame) {
                                 is Frame.Text -> send(Frame.Text(frame.readText()))
@@ -445,44 +445,72 @@ private suspend fun persistTunnelRequest(
 ) {
     val record = tunnel.proxyRequests.value.firstOrNull { it.requestId == requestId } ?: return
 
-    val requestBodyStream = requestBodyFile?.takeIf { it.isFile && it.length() > 0 }?.inputStream()
-    val responseBodyStream = responseBodyFile?.takeIf { it.isFile && it.length() > 0 }?.inputStream()
-    try {
-        db.query {
-            val serviceEntity = explicitServiceId?.let { Service.findById(it) }
-                ?: record.serviceName?.let { name ->
-                    Service.find {
-                        (Services.project eq projectId) and (Services.serviceKey.lowerCase() eq name.lowercase())
-                    }.firstOrNull()
+    // Bodies are stored exactly as they came over the tunnel, i.e. still compressed. Decode them so
+    // the stored copy is the plain body and drop the Content-Encoding header that no longer applies.
+    // `decode = false` reproduces the raw behaviour and is used as a fallback if decoding blows up on
+    // a mislabelled body (e.g. header claims gzip but the bytes are not) — the transaction rolls back
+    // so we never lose the request record over an unreadable body.
+    suspend fun writeRecord(decode: Boolean) {
+        // The raw file streams are the underlying resource; closing them in the finally releases the
+        // fds even if a decoder constructor throws on a mislabelled body before the db insert runs.
+        val rawRequestBody = requestBodyFile?.takeIf { it.isFile && it.length() > 0 }?.inputStream()
+        val rawResponseBody = responseBodyFile?.takeIf { it.isFile && it.length() > 0 }?.inputStream()
+
+        try {
+            val requestBody = rawRequestBody?.let {
+                if (decode) decodeHttpBody(it, record.requestHeaders.contentEncoding()) else DecodedBody(it, false)
+            }
+            val responseBody = rawResponseBody?.let {
+                if (decode) decodeHttpBody(it, record.responseHeaders?.contentEncoding()) else DecodedBody(it, false)
+            }
+
+            db.query {
+                val serviceEntity = explicitServiceId?.let { Service.findById(it) }
+                    ?: record.serviceName?.let { name ->
+                        Service.find {
+                            (Services.project eq projectId) and (Services.serviceKey.lowerCase() eq name.lowercase())
+                        }.firstOrNull()
+                    }
+                if (serviceEntity == null) {
+                    println("Skipping tunnel request persistence for $requestId: no resolved service")
+                    return@query
                 }
-            if (serviceEntity == null) {
-                println("Skipping tunnel request persistence for $requestId: no resolved service")
-                return@query
-            }
 
-            val statusCode = record.statusCode
-            val error = record.error
-            val outcome = when {
-                error != null -> TunnelRequestResult.Failure(error)
-                statusCode != null -> TunnelRequestResult.Success(statusCode)
-                else -> TunnelRequestResult.Failure("Request did not complete")
-            }
+                val statusCode = record.statusCode
+                val error = record.error
+                val outcome = when {
+                    error != null -> TunnelRequestResult.Failure(error)
+                    statusCode != null -> TunnelRequestResult.Success(statusCode)
+                    else -> TunnelRequestResult.Failure("Request did not complete")
+                }
 
-            TunnelRequest.new(requestId) {
-                this.service = serviceEntity
-                this.method = record.method
-                this.uri = record.uri
-                this.requestHeaders = record.requestHeaders
-                this.responseHeaders = record.responseHeaders
-                this.result = outcome
-                this.requestBody = requestBodyStream?.let { ExposedBlob(it) }
-                this.responseBody = responseBodyStream?.let { ExposedBlob(it) }
-                this.startedAt = Instant.fromEpochMilliseconds(record.startedAt)
-                this.responseReadyAt = record.responseStartedAt?.let { Instant.fromEpochMilliseconds(it) }
+                TunnelRequest.new(requestId) {
+                    this.service = serviceEntity
+                    this.method = record.method
+                    this.uri = record.uri
+                    this.requestHeaders =
+                        if (requestBody?.decoded == true) record.requestHeaders.withoutBodyEncodingHeaders()
+                        else record.requestHeaders
+                    this.responseHeaders = record.responseHeaders?.let {
+                        if (responseBody?.decoded == true) it.withoutBodyEncodingHeaders() else it
+                    }
+                    this.result = outcome
+                    this.requestBody = requestBody?.let { ExposedBlob(it.stream) }
+                    this.responseBody = responseBody?.let { ExposedBlob(it.stream) }
+                    this.startedAt = Instant.fromEpochMilliseconds(record.startedAt)
+                    this.responseReadyAt = record.responseStartedAt?.let { Instant.fromEpochMilliseconds(it) }
+                }
             }
+        } finally {
+            rawRequestBody?.close()
+            rawResponseBody?.close()
         }
-    } finally {
-        requestBodyStream?.close()
-        responseBodyStream?.close()
+    }
+
+    try {
+        writeRecord(decode = true)
+    } catch (e: Exception) {
+        println("Failed to persist decoded bodies for $requestId, storing raw instead: ${e.message}")
+        writeRecord(decode = false)
     }
 }

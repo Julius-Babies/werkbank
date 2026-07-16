@@ -5,6 +5,7 @@ import app.werkbank.database.TunnelRequest
 import app.werkbank.database.TunnelRequestResult
 import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
+import app.werkbank.util.launchConnectionJob
 import com.google.gson.Gson
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
@@ -15,7 +16,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration.Companion.seconds
@@ -33,7 +33,7 @@ fun Route.webappSocket() {
                 .subscribeToTunnel(principal.user)
 
             var requestUpdatesJob: Job? = null
-            launch {
+            launchConnectionJob(call.application, "webapp-tunnel-updates") {
                 tunnelUpdateChannel
                     .receiveAsFlow()
                     .collect { tunnel ->
@@ -60,7 +60,7 @@ fun Route.webappSocket() {
                                 ))
                             }
 
-                            requestUpdatesJob = launch {
+                            requestUpdatesJob = launchConnectionJob(call.application, "webapp-request-updates") {
                                 tunnel.requestUpdates.collect { record ->
                                     sendSerialized<WebAppServerMessage>(WebAppServerMessage.RequestUpdate(
                                         requestId = record.requestId.toString(),
@@ -86,7 +86,7 @@ fun Route.webappSocket() {
                     }
             }
 
-            launch {
+            launchConnectionJob(call.application, "webapp-tunnel-ping") {
                 while (isActive) {
                     delay(2.seconds)
                     val tunnel = tunnelManager.getTunnel(principal.user)

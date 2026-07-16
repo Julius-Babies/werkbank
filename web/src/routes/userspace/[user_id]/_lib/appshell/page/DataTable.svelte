@@ -24,7 +24,7 @@
                 {#each headerGroup.headers as header (header.id)}
                     <TableHead
                             colspan={header.colSpan}
-                            class={header.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : ""}
+                            class={header.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : "w-full max-w-0"}
                     >
                         {#if !header.isPlaceholder}
                             <FlexRender
@@ -47,7 +47,7 @@
             >
                 {#each row.getVisibleCells() as cell (cell.id)}
                     <TableCell
-                            class={(cell.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : "") + " " + (cellClass || "")}
+                            class={(cell.column.columnDef.meta?.compact ? "w-px whitespace-nowrap" : "w-full max-w-0") + " " + (cellClass || "")}
                     >
                         <FlexRender
                                 content={cell.column.columnDef.cell}
