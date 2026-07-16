@@ -15,7 +15,7 @@
     import Body from "./Body.svelte";
     import {title} from "../../state.ts";
 
-    let requestId = page.params.requestId
+    let requestId = $derived(page.params.requestId)
 
     let request: "loading" | Request = $state("loading")
 
@@ -74,7 +74,7 @@
             </div>
 
             <div class="flex max-xl:flex-col xl:flex-row gap-2 pt-4">
-                <div class="flex-1 bg-zinc-50 p-4 rounded-sm overflow-hidden">
+                <div class="flex-1 min-w-0 bg-zinc-50 p-4 rounded-sm overflow-hidden">
                     <h2 class="font-mono font-semibold text-gray-800 uppercase">Request</h2>
                     <HeaderTable headers={request.request.headers} />
 
@@ -88,7 +88,7 @@
                     {/if}
                 </div>
                 <div
-                        class="flex-1 p-4 rounded-sm overflow-hidden"
+                        class="flex-1 min-w-0 p-4 rounded-sm overflow-hidden"
                         class:bg-zinc-100={request.response?.type === "success"}
                         class:bg-red-100={request.response?.type === "error"}
                         class:text-gray-800={request.response?.type === "success"}

@@ -23,7 +23,7 @@
     }
 </script>
 
-<div class="flex flex-row items-center gap-2">
+<a class="flex flex-row items-center gap-2 rounded-md transition-colors cursor-pointer hover:bg-gray-50 duration-100 mx-2 px-2" href={`/requests/${request.request_id}`}>
     <span class={(methodColors[request.method as keyof typeof methodColors] ?? "text-gray-600") + " font-mono text-xs font-bold"}>
         {request.method}
     </span>
@@ -53,4 +53,4 @@
             <div class="animate-spin"><Loader2 size={12} /></div>
         {/if}
     </div>
-</div>
+</a>

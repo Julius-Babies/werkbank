@@ -38,16 +38,16 @@
         </div>
     </PopoverTrigger>
 
-    <PopoverContent class="w-xl">
+    <PopoverContent class="w-xl px-0">
         <div class="flex flex-col gap-1">
             {#if !$tunnelState?.active}
-                <div>{$_("userspace.tunnel.inactive_hint")} <code>wb tunnel</code></div>
+                <div class="px-4">{$_("userspace.tunnel.inactive_hint")} <code>wb tunnel</code></div>
             {:else}
                 <div>
-                    <span class="font-mono text-zinc-700 uppercase text-sm font-semibold">{$_("userspace.tunnel.incoming_requests")}</span>
+                    <span class="px-4 font-mono text-zinc-700 uppercase text-sm font-semibold">{$_("userspace.tunnel.incoming_requests")}</span>
 
                     {#if $latestRequests.length === 0}
-                        <Empty>
+                        <Empty class="px-4">
                             <EmptyHeader>
                                 <EmptyMedia variant="icon">
                                     <EthernetPort />
@@ -63,7 +63,7 @@
                             {/each}
                         </div>
                         <Button
-                                class="mt-2"
+                                class="mx-4 mt-2"
                                 href="/tunnel"
                                 variant="outline"
                         >

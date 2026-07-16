@@ -58,7 +58,7 @@
 </script>
 
 {#if request.response?.type === "success"}
-    <div class="flex flex-col gap-1">
+    <div class="flex flex-col gap-1 min-w-0">
         <Tabs class={className} bind:value={currentBodyType}>
             <TabsList>
                 <TabsTrigger value="media"><LayoutIcon /></TabsTrigger>
@@ -76,12 +76,14 @@
             </div>
         {/if}
 
-        <div class="bg-background text-foreground rounded-md p-2 overflow-x-auto">
+        <div class="bg-background text-foreground rounded-md p-2 overflow-hidden min-w-0">
             {#if currentBodyType === "media"}
                 {@const contentType = Object.entries(request.response?.headers || {}).find(([k]) => k.toLowerCase() === "content-type")?.[1]?.[0] ?? null}
                 {#if contentType === "application/json"}
                     {@const json = JSON.parse(text ?? "{}")}
-                    <JsonView json={json} />
+                    <div class="w-full overflow-x-auto **:break-all! **:whitespace-normal!">
+                        <JsonView json={json} />
+                    </div>
                 {/if}
             {:else if currentBodyType === "text"}
                 <div class="font-mono text-sm break-all">
