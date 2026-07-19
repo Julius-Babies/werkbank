@@ -1,7 +1,7 @@
 package commands.dependencies.reverse_proxy
 
 import app.dependencies.docker.DockerContainer
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.reverse_proxy.traefik.TraefikManager
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option

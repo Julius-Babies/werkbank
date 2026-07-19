@@ -4,7 +4,7 @@ import app.dependencies.android_dns.Unbound
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.postgres.Postgres18
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.reverse_proxy.traefik.TraefikManager
 import app.dependencies.AppDependency
 import app.dependencies.DependencyOrchestrator
 import app.dependencies.jaeger.Jaeger

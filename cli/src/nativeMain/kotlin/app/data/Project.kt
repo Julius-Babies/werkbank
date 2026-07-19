@@ -6,7 +6,7 @@ import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.dependencies.openssl.OpensslHandler
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.reverse_proxy.traefik.TraefikManager
 import app.hosts.HostsManager
 import app.storage.isDevMode
 import app.storage.storageRoot

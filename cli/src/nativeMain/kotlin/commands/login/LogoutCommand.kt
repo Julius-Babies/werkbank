@@ -1,7 +1,7 @@
 package commands.login
 
 import app.config.MainConfig
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.reverse_proxy.traefik.TraefikManager
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject

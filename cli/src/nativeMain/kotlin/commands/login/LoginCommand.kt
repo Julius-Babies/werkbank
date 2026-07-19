@@ -2,7 +2,7 @@ package commands.login
 
 import app.config.MainConfig
 import app.config.WerkbankConfig
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.reverse_proxy.traefik.TraefikManager
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import http.httpClient
 import io.ktor.client.call.*

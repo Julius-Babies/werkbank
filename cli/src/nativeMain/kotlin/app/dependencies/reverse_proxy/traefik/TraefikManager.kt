@@ -1,4 +1,4 @@
-package app.dependencies.reverse_proxy
+package app.dependencies.reverse_proxy.traefik
 
 import app.config.MainConfig
 import app.config.WerkbankConfig
@@ -9,6 +9,9 @@ import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.dependencies.openssl.OpensslHandler
+import app.dependencies.reverse_proxy.traefik.config.TraefikHttpConfig
+import app.dependencies.reverse_proxy.traefik.config.TraefikTlsConfig
+import app.dependencies.reverse_proxy.traefik.config.updateDashboardServiceIfNecessary
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
@@ -159,24 +162,28 @@ class TraefikManager : AppDependency, KoinComponent {
         val config = TraefikTlsConfig(
             tls = TraefikTlsConfig.Tls(
                 certificates = projectRepository.getAllProjects().flatMap { project ->
-                    val certificates = mutableListOf(TraefikTlsConfig.Tls.Certificate(
-                        certFile = "/projects/${project.id}/certificate.pem",
-                        keyFile = "/projects/${project.id}/private.key"
-                    ))
+                    val certificates = mutableListOf(
+                        TraefikTlsConfig.Tls.Certificate(
+                            certFile = "/projects/${project.id}/certificate.pem",
+                            keyFile = "/projects/${project.id}/private.key"
+                        )
+                    )
 
                     fun appendFolder(folder: File) {
                         if (!folder.exists()) return
                         val subfolders = folder.listFiles().filter { it.isDirectory }
                         subfolders.forEach { appendFolder(it) }
 
-                        val certFiles = folder.listFiles().filter { !it.isDirectory && it.extension in listOf("pem", "crt") }
+                        val certFiles =
+                            folder.listFiles().filter { !it.isDirectory && it.extension in listOf("pem", "crt") }
                         val keyFiles = folder.listFiles().filter { !it.isDirectory && it.extension == "key" }
 
                         val pairs = certFiles
                             .associateWith { certFile ->
                                 keyFiles.firstOrNull { keyFile ->
                                     OpensslHandler.isValidPair(certFile, keyFile)
-                                } ?: println("Warning: No key file found for certificate ${certFile.absolutePath}").let { null }
+                                }
+                                    ?: println("Warning: No key file found for certificate ${certFile.absolutePath}").let { null }
                             }
                             .filterValues { it != null }
                             .mapValues { (_, keyFile) -> keyFile!! }
@@ -187,10 +194,12 @@ class TraefikManager : AppDependency, KoinComponent {
                             val mountedKeyFile = certificateFolder.resolve(keyFile.absolutePath.replace("/", "-"))
                             certFile.copy(mountedCertFile)
                             keyFile.copy(mountedKeyFile)
-                            certificates.add(TraefikTlsConfig.Tls.Certificate(
-                                certFile = "/projects/${project.id}/${mountedCertFile.name}",
-                                keyFile = "/projects/${project.id}/${mountedKeyFile.name}"
-                            ))
+                            certificates.add(
+                                TraefikTlsConfig.Tls.Certificate(
+                                    certFile = "/projects/${project.id}/${mountedCertFile.name}",
+                                    keyFile = "/projects/${project.id}/${mountedKeyFile.name}"
+                                )
+                            )
                         }
                     }
 
@@ -207,12 +216,13 @@ class TraefikManager : AppDependency, KoinComponent {
                         certFile = "/ssl/internal/${dependency.key}.crt",
                         keyFile = "/ssl/internal/${dependency.key}.key"
                     )
-                } + opensslHandler.externalCertificateDirectory.listFiles().map { it.nameWithoutExtension }.distinct().map { domain ->
-                    TraefikTlsConfig.Tls.Certificate(
-                        certFile = "/ssl/external/${domain}.crt",
-                        keyFile = "/ssl/external/${domain}.key"
-                    )
-                }
+                } + opensslHandler.externalCertificateDirectory.listFiles().map { it.nameWithoutExtension }.distinct()
+                    .map { domain ->
+                        TraefikTlsConfig.Tls.Certificate(
+                            certFile = "/ssl/external/${domain}.crt",
+                            keyFile = "/ssl/external/${domain}.key"
+                        )
+                    }
             )
         )
         val sslConfigFile = dynamicConfigFolder.resolve("ssl.yaml")
