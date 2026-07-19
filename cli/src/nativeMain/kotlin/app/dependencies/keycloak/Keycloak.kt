@@ -77,7 +77,7 @@ class Keycloak : AppDependency, KoinComponent {
         )
     }
 
-    override val dependsOn: List<String> = listOf("postgres18")
+    override val dependsOn: List<AppDependency> get() = listOf(postgres18)
 
     override suspend fun configure() {
         if (!keycloakRoot.exists()) keycloakRoot.mkdir(recursive = true)
@@ -85,13 +85,9 @@ class Keycloak : AppDependency, KoinComponent {
     }
 
     override suspend fun provision() {
-        // Keycloak needs its database to exist (and Postgres to be running) before
-        // the container boots. Bringing Postgres up here is transitional: Phase 2's
-        // orchestrator will guarantee Postgres via `dependsOn` and remove this.
-        postgres18.configure()
-        postgres18.provision()
-        postgres18.start()
-        postgres18.ensureReady()
+        // Postgres is guaranteed to be running by the orchestrator (via `dependsOn`)
+        // before we get here, so the keycloak database can be created up front — it
+        // must exist before the container boots.
         ensureKeycloakDatabase()
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }

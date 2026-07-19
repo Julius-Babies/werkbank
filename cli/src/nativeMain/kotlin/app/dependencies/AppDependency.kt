@@ -30,10 +30,11 @@ interface AppDependency {
     val webfacingDomains: List<String>
 
     /**
-     * Keys of other dependencies that must be brought up before this one.
-     * Makes ordering explicit instead of relying on the registration order.
+     * Other dependencies that must be brought up before this one. Because every
+     * dependency is a singleton, the graph is expressed with the actual objects
+     * so the orchestrator can topologically sort by identity.
      */
-    val dependsOn: List<String> get() = emptyList()
+    val dependsOn: List<AppDependency> get() = emptyList()
 
     /**
      * Prepare files, configs, directories, hosts entries, etc.

@@ -1,6 +1,6 @@
 package commands.up
 
-import app.dependencies.AppDependency
+import app.dependencies.DependencyOrchestrator
 import app.repository.ProjectRepository
 import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
@@ -10,12 +10,11 @@ import com.github.ajalt.clikt.parameters.options.option
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import org.koin.core.qualifier.named
 import util.buildStyledString
 
 class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
     private val projectRepository by inject<ProjectRepository>()
-    private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
+    private val orchestrator by inject<DependencyOrchestrator>()
 
     val startInfrastructure by option("--start-infrastructure", help = "Starts the infrastructure")
         .flag()
@@ -31,13 +30,7 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
 
         if (startInfrastructure) {
             println(buildStyledString { green { +"Starting core infrastructure" } })
-            // Initialize and start all registered dependencies
-            dependencies.forEach { dep ->
-                dep.configure()
-                dep.provision()
-                dep.start()
-                dep.ensureReady()
-            }
+            orchestrator.up(project = null)
         }
 
         if (!werkbankfile.exists()) {
@@ -50,16 +43,8 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         val projectId = werkbankFile.project.id
         val project = projectRepository.getAllProjects().firstOrNull { it.id == projectId } ?: error("Project with id $projectId not found")
 
-        // For the specific project: initialize + start only the required dependencies
-        dependencies.forEach { dep ->
-            if (dep.isAlwaysRequired() || dep.isRequiredFor(project)) {
-                println(buildStyledString { blue { +"Ensuring dependency '${dep.key}' is ready for project ${project.id}" } })
-                dep.configure()
-                dep.provision()
-                dep.start()
-                dep.ensureReady()
-            }
-        }
+        // Full infrastructure already covers this project's dependencies.
+        if (!startInfrastructure) orchestrator.up(project)
 
         project.start()
     }

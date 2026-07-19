@@ -3,6 +3,7 @@ package commands.setup
 import app.config.MainConfig
 import app.data.Project
 import app.dependencies.AppDependency
+import app.dependencies.DependencyOrchestrator
 import app.dependencies.keycloak.Keycloak
 import app.repository.ProjectRepository
 import app.werkbank.shared.Werkbankfile
@@ -24,6 +25,7 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
 
     private val projectRepository by inject<ProjectRepository>()
     private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
+    private val orchestrator by inject<DependencyOrchestrator>()
     private val mainConfig by inject<MainConfig>()
 
     override val invokeWithoutSubcommand: Boolean = true
@@ -66,10 +68,7 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
         if (werkbankFile.dependencies?.keycloak == true) {
             val keycloak = dependencies.filterIsInstance<Keycloak>().firstOrNull()
                 ?: error("Keycloak dependency not found")
-            keycloak.configure()
-            keycloak.provision()
-            keycloak.start()
-            keycloak.ensureReady()
+            orchestrator.up(keycloak)
             keycloak.ensureRealm(
                 projectId = werkbankFile.project.id,
                 projectName = werkbankFile.project.name
