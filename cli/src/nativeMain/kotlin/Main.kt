@@ -6,6 +6,7 @@ import app.dependencies.openssl.OpensslHandler
 import app.dependencies.postgres.Postgres18
 import app.dependencies.reverse_proxy.TraefikManager
 import app.dependencies.AppDependency
+import app.dependencies.DependencyOrchestrator
 import app.dependencies.jaeger.Jaeger
 import app.dependencies.keycloak.Keycloak
 import app.dependencies.mongodb.MongoDb
@@ -63,6 +64,8 @@ fun main(args: Array<String>) {
                         get<Jaeger>(),
                         get<Keycloak>(),
                     ) }
+
+                    single<DependencyOrchestrator> { DependencyOrchestrator() }
 
                     single<ProjectRepository> { ProjectRepository() }
                 }

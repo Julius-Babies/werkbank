@@ -3,6 +3,7 @@ package commands.config
 import app.config.MainConfig
 import app.config.WerkbankConfig
 import app.dependencies.AppDependency
+import app.dependencies.DependencyOrchestrator
 import app.dependencies.docker.DockerContainer
 import app.dependencies.keycloak.Keycloak
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
@@ -15,16 +16,17 @@ import util.buildStyledString
 class ConfigCommand : SuspendingCliktCommand("config"), KoinComponent {
     private val mainConfig by inject<MainConfig>()
     private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
+    private val orchestrator by inject<DependencyOrchestrator>()
     override suspend fun run() {
 
     }
 
     private suspend fun replaceKeycloakContainer() {
         val keycloak = dependencies.filterIsInstance<Keycloak>().firstOrNull() ?: return
-        val container = keycloak.getContainer()
-        val wasRunning = container.getState() == DockerContainer.State.Running
-        if (container.getState() != DockerContainer.State.NotExisting) container.delete()
-        if (wasRunning) container.start(createIfNotExists = true)
+        // Nothing to do if Keycloak was never set up. Otherwise the generic update
+        // path re-pulls the (new) image and recreates the container.
+        if (keycloak.getContainer().getState() == DockerContainer.State.NotExisting) return
+        orchestrator.update(listOf(keycloak.key))
     }
 
     init {

@@ -99,10 +99,13 @@ class DockerContainer(
             entrypoint = this.entrypoint?.let { listOf(it) },
             cmd = this.cmd,
             ports = this.ports,
-            labels = mapOf("com.docker.compose.project" to buildString {
-                append("werkbank")
-                if (isDevMode) append("-dev")
-            }),
+            labels = mapOf(
+                "com.docker.compose.project" to buildString {
+                    append("werkbank")
+                    if (isDevMode) append("-dev")
+                },
+                SPEC_LABEL to specSignature(),
+            ),
             networkConfigs = this.networkConfigs.map {
                 Container.NetworkConfig(
                     networkId = it.network.getId() ?: throw NetworkNotFoundException(it.network.name),
@@ -140,6 +143,11 @@ class DockerContainer(
         val id = getId() ?: return true
         val inspect = dockerClient.containers.inspectContainer(id)
 
+        // The desired container spec (image, env, ports, volumes, cmd, entrypoint,
+        // healthcheck, network aliases) is hashed into a label at creation time.
+        // A mismatch means the code now describes a different container.
+        if (inspect.config.labels[SPEC_LABEL] != specSignature()) return true
+
         this.networkConfigs.forEach { networkConfig ->
             val networkId = dockerClient.networks.getNetworks().firstOrNull { it.name == networkConfig.network.name }?.id ?: return true
             val existingNetwork = inspect.networkSettings.networks[networkId] ?: return true
@@ -149,6 +157,49 @@ class DockerContainer(
         }
 
         return false
+    }
+
+    /** True when the running container was created from a different image id than the one currently tagged locally. */
+    suspend fun imageChanged(): Boolean {
+        val id = getId() ?: return false
+        val currentImageId = dockerClient.containers.getContainers(all = true).firstOrNull { it.id == id }?.imageId ?: return false
+        val desiredImageId = dockerClient.images.getImages().firstOrNull { it.repoTags.contains(this.image) }?.id ?: return false
+        return currentImageId != desiredImageId
+    }
+
+    /**
+     * Re-pulls the image and recreates the container if its spec drifted or the
+     * image behind the tag changed. Leaves the container deleted for the caller's
+     * `provision()`/`start()` to recreate.
+     */
+    suspend fun update() {
+        dockerClient.pullImageWithLogs(this.image)
+        if (getState() != State.NotExisting && (needsRebuild() || imageChanged())) delete()
+    }
+
+    /** Deterministic fingerprint of the desired container spec (excluding labels). */
+    private fun specSignature(): String {
+        val canonical = buildString {
+            appendLine("image=$image")
+            appendLine("entrypoint=${entrypoint ?: ""}")
+            appendLine("cmd=${cmd?.joinToString(" ") ?: ""}")
+            appendLine("ports=" + ports.map { it.toString() }.sorted().joinToString(","))
+            appendLine("volumes=" + volumes.entries.map { "${it.key}=>${it.value}" }.sorted().joinToString(","))
+            appendLine("env=" + environment.entries.map { "${it.key}=${it.value}" }.sorted().joinToString(","))
+            appendLine("healthcheck=${healthcheck?.toString() ?: ""}")
+            appendLine("networks=" + networkConfigs.map { "${it.network.name}:${it.aliases.sorted().joinToString("|")}" }.sorted().joinToString(","))
+        }
+
+        var hash = -0x340d631b7bdddcdbL // FNV-1a 64-bit offset basis
+        for (byte in canonical.encodeToByteArray()) {
+            hash = hash xor (byte.toLong() and 0xff)
+            hash *= 0x100000001b3L // FNV prime
+        }
+        return hash.toULong().toString(16)
+    }
+
+    companion object {
+        const val SPEC_LABEL = "studio.werkbank.spec"
     }
 }
 

@@ -90,7 +90,8 @@ data class Project(
 
     suspend fun setupProxy() {
         if (getConfig().services.isEmpty()) return
-        traefikManager.initialize()
+        traefikManager.configure()
+        traefikManager.provision()
     }
 
     fun getContainers(): List<ProjectContainer> {

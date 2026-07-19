@@ -78,13 +78,19 @@ class MongoDb: AppDependency, KoinComponent {
 
     override val key: String = "mongodb"
 
-    override suspend fun initialize() {
+    override suspend fun configure() {
         if (!mongoRoot.exists()) mongoRoot.mkdir(recursive = true)
         hostsManager.addHost(mongoDatabaseHostname)
         hostsManager.addHost(mongoExpressDomain)
+    }
+
+    override suspend fun provision() {
         if (mongoDatabaseContainer.getState() == DockerContainer.State.NotExisting) mongoDatabaseContainer.create()
         if (mongoExpressContainer.getState() == DockerContainer.State.NotExisting) mongoExpressContainer.create()
     }
+
+    override suspend fun managedContainers(): List<DockerContainer> =
+        listOf(mongoDatabaseContainer, mongoExpressContainer)
 
     override suspend fun start() {
         println(buildStyledString { green { +"Starting Mongo DB (${mongoDatabaseContainer.name})" } })
