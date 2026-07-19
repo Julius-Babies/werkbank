@@ -15,6 +15,7 @@ class DependenciesCommand: SuspendingCliktCommand("dependencies"), KoinComponent
         this.subcommands(
             DnsCommand(),
             ReverseProxyCommand(),
+            UpdateCommand(),
         )
     }
 }

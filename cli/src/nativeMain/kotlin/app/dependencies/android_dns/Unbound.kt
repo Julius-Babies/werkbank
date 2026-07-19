@@ -115,6 +115,9 @@ class Unbound : AppDependency, KoinComponent {
         }
     }
 
+    override suspend fun managedContainers(): List<DockerContainer> =
+        if (mainConfig.getConfig().androidDns.enabled) listOf(getContainer()) else emptyList()
+
     override suspend fun start() {
         val isEnabled = mainConfig.getConfig().androidDns.enabled
         if (!isEnabled) {

@@ -89,6 +89,9 @@ class MongoDb: AppDependency, KoinComponent {
         if (mongoExpressContainer.getState() == DockerContainer.State.NotExisting) mongoExpressContainer.create()
     }
 
+    override suspend fun managedContainers(): List<DockerContainer> =
+        listOf(mongoDatabaseContainer, mongoExpressContainer)
+
     override suspend fun start() {
         println(buildStyledString { green { +"Starting Mongo DB (${mongoDatabaseContainer.name})" } })
         mongoDatabaseContainer.start(createIfNotExists = true)

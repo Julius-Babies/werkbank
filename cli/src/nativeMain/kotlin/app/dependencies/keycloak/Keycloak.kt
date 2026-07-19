@@ -92,6 +92,8 @@ class Keycloak : AppDependency, KoinComponent {
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
 
+    override suspend fun managedContainers(): List<DockerContainer> = listOf(getContainer())
+
     private suspend fun ensureKeycloakDatabase() {
         val postgresContainer = postgres18.container
         postgresContainer.withRunning {

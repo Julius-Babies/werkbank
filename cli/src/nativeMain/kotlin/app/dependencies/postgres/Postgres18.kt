@@ -70,6 +70,8 @@ class Postgres18: AppDependency, KoinComponent {
         if (container.getState() == DockerContainer.State.NotExisting) container.create()
     }
 
+    override suspend fun managedContainers(): List<DockerContainer> = listOf(container)
+
     override suspend fun ensureReady() {
         createProjectDatabases()
     }

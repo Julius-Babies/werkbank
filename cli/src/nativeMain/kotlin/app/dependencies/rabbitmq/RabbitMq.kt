@@ -73,6 +73,8 @@ class RabbitMq : AppDependency, KoinComponent {
         if (rabbitMqContainer.getState() == DockerContainer.State.NotExisting) rabbitMqContainer.create()
     }
 
+    override suspend fun managedContainers(): List<DockerContainer> = listOf(rabbitMqContainer)
+
     override suspend fun ensureReady() {
         val projects = projectRepository
             .getAllProjects()

@@ -85,6 +85,8 @@ class TraefikManager : AppDependency, KoinComponent {
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
 
+    override suspend fun managedContainers(): List<DockerContainer> = listOf(getContainer())
+
     override suspend fun start() {
         val containerName = getContainer().name
         println(buildStyledString { green { +"Starting Traefik ($containerName)" } })

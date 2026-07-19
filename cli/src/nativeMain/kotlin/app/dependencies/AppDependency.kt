@@ -1,6 +1,7 @@
 package app.dependencies
 
 import app.data.Project
+import app.dependencies.docker.DockerContainer
 
 /**
  * Base abstraction for infrastructure dependencies managed by Werkbank.
@@ -58,11 +59,22 @@ interface AppDependency {
     suspend fun stop()
 
     /**
-     * Re-pull the image / rebuild the container when its tag or digest changed.
-     * Refined in Phase 3; the default simply re-provisions.
+     * The containers owned by this dependency. Used by [update] to re-pull images
+     * and recreate containers whose image changed.
+     */
+    suspend fun managedContainers(): List<DockerContainer> = emptyList()
+
+    /**
+     * Refreshes the dependency: regenerates config (new routes, certificates, ...),
+     * re-pulls images and recreates any container whose spec or image changed, then
+     * brings it back up.
      */
     suspend fun update() {
+        configure()
+        managedContainers().forEach { it.update() }
         provision()
+        start()
+        ensureReady()
     }
 
     /**

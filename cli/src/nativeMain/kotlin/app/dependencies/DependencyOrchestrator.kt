@@ -34,12 +34,14 @@ class DependencyOrchestrator : KoinComponent {
     suspend fun up(dependency: AppDependency) = bringUp(setOf(dependency))
 
     private suspend fun bringUp(targets: Set<AppDependency>) {
-        orderedForStartup(targets).forEach { dep ->
-            dep.configure()
-            dep.provision()
-            dep.start()
-            dep.ensureReady()
-        }
+        orderedForStartup(targets).forEach { dep -> bringUpOne(dep) }
+    }
+
+    private suspend fun bringUpOne(dep: AppDependency) {
+        dep.configure()
+        dep.provision()
+        dep.start()
+        dep.ensureReady()
     }
 
     /**
@@ -79,12 +81,15 @@ class DependencyOrchestrator : KoinComponent {
 
     /**
      * Updates the given dependencies (by key), or all of them when [keys] is
-     * empty, honoring `dependsOn` ordering.
+     * empty. Dependencies pulled in only via `dependsOn` are brought up (so a
+     * target has its prerequisites running) but not themselves updated.
      */
     suspend fun update(keys: List<String> = emptyList()) {
         val targets = if (keys.isEmpty()) dependencies.toSet()
         else dependencies.filter { it.key in keys }.toSet()
-        orderedForStartup(targets).forEach { it.update() }
+        orderedForStartup(targets).forEach { dep ->
+            if (dep in targets) dep.update() else bringUpOne(dep)
+        }
     }
 
     /**
