@@ -2,7 +2,7 @@ package commands.login
 
 import app.config.MainConfig
 import app.config.WerkbankConfig
-import app.dependencies.reverse_proxy.traefik.TraefikManager
+import app.dependencies.reverse_proxy.ReverseProxy
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import http.httpClient
 import io.ktor.client.call.*
@@ -29,7 +29,7 @@ import kotlin.time.Duration.Companion.seconds
 class LoginCommand : SuspendingCliktCommand("login"), KoinComponent {
 
     private val mainConfig by inject<MainConfig>()
-    private val traefikManager by inject<TraefikManager>()
+    private val reverseProxy by inject<ReverseProxy>()
 
     override suspend fun run() {
         val client = httpClient()
@@ -151,7 +151,7 @@ class LoginCommand : SuspendingCliktCommand("login"), KoinComponent {
                 println(buildStyledString {
                     gray { +"Generating proxy config..." }
                 })
-                traefikManager.generateProxyConfig()
+                reverseProxy.configure()
                 println(buildStyledString {
                     green { +"Login successful!" }
                 })

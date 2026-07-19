@@ -1,7 +1,5 @@
 package app.dependencies.reverse_proxy.traefik
 
-import app.config.MainConfig
-import app.config.WerkbankConfig
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
@@ -9,6 +7,9 @@ import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.dependencies.openssl.OpensslHandler
+import app.dependencies.reverse_proxy.ReverseProxy
+import app.dependencies.reverse_proxy.ReverseProxyConfiguration
+import app.dependencies.reverse_proxy.ReverseProxyConfigurationResolver
 import app.dependencies.reverse_proxy.traefik.config.TraefikHttpConfig
 import app.dependencies.reverse_proxy.traefik.config.TraefikTlsConfig
 import app.dependencies.reverse_proxy.traefik.config.updateDashboardServiceIfNecessary
@@ -24,7 +25,12 @@ import org.koin.core.component.inject
 import org.koin.core.qualifier.named
 import util.buildStyledString
 
-class TraefikManager : AppDependency, KoinComponent {
+/**
+ * Traefik-backed [ReverseProxy]. All Traefik-specific YAML generation lives in [apply];
+ * the routing itself is described by the provider-neutral [ReverseProxyConfiguration]
+ * produced by [ReverseProxyConfigurationResolver].
+ */
+class TraefikReverseProxy : ReverseProxy, KoinComponent {
 
     val traefikImage = "traefik:v3.6.1"
     val name = buildString {
@@ -42,7 +48,7 @@ class TraefikManager : AppDependency, KoinComponent {
 
     private val projectRepository by inject<ProjectRepository>()
     private val opensslHandler by inject<OpensslHandler>()
-    private val mainConfig by inject<MainConfig>()
+    private val resolver by inject<ReverseProxyConfigurationResolver>()
 
     private var dockerContainer: DockerContainer? = null
     suspend fun getContainer(): DockerContainer {
@@ -75,13 +81,15 @@ class TraefikManager : AppDependency, KoinComponent {
 
     override val key: String = "traefik"
 
-    override suspend fun configure() {
-        opensslHandler.isOpensslAvailable.await().let { require(it) { "OpenSSL is not available"} }
+    override suspend fun configure() = apply(resolver.resolve())
+
+    override suspend fun apply(config: ReverseProxyConfiguration) {
+        opensslHandler.isOpensslAvailable.await().let { require(it) { "OpenSSL is not available" } }
         generateTraefikConfig()
-        generateProxyConfig()
+        writeServiceConfigs(config)
         createDashboardService()
-        createInternalServices()
         generateSslConfig()
+        config.managedHosts.forEach { hostsManager.addHost(it) }
     }
 
     override suspend fun provision() {
@@ -125,7 +133,7 @@ class TraefikManager : AppDependency, KoinComponent {
     override fun isRequiredFor(project: Project): Boolean = true
     override fun isAlwaysRequired(): Boolean = true
 
-    fun generateTraefikConfig() {
+    private fun generateTraefikConfig() {
         val traefikConfigFile = traefikFileStorage.resolve("traefik.yaml")
         traefikConfigFile.writeText("""
             entryPoints:
@@ -133,12 +141,12 @@ class TraefikManager : AppDependency, KoinComponent {
                 address: ":80"
               websecure:
                 address: ":443"
-            
+
             api:
               dashboard: true
               insecure: true
               disableDashboardAd: true
-            
+
             providers:
               file:
                 directory: /etc/traefik/dynamic
@@ -147,7 +155,7 @@ class TraefikManager : AppDependency, KoinComponent {
                 watch: true
                 endpoint: "unix:///var/run/docker.sock"
                 exposedByDefault: false
-            
+
             log:
               level: DEBUG
             accessLog:
@@ -156,9 +164,23 @@ class TraefikManager : AppDependency, KoinComponent {
     }
 
     /**
+     * Renders one Traefik dynamic-config file per routing group. Previously generated
+     * service files are removed first so stale routes disappear; the dashboard file is
+     * kept because it is managed separately.
+     */
+    private fun writeServiceConfigs(config: ReverseProxyConfiguration) {
+        dynamicConfigFolder
+            .listFiles()
+            .filter { it.name.endsWith(SERVICE_FILE_SUFFIX) && it.name != DASHBOARD_FILE_NAME }
+            .forEach { it.delete() }
+
+        config.groups.forEach { group -> writeServiceConfig(group) }
+    }
+
+    /**
      * Creates the single SSL file for Traefik, giving it all paths to certificates it can use for services.
      */
-    fun generateSslConfig() {
+    private fun generateSslConfig() {
         val config = TraefikTlsConfig(
             tls = TraefikTlsConfig.Tls(
                 certificates = projectRepository.getAllProjects().flatMap { project ->
@@ -229,163 +251,67 @@ class TraefikManager : AppDependency, KoinComponent {
         sslConfigFile.writeText(Yaml.default.encodeToString(TraefikTlsConfig.serializer(), config))
     }
 
-    /**
-     * Generates the Traefik-Service configs for projects
-     */
-    fun generateProxyConfig() {
-        val projects = projectRepository.getAllProjects().associate { it.getWerkbankConfig() to it.getConfig() }
-        dynamicConfigFolder
-            .listFiles()
-            .filter { it.name.endsWith(".user.service.yaml") }
-            .forEach { it.delete() }
-
-        projects.forEach { (state, project) ->
-            val projectBaseDomains = listOfNotNull("${project.project.id.lowercase()}.werkbank.space", project.project.externalDomain)
-
-            project.http.groupBy { it.targetService }.forEach { (targetServiceName, httpEntries) ->
-                val targetService = project.services.firstOrNull { it.name == targetServiceName }
-                if (targetService == null) {
-                    println(buildStyledString { red { +"HTTP entry references unknown service '$targetServiceName' in project '${project.project.name}'" } })
-                    return@forEach
-                }
-                val serviceState = state.services.firstOrNull { it.name == targetServiceName }?.serviceState
-                if (serviceState == null || serviceState == WerkbankConfig.Project.Service.ServiceState.Disabled) return@forEach
-
-                val serviceName = project.project.id.lowercase() + "-" + targetServiceName.lowercase()
-
-                val url = when (serviceState) {
-                    WerkbankConfig.Project.Service.ServiceState.Docker -> {
-                        val dockerMode = targetService.modes.docker ?: error("Service $targetServiceName has no docker mode")
-                        val container = dockerMode.container
-                        val port = dockerMode.port
-                        val containerName = "werkbank${if (isDevMode) "-dev" else ""}-${project.project.id.lowercase()}-${container}"
-                        "http://${containerName}:$port"
-                    }
-                    WerkbankConfig.Project.Service.ServiceState.Local -> {
-                        val localMode = targetService.modes.local ?: error("Service $targetServiceName has no local mode")
-                        "http://host.docker.internal:${localMode.port}"
-                    }
-                }
-
-                val routers = mutableMapOf<String, TraefikHttpConfig.Http.Router>()
-                val descriptions = mutableListOf<String>()
-
-                httpEntries.forEachIndexed { index, httpEntry ->
-                    val werkbankDomains = httpEntry.domains
-                        ?.flatMap {
-                            if (it.isBlank()) projectBaseDomains
-                            else projectBaseDomains.map { baseDomain -> "${it.lowercase()}.${project.project.id.lowercase()}.$baseDomain" }
-                        }
-                        ?.ifEmpty { projectBaseDomains }
-                        .orEmpty()
-                        .distinct()
-                    val externalDomains = httpEntry.externalDomains
-                        .filterNot { it.isBlank() }
-                        .map { it.toTraefikHostRule() }
-                    val werkbankCloudDomain = mainConfig.getConfig().auth?.username?.let { username ->
-                        if (project.disallowCloud) emptyList()
-                        else listOf("${targetServiceName.lowercase()}-${project.project.id.lowercase()}.${username.lowercase()}.localwb.space".toTraefikHostRule())
-                    } ?: emptyList()
-                    val allDomains = werkbankDomains.map { "Host(`$it`)" } + externalDomains + werkbankCloudDomain
-                    val pathPrefixes = httpEntry.pathPrefixes.ifEmpty { listOf("/") }
-                    val rule = "(${allDomains.joinToString(" || ")}) && (${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})"
-
-                    routers["${serviceName}-router-$index"] = TraefikHttpConfig.Http.Router(
-                        rule = rule,
-                        service = "${serviceName}-service",
-                        priority = httpEntry.priority,
-                    )
-                    httpEntry.description?.let { descriptions.add(it) }
-                }
-
-                writeServiceConfig(
-                    serviceFile = dynamicConfigFolder.resolve("${serviceName}.user.service.yaml"),
-                    serviceName = serviceName,
-                    routers = routers,
-                    url = url,
-                    descriptions = descriptions,
-                )
-            }
-        }
-    }
-
     private fun createDashboardService() {
         hostsManager.addHost(traefikDomain)
-        val dashboardConfigFile = dynamicConfigFolder.resolve("dashboard.system.service.yaml")
+        val dashboardConfigFile = dynamicConfigFolder.resolve(DASHBOARD_FILE_NAME)
         updateDashboardServiceIfNecessary(dashboardConfigFile)
     }
 
-    private fun createInternalServices() {
-        dynamicConfigFolder.listFiles().filter { it.name.endsWith(".internal.service.yaml") }.forEach { it.delete() }
-        dependencies
-            .associate { it.key to it.reverseProxyRecords }
-            .forEach { (dependencyKey, records) ->
-                records.forEach { record ->
-                    generateInternalServiceConfig(dependencyKey, record)
-                }
-            }
-    }
-
-    private fun generateInternalServiceConfig(dependencyKey: String, record: ReverseProxyRecord) {
-        hostsManager.addHost(record.domain)
-
-        val serviceName = "${dependencyKey}-${record.domain.replace(".", "-")}"
-        val serviceFile = dynamicConfigFolder.resolve("${serviceName}.internal.service.yaml")
-        val rule = "Host(`${record.domain}`)"
-        val routers = mapOf(
-            "${serviceName}-router" to TraefikHttpConfig.Http.Router(
-                rule = rule,
-                service = "${serviceName}-service",
+    /** Renders a single [group] as a Traefik dynamic-config file. */
+    private fun writeServiceConfig(group: ReverseProxyConfiguration.Group) {
+        val serviceKey = "${group.name}-service"
+        val routers = group.routes.mapIndexed { index, route ->
+            "${group.name}-router-$index" to TraefikHttpConfig.Http.Router(
+                rule = route.toRule(),
+                service = serviceKey,
+                priority = route.priority,
             )
-        )
+        }.toMap()
 
-        writeServiceConfig(
-            serviceFile = serviceFile,
-            serviceName = serviceName,
-            routers = routers,
-            url = "http://${record.containerName}:${record.port}",
-        )
-    }
-
-    private fun writeServiceConfig(
-        serviceFile: File,
-        serviceName: String,
-        routers: Map<String, TraefikHttpConfig.Http.Router>,
-        url: String,
-        descriptions: List<String> = emptyList(),
-    ) {
         val config = TraefikHttpConfig(
             http = TraefikHttpConfig.Http(
                 routers = routers,
                 services = mapOf(
-                    "${serviceName}-service" to TraefikHttpConfig.Http.Service(
+                    serviceKey to TraefikHttpConfig.Http.Service(
                         loadBalancer = TraefikHttpConfig.Http.Service.LoadBalancer(
-                            servers = listOf(TraefikHttpConfig.Http.Service.LoadBalancer.Server(url = url))
+                            servers = listOf(TraefikHttpConfig.Http.Service.LoadBalancer.Server(url = group.target.toUrl()))
                         )
                     )
                 )
             )
         )
         val yamlContent = Yaml.default.encodeToString(TraefikHttpConfig.serializer(), config)
-        val content = descriptions.joinToString("\n") { "# $it" }.let {
+        val content = group.descriptions.joinToString("\n") { "# $it" }.let {
             if (it.isNotEmpty()) "$it\n$yamlContent" else yamlContent
         }
-        serviceFile.writeText(content)
+        dynamicConfigFolder.resolve("${group.name}$SERVICE_FILE_SUFFIX").writeText(content)
     }
 
-    private fun String.toTraefikHostRule(): String = when {
-        startsWith("**.") -> {
-            val base = removePrefix("**.").replace(".", "\\.")
-            "HostRegexp(`^.+\\.$base$`)"
-        }
-        startsWith("*.") -> {
-            val base = removePrefix("*.").replace(".", "\\.")
-            "HostRegexp(`^[^.]+\\.$base$`)"
-        }
-        else -> "Host(`$this`)"
+    private fun ReverseProxyConfiguration.Target.toUrl(): String = when (this) {
+        is ReverseProxyConfiguration.Target.Host -> "http://host.docker.internal:$port"
+        is ReverseProxyConfiguration.Target.DockerContainer -> "http://$hostname:$port"
     }
 
+    private fun ReverseProxyConfiguration.Route.toRule(): String {
+        val hostRule = "(${hosts.joinToString(" || ") { it.toTraefikRule() }})"
+        if (pathPrefixes.isEmpty()) return hostRule
+        val pathRule = "(${pathPrefixes.joinToString(" || ") { "PathPrefix(`$it`)" }})"
+        return "$hostRule && $pathRule"
+    }
+
+    private fun ReverseProxyConfiguration.HostMatch.toTraefikRule(): String = when (this) {
+        is ReverseProxyConfiguration.HostMatch.Exact -> "Host(`$domain`)"
+        is ReverseProxyConfiguration.HostMatch.SubdomainWildcard ->
+            "HostRegexp(`^[^.]+\\.${base.replace(".", "\\.")}$`)"
+        is ReverseProxyConfiguration.HostMatch.DeepWildcard ->
+            "HostRegexp(`^.+\\.${base.replace(".", "\\.")}$`)"
+    }
 
     override val reverseProxyRecords: List<ReverseProxyRecord> = emptyList()
     override val webfacingDomains: List<String> = listOf(traefikDomain)
+
+    private companion object {
+        const val SERVICE_FILE_SUFFIX = ".service.yaml"
+        const val DASHBOARD_FILE_NAME = "dashboard.system.service.yaml"
+    }
 }
