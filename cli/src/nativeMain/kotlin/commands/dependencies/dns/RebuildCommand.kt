@@ -30,7 +30,8 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
 
             println("Recreating Unbound container...")
             unbound.unboundStorageRoot.listFiles().forEach { it.delete(true) }
-            unbound.initialize()
+            unbound.configure()
+            unbound.provision()
             unbound.start()
         } else {
             if (unbound.getContainer().getState() == DockerContainer.State.Running) {

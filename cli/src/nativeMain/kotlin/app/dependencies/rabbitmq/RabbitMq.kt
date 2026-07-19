@@ -64,11 +64,16 @@ class RabbitMq : AppDependency, KoinComponent {
         )
     )
 
-    override suspend fun initialize() {
+    override suspend fun configure() {
         if (!rabbitRoot.exists()) rabbitRoot.mkdir(recursive = true)
         hostsManager.addHost(rabbitMqHostname)
-        if (rabbitMqContainer.getState() == DockerContainer.State.NotExisting) rabbitMqContainer.create()
+    }
 
+    override suspend fun provision() {
+        if (rabbitMqContainer.getState() == DockerContainer.State.NotExisting) rabbitMqContainer.create()
+    }
+
+    override suspend fun ensureReady() {
         val projects = projectRepository
             .getAllProjects()
             .filter { it.usesRabbit() }

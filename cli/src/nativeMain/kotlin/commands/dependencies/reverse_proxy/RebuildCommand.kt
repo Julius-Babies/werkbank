@@ -28,14 +28,16 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
             }
 
             println("Recreating Traefik container...")
-            traefikManager.initialize()
+            traefikManager.configure()
+            traefikManager.provision()
             traefikManager.start()
         } else {
             if (traefikManager.getContainer().getState() == DockerContainer.State.Running) {
                 println("Restarting Traefik...")
                 traefikManager.stop()
             }
-            traefikManager.initialize()
+            traefikManager.configure()
+            traefikManager.provision()
             traefikManager.start()
         }
     }

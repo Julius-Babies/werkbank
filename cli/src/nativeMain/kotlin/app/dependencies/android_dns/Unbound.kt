@@ -62,7 +62,7 @@ class Unbound : AppDependency, KoinComponent {
 
     override val key: String = "unbound"
 
-    override suspend fun initialize() {
+    override suspend fun configure() {
         val isEnabled = mainConfig.getConfig().androidDns.enabled
         if (!isEnabled) {
             println(buildStyledString {
@@ -72,6 +72,16 @@ class Unbound : AppDependency, KoinComponent {
         }
 
         writeConfigFile()
+    }
+
+    override suspend fun provision() {
+        val isEnabled = mainConfig.getConfig().androidDns.enabled
+        if (!isEnabled) {
+            println(buildStyledString {
+                gray { +"Skipping Unbound as it is disabled" }
+            })
+            return
+        }
 
         if (!hasAllRemoteControlKeys()) {
             val keyInitId = Uuid.random()

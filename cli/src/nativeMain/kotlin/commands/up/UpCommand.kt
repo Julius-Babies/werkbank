@@ -33,8 +33,10 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
             println(buildStyledString { green { +"Starting core infrastructure" } })
             // Initialize and start all registered dependencies
             dependencies.forEach { dep ->
-                dep.initialize()
+                dep.configure()
+                dep.provision()
                 dep.start()
+                dep.ensureReady()
             }
         }
 
@@ -52,8 +54,10 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         dependencies.forEach { dep ->
             if (dep.isAlwaysRequired() || dep.isRequiredFor(project)) {
                 println(buildStyledString { blue { +"Ensuring dependency '${dep.key}' is ready for project ${project.id}" } })
-                dep.initialize()
+                dep.configure()
+                dep.provision()
                 dep.start()
+                dep.ensureReady()
             }
         }
 

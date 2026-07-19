@@ -59,9 +59,12 @@ class Jaeger: AppDependency, KoinComponent {
 
     override val key: String = "jaeger"
 
-    override suspend fun initialize() {
+    override suspend fun configure() {
         if (!jaegerRoot.exists()) jaegerRoot.mkdir(recursive = true)
         hostsManager.addHost(jaegerHostname)
+    }
+
+    override suspend fun provision() {
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
 
@@ -73,7 +76,7 @@ class Jaeger: AppDependency, KoinComponent {
 
     override suspend fun stop() {
         val containerName = getContainer().name
-        println(buildStyledString { blue { +"Stopping Unbound ($containerName)" } })
+        println(buildStyledString { blue { +"Stopping Jaeger ($containerName)" } })
         getContainer().stop()
     }
 

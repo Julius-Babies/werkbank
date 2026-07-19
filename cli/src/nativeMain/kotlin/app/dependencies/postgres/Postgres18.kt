@@ -61,11 +61,17 @@ class Postgres18: AppDependency, KoinComponent {
 
     override val key: String = "postgres18"
 
-    override suspend fun initialize() {
+    override suspend fun configure() {
         if (!postgresRoot.exists()) postgresRoot.mkdir(recursive = true)
-        if (container.getState() == DockerContainer.State.NotExisting) container.create()
-        createProjectDatabases()
         hostsManager.addHost(hostname)
+    }
+
+    override suspend fun provision() {
+        if (container.getState() == DockerContainer.State.NotExisting) container.create()
+    }
+
+    override suspend fun ensureReady() {
+        createProjectDatabases()
     }
 
     override suspend fun start() {

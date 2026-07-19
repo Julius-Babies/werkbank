@@ -66,8 +66,10 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
         if (werkbankFile.dependencies?.keycloak == true) {
             val keycloak = dependencies.filterIsInstance<Keycloak>().firstOrNull()
                 ?: error("Keycloak dependency not found")
-            keycloak.initialize()
+            keycloak.configure()
+            keycloak.provision()
             keycloak.start()
+            keycloak.ensureReady()
             keycloak.ensureRealm(
                 projectId = werkbankFile.project.id,
                 projectName = werkbankFile.project.name

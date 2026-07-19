@@ -72,13 +72,16 @@ class TraefikManager : AppDependency, KoinComponent {
 
     override val key: String = "traefik"
 
-    override suspend fun initialize() {
+    override suspend fun configure() {
         opensslHandler.isOpensslAvailable.await().let { require(it) { "OpenSSL is not available"} }
         generateTraefikConfig()
         generateProxyConfig()
         createDashboardService()
         createInternalServices()
         generateSslConfig()
+    }
+
+    override suspend fun provision() {
         if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
     }
 
