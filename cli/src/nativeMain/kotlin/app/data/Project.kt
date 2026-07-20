@@ -6,7 +6,7 @@ import app.dependencies.docker.DockerContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.dependencies.openssl.OpensslHandler
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.reverse_proxy.ReverseProxy
 import app.hosts.HostsManager
 import app.storage.isDevMode
 import app.storage.storageRoot
@@ -30,7 +30,7 @@ data class Project(
 ): KoinComponent {
     private val hostsManager by inject<HostsManager>()
     private val opensslHandler by inject<OpensslHandler>()
-    private val traefikManager by inject<TraefikManager>()
+    private val reverseProxy by inject<ReverseProxy>()
     private val mainConfig by inject<MainConfig>()
     private val dockerNetwork by inject<DockerNetwork>()
 
@@ -90,8 +90,8 @@ data class Project(
 
     suspend fun setupProxy() {
         if (getConfig().services.isEmpty()) return
-        traefikManager.configure()
-        traefikManager.provision()
+        reverseProxy.configure()
+        reverseProxy.provision()
     }
 
     fun getContainers(): List<ProjectContainer> {
@@ -200,7 +200,7 @@ data class Project(
                 }
             )
         }
-        traefikManager.generateProxyConfig()
+        reverseProxy.configure()
     }
 
     suspend fun stop() {

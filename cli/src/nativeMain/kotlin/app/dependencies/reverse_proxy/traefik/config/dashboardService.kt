@@ -1,4 +1,4 @@
-package app.dependencies.reverse_proxy
+package app.dependencies.reverse_proxy.traefik.config
 
 import es.jvbabi.kfile.File
 import io.ktor.utils.io.core.toByteArray

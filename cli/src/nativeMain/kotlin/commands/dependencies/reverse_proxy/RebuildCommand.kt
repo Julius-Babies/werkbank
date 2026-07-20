@@ -1,7 +1,7 @@
 package commands.dependencies.reverse_proxy
 
 import app.dependencies.docker.DockerContainer
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.reverse_proxy.ReverseProxy
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
@@ -11,34 +11,36 @@ import org.koin.core.component.inject
 class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
 
     private val recreate by option("--recreate", help = "Recreates the reverse proxy container").flag()
-    private val traefikManager by inject<TraefikManager>()
+    private val reverseProxy by inject<ReverseProxy>()
 
     override suspend fun run() {
         if (currentContext.invokedSubcommand != null) return
 
+        val containers = reverseProxy.managedContainers()
+
         if (recreate) {
-            if (traefikManager.getContainer().getState() == DockerContainer.State.Running) {
-                println("Stopping Traefik...")
-                traefikManager.stop()
+            if (containers.any { it.getState() == DockerContainer.State.Running }) {
+                println("Stopping reverse proxy...")
+                reverseProxy.stop()
             }
 
-            if (traefikManager.getContainer().getState() == DockerContainer.State.Stopped) {
-                println("Deleting Traefik container...")
-                traefikManager.getContainer().delete()
-            }
+            containers
+                .filter { it.getState() == DockerContainer.State.Stopped }
+                .forEach {
+                    println("Deleting reverse proxy container...")
+                    it.delete()
+                }
 
-            println("Recreating Traefik container...")
-            traefikManager.configure()
-            traefikManager.provision()
-            traefikManager.start()
+            println("Recreating reverse proxy container...")
         } else {
-            if (traefikManager.getContainer().getState() == DockerContainer.State.Running) {
-                println("Restarting Traefik...")
-                traefikManager.stop()
+            if (containers.any { it.getState() == DockerContainer.State.Running }) {
+                println("Restarting reverse proxy...")
+                reverseProxy.stop()
             }
-            traefikManager.configure()
-            traefikManager.provision()
-            traefikManager.start()
         }
+
+        reverseProxy.configure()
+        reverseProxy.provision()
+        reverseProxy.start()
     }
 }

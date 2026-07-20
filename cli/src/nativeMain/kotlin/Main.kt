@@ -4,7 +4,9 @@ import app.dependencies.android_dns.Unbound
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.openssl.OpensslHandler
 import app.dependencies.postgres.Postgres18
-import app.dependencies.reverse_proxy.TraefikManager
+import app.dependencies.reverse_proxy.ReverseProxy
+import app.dependencies.reverse_proxy.ReverseProxyConfigurationResolver
+import app.dependencies.reverse_proxy.traefik.TraefikReverseProxy
 import app.dependencies.AppDependency
 import app.dependencies.DependencyOrchestrator
 import app.dependencies.jaeger.Jaeger
@@ -47,7 +49,8 @@ fun main(args: Array<String>) {
                     single<DockerClient> { DockerClient() }
                     single<DockerNetwork> { DockerNetwork() }
                     singleOf(::Postgres18)
-                    singleOf(::TraefikManager)
+                    single<ReverseProxyConfigurationResolver> { ReverseProxyConfigurationResolver() }
+                    single<ReverseProxy> { TraefikReverseProxy() }
                     singleOf(::Unbound)
                     singleOf(::MongoDb)
                     singleOf(::RabbitMq)
@@ -56,7 +59,7 @@ fun main(args: Array<String>) {
 
                     // Aggregate all AppDependencies for convenient injection as a list
                     single<List<AppDependency>>(named("Dependencies")) { listOf(
-                        get<TraefikManager>(),
+                        get<ReverseProxy>(),
                         get<Unbound>(),
                         get<Postgres18>(),
                         get<MongoDb>(),

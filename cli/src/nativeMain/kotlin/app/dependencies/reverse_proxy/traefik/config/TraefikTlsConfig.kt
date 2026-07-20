@@ -1,4 +1,4 @@
-package app.dependencies.reverse_proxy
+package app.dependencies.reverse_proxy.traefik.config
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
