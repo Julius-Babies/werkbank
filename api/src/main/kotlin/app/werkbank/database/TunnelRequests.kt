@@ -15,7 +15,8 @@ import kotlin.uuid.Uuid
 class TunnelRequest(id: EntityID<Uuid>): UuidEntity(id) {
     companion object: UuidEntityClass<TunnelRequest>(TunnelRequests)
 
-    var service by Service referencedOn TunnelRequests.service
+    var service by Service optionalReferencedOn TunnelRequests.service
+    var project by Project referencedOn TunnelRequests.project
     var method by TunnelRequests.method
     var uri by TunnelRequests.uri
     var requestHeaders by TunnelRequests.requestHeaders
@@ -38,12 +39,13 @@ object TunnelRequests : UuidTable("tunnel_requests") {
         prettyPrint = false
     }
 
-    val service = reference("service", Services, onDelete = ReferenceOption.CASCADE)
+    val service = reference("service", Services, onDelete = ReferenceOption.CASCADE).nullable()
+    val project = reference("project", Projects, onDelete = ReferenceOption.CASCADE)
     val method = varchar("method", 16)
     val uri = varchar("uri", 1024)
     val requestHeaders = json<Map<String, List<String>>>("request_headers", jsonFormat)
     val responseHeaders = json<Map<String, List<String>>>("response_headers", jsonFormat).nullable()
-    val result = json<TunnelRequestResult>("result", jsonFormat)
+    val result = json<TunnelRequestResult>("result", jsonFormat).nullable()
     val requestBody = blob("request_body").nullable()
     val responseBody = blob("response_body").nullable()
     val startedAt = timestamp("started_at")

@@ -107,12 +107,11 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             val tunnel = tunnelManager.getTunnel(user)
 
             if (tunnel == null) {
-                val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-not-running").apply {
-                    parameters.append("project_id", project.id.value.toHexString())
-                    parameters.append("owner_id", project.owner.id.value.toHexString())
-                    parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                    parameters.append("owner_username", project.owner.username)
-                } }.build()
+                val url = with(call) {
+                    URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-not-running")
+                        .applyProjectContextForErrorPage()
+                        .build()
+                }
                 call.respondWebpage(url, appConfig.appDomain)
                 return@onCall
             }
@@ -224,37 +223,33 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         tunnel.updateProxyRequestRecord(requestId) {
                             it.copy(error = "Request timed out", completedAt = System.currentTimeMillis())
                         }
-                        val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout").apply {
-                            parameters.append("project_id", project.id.value.toHexString())
-                            parameters.append("owner_id", project.owner.id.value.toHexString())
-                            parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                            parameters.append("owner_username", project.owner.username)
-                        } }.build()
+                        val url = with(call) {
+                            URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout")
+                                .applyProjectContextForErrorPage()
+                                .build()
+                        }
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (_: TunnelClosedException) {
                         tunnel.updateProxyRequestRecord(requestId) {
                             it.copy(error = "Tunnel connection closed", completedAt = System.currentTimeMillis())
                         }
-                        val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed").apply {
-                            parameters.append("project_id", project.id.value.toHexString())
-                            parameters.append("owner_id", project.owner.id.value.toHexString())
-                            parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                            parameters.append("owner_username", project.owner.username)
-                        } }.build()
+                        val url = with(call) {
+                            URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed")
+                                .applyProjectContextForErrorPage()
+                                .build()
+                        }
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (_: ServerNotRunningException) {
                         tunnel.updateProxyRequestRecord(requestId) {
                             it.copy(error = "Service not running", completedAt = System.currentTimeMillis())
                         }
-                        val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running").apply {
-                            parameters.append("project_id", project.id.value.toHexString())
-                            parameters.append("owner_id", project.owner.id.value.toHexString())
-                            parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                            parameters.append("owner_username", project.owner.username)
-                            parameters.append("service_name", service?.serviceKey ?: "null")
-                        } }.build()
+                        val url = with(call) {
+                            URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running")
+                                .applyProjectContextForErrorPage()
+                                .build()
+                        }
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     }
@@ -445,4 +440,18 @@ private suspend fun persistTunnelRequest(
         println("Failed to persist decoded bodies for $requestId, storing raw instead: ${e.message}")
         writeRecord(decode = false)
     }
+}
+
+context(call: ApplicationCall)
+suspend fun URLBuilder.applyProjectContextForErrorPage(): URLBuilder {
+    val db by call.inject<DatabaseManager>()
+    val project = call.attributes[targetProject]
+    db.query {
+        parameters.append("project_id", project.id.value.toHexString())
+        parameters.append("owner_id", project.owner.id.value.toHexString())
+        parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
+        parameters.append("owner_username", project.owner.username)
+    }
+
+    return this
 }
