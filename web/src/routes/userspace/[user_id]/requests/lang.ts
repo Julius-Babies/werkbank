@@ -10,6 +10,11 @@ export const en = {
                 title: "No requests yet",
                 description: "You haven't made any requests yet. Use the wb tunnel to get started.",
                 install: "Install WB CLI",
+                filtered: {
+                    title: "No matching requests",
+                    description: "{count, plural, one {# request is hidden by the current filter.} other {# requests are hidden by the current filter.}}",
+                    clear: "Clear filter",
+                },
             },
         },
     },
@@ -27,6 +32,11 @@ export const de = {
                 title: "Noch keine Anfragen",
                 description: "Du hast noch keine Anfragen gestellt. Verwende den wb tunnel, um loszulegen.",
                 install: "WB CLI installieren",
+                filtered: {
+                    title: "Keine passenden Anfragen",
+                    description: "{count, plural, one {# Anfrage wird vom aktuellen Filter ausgeblendet.} other {# Anfragen werden vom aktuellen Filter ausgeblendet.}}",
+                    clear: "Filter zurücksetzen",
+                },
             },
         },
     },

@@ -86,8 +86,6 @@
         return result
     });
 
-    $inspect(page.url.pathname)
-
     let showAppShell = $derived.by(() => {
         if (page.url.pathname.startsWith("/project-opener/pending")) return false
 
