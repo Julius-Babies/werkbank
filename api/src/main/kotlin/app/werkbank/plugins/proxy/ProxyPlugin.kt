@@ -171,7 +171,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     else File(tempDir, "tunnel-req-$requestId")
                 val responseBodyFile = File(tempDir, "tunnel-res-$requestId")
 
-                tunnel.addProxyRequestRecord(
+                val proxyRequest = tunnel.startRequest(
                     TunnelRequestRecord(
                         requestId = requestId,
                         method = call.request.httpMethod.value,
@@ -189,40 +189,20 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         completedAt = null,
                         requestBodyPath = requestBodyFile?.path,
                         responseBodyPath = responseBodyFile.path,
-                    )
+                    ),
+                    proxyScope,
                 )
 
                 try {
                     val response = try {
-                        val result = tunnel.request(
-                            method = call.request.httpMethod,
-                            projectName = project.projectKey,
-                            serviceName = service?.serviceKey,
-                            path = call.request.uri,
-                            headers = call.request.headers.toMap(),
+                        proxyRequest.send(
                             body = when (call.request.httpMethod) {
                                 HttpMethod.Get -> null
                                 else -> call.receiveChannel().teeToFile(requestBodyFile!!, proxyScope)
                             },
-                            coroutineScope = proxyScope,
-                            requestId = requestId,
                         )
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(sentToTunnelAt = System.currentTimeMillis())
-                        }
-                        val response = result.await()
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(
-                                responseStartedAt = System.currentTimeMillis(),
-                                statusCode = response.status.value,
-                                responseHeaders = response.headers,
-                            )
-                        }
-                        response
+                        proxyRequest.awaitResponse()
                     } catch (_: TimeoutException) {
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(error = "Request timed out", completedAt = System.currentTimeMillis())
-                        }
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout")
                                 .applyProjectContextForErrorPage()
@@ -231,9 +211,6 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (_: TunnelClosedException) {
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(error = "Tunnel connection closed", completedAt = System.currentTimeMillis())
-                        }
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed")
                                 .applyProjectContextForErrorPage()
@@ -242,9 +219,6 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (_: ServerNotRunningException) {
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(error = "Service not running", completedAt = System.currentTimeMillis())
-                        }
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running")
                                 .applyProjectContextForErrorPage()
@@ -276,16 +250,8 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                                         }
                                     }
                                 }
-                                tunnel.updateProxyRequestRecord(requestId) {
-                                    it.copy(completedAt = System.currentTimeMillis())
-                                }
                             } catch (e: Exception) {
-                                tunnel.updateProxyRequestRecord(requestId) {
-                                    it.copy(
-                                        error = it.error ?: (e.message ?: "Response streaming failed"),
-                                        completedAt = System.currentTimeMillis(),
-                                    )
-                                }
+                                proxyRequest.fail(e)
                                 throw e
                             }
                         }
@@ -293,8 +259,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 } finally {
                     persistTunnelRequest(
                         db = db,
-                        tunnel = tunnel,
-                        requestId = requestId,
+                        record = proxyRequest.snapshot.value,
                         projectId = project.id,
                         explicitServiceId = service?.id,
                         requestBodyFile = requestBodyFile,
@@ -363,15 +328,12 @@ private fun ByteReadChannel.teeToFile(file: File, scope: CoroutineScope): ByteRe
  */
 private suspend fun persistTunnelRequest(
     db: DatabaseManager,
-    tunnel: TunnelInstance,
-    requestId: Uuid,
+    record: TunnelRequestRecord,
     projectId: EntityID<Uuid>,
     explicitServiceId: EntityID<Uuid>?,
     requestBodyFile: File?,
     responseBodyFile: File?,
 ) {
-    val record = tunnel.proxyRequests.value.firstOrNull { it.requestId == requestId } ?: return
-
     // Bodies are stored exactly as they came over the tunnel, i.e. still compressed. Decode them so
     // the stored copy is the plain body and drop the Content-Encoding header that no longer applies.
     // `decode = false` reproduces the raw behaviour and is used as a fallback if decoding blows up on
@@ -399,7 +361,7 @@ private suspend fun persistTunnelRequest(
                         }.firstOrNull()
                     }
                 if (serviceEntity == null) {
-                    println("Skipping tunnel request persistence for $requestId: no resolved service")
+                    println("Skipping tunnel request persistence for ${record.requestId}: no resolved service")
                     return@query
                 }
 
@@ -411,7 +373,7 @@ private suspend fun persistTunnelRequest(
                     else -> TunnelRequestResult.Failure("Request did not complete")
                 }
 
-                TunnelRequest.new(requestId) {
+                TunnelRequest.new(record.requestId) {
                     this.service = serviceEntity
                     this.method = record.method
                     this.uri = record.uri
@@ -437,7 +399,7 @@ private suspend fun persistTunnelRequest(
     try {
         writeRecord(decode = true)
     } catch (e: Exception) {
-        println("Failed to persist decoded bodies for $requestId, storing raw instead: ${e.message}")
+        println("Failed to persist decoded bodies for ${record.requestId}, storing raw instead: ${e.message}")
         writeRecord(decode = false)
     }
 }

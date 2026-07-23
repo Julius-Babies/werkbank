@@ -1,39 +1,28 @@
 package app.werkbank.app.tunnel
 
 import app.werkbank.database.User
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.getAndUpdate
+import java.util.concurrent.ConcurrentHashMap
 
 class TunnelManager {
-    private val tunnels = mutableMapOf<User.Id, TunnelInstance>()
-    private val tunnelsFlow = mutableMapOf<User.Id, List<Channel<TunnelInstance?>>>()
+    private val tunnels = ConcurrentHashMap<User.Id, MutableStateFlow<TunnelInstance?>>()
 
-    fun getTunnel(user: User): TunnelInstance? = tunnels[user.id.value]
+    private fun flowFor(userId: User.Id): MutableStateFlow<TunnelInstance?> =
+        tunnels.getOrPut(userId) { MutableStateFlow(null) }
 
-    suspend fun onNewIncomingTunnel(
-        user: User,
-        tunnelInstance: TunnelInstance,
-    ) {
-        tunnels[user.id.value] = tunnelInstance
-        tunnelsFlow[user.id.value]?.forEach { it.send(tunnelInstance) }
+    /** The currently active tunnel for [user], or `null` if none is connected. */
+    fun getTunnel(user: User): TunnelInstance? = flowFor(user.id.value).value
+
+    /** Observe tunnel connect/disconnect for [user]. Emits the current value immediately. */
+    fun tunnelFlow(user: User): StateFlow<TunnelInstance?> = flowFor(user.id.value)
+
+    fun onNewIncomingTunnel(user: User, tunnelInstance: TunnelInstance) {
+        flowFor(user.id.value).getAndUpdate { tunnelInstance }?.close()
     }
 
-    suspend fun onTunnelClosed(user: User) {
-        val tunnel = tunnels.remove(user.id.value)
-        tunnel?.close()
-        tunnelsFlow[user.id.value]?.forEach { it.send(null) }
-    }
-
-    suspend fun subscribeToTunnel(user: User): Channel<TunnelInstance?> {
-        val channel = Channel<TunnelInstance?>(8, BufferOverflow.DROP_OLDEST)
-        if (tunnelsFlow[user.id.value] == null) tunnelsFlow[user.id.value] = listOf(channel)
-        else tunnelsFlow[user.id.value] = tunnelsFlow[user.id.value]!!.plus(channel)
-        channel.send(tunnels[user.id.value])
-        return channel
-    }
-
-    fun unsubscribeFromTunnel(user: User, channel: Channel<TunnelInstance?>) {
-        channel.close()
-        tunnelsFlow[user.id.value] = tunnelsFlow[user.id.value]!!.minus(channel)
+    fun onTunnelClosed(user: User) {
+        flowFor(user.id.value).getAndUpdate { null }?.close()
     }
 }

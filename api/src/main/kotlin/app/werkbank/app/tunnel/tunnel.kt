@@ -15,22 +15,22 @@ import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import org.koin.ktor.ext.inject
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
+
+typealias RequestId = Uuid
 
 fun Route.tunnel() {
 
@@ -39,21 +39,21 @@ fun Route.tunnel() {
     authenticate(AUTH_USER_JWT) {
         webSocket {
             val user = call.principal<UserPrincipal>()!!
-            val instance = TunnelInstance(this)
-            tunnelManager.onNewIncomingTunnel(user.user, instance)
+            val connection = TunnelInstance(this)
+            tunnelManager.onNewIncomingTunnel(user.user, connection)
 
             launchConnectionJob(call.application, "tunnel-ping") {
                 while (true) {
                     val pingId = Uuid.random()
                     val startTime = System.currentTimeMillis()
-                    val latch = instance.awaitPong(pingId)
+                    val latch = connection.awaitPong(pingId)
                     sendSerialized<ServerMessage>(ServerMessage.Ping(pingId))
                     val ok = withTimeoutOrNull(5.seconds) {
                         latch.await()
                         true
                     } ?: false
                     if (ok) {
-                        instance.currentPingMs = System.currentTimeMillis() - startTime
+                        connection.updatePingMs(System.currentTimeMillis() - startTime)
                     }
                     delay(3.seconds)
                 }
@@ -66,70 +66,20 @@ fun Route.tunnel() {
                             val bytes = frame.readBytes()
                             if (bytes.size < 16) continue
                             val requestId = Uuid.fromByteArray(bytes.copyOfRange(0, 16))
-                            instance.pendingCalls[requestId]?.send(
+                            connection.dispatch(
                                 ClientMessage.HttpBody(
                                     requestId = requestId,
-                                    body = Base64.encode(bytes.copyOfRange(16, bytes.size))
+                                    body = Base64.encode(bytes.copyOfRange(16, bytes.size)),
                                 )
                             )
                         }
 
                         is Frame.Text -> {
                             when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
-                                is ClientMessage.RequestResolved -> {
-                                    instance.updateProxyRequestRecord(message.requestId) {
-                                        it.copy(serviceName = message.service)
-                                    }
-                                }
-
-                                is ClientMessage.HttpResponse -> {
-                                    val requestId = message.requestId
-                                    instance.pendingCalls[requestId]?.send(message)
-                                }
-
-                                is ClientMessage.HttpBody -> {
-                                    val requestId = message.requestId
-                                    instance.pendingCalls[requestId]?.send(message)
-                                }
-
-                                is ClientMessage.Timeout -> {
-                                    val requestId = message.requestId
-                                    instance.pendingCalls[requestId]?.send(message)
-                                }
-
-                                is ClientMessage.ServerNotRuning -> {
-                                    val requestId = message.requestId
-                                    instance.pendingCalls[requestId]?.send(message)
-                                }
-
-                                is ClientMessage.HttpEnd -> {
-                                    val requestId = message.requestId
-                                    instance.pendingCalls[requestId]?.send(message)
-                                }
-
-                                is ClientMessage.WsOpened -> {
-                                    val requestId = message.requestId
-                                    instance.pendingCalls[requestId]?.send(message)
-                                }
-
-                                is ClientMessage.WsText -> {
-                                    instance.wsBridges[message.requestId]?.onTunnelMessage(message)
-                                }
-
-                                is ClientMessage.WsBinary -> {
-                                    instance.wsBridges[message.requestId]?.onTunnelMessage(message)
-                                }
-
-                                is ClientMessage.WsClose -> {
-                                    instance.wsBridges[message.requestId]?.onTunnelMessage(message)
-                                }
-                                is ClientMessage.Ping -> {
+                                is ClientMessage.Ping ->
                                     sendSerialized<ServerMessage>(ServerMessage.Pong(message.requestId))
-                                }
-
-                                is ClientMessage.Pong -> {
-                                    instance.onPongReceived(message.requestId)
-                                }
+                                is ClientMessage.Pong -> connection.onPongReceived(message.requestId)
+                                else -> connection.dispatch(message)
                             }
                         }
 
@@ -145,40 +95,94 @@ fun Route.tunnel() {
     }
 }
 
+/**
+ * A consumer of the client messages that belong to one request id. The [TunnelInstance] multiplexer
+ * routes every incoming [ClientMessage] to the sink registered under [ClientMessage.requestId]; it
+ * neither knows nor cares whether that sink is an HTTP [ProxyRequest] or a [WsBridge].
+ */
+interface MessageSink {
+    suspend fun onClientMessage(message: ClientMessage)
+
+    /** Invoked when the whole tunnel goes away, so the sink can release everyone waiting on it. */
+    fun onClosed(cause: Throwable?)
+}
+
+/**
+ * One physical tunnel WebSocket, acting purely as a multiplexer: it owns the socket, the ping/pong
+ * liveness probe and the routing table from request id to [MessageSink]. The per-request lifecycle
+ * (status transitions, response streaming) lives in [ProxyRequest], not here.
+ */
 class TunnelInstance(
     val webSocketSession: DefaultWebSocketServerSession,
 ) {
-    typealias RequestId = Uuid
+    private val sinks = ConcurrentHashMap<RequestId, MessageSink>()
 
-    val pendingCalls = ConcurrentHashMap<RequestId, Channel<ClientMessage>>()
-    val wsBridges = ConcurrentHashMap<RequestId, WsBridge>()
+    private val _requests = MutableStateFlow<List<ProxyRequest>>(emptyList())
 
-    @Volatile
-    var currentPingMs: Long? = null
+    /** All requests seen on this tunnel, in arrival order. Observe each one's own [ProxyRequest.snapshot]. */
+    val requests: StateFlow<List<ProxyRequest>> = _requests
 
-    private val _proxyRequests = MutableStateFlow<List<TunnelRequestRecord>>(emptyList())
-    val proxyRequests: StateFlow<List<TunnelRequestRecord>> = _proxyRequests
+    private val _pingMs = MutableStateFlow<Long?>(null)
+    val pingMs: StateFlow<Long?> = _pingMs
 
-    private val _requestUpdates = MutableSharedFlow<TunnelRequestRecord>(extraBufferCapacity = 64)
-    val requestUpdates: SharedFlow<TunnelRequestRecord> = _requestUpdates
-
-    fun addProxyRequestRecord(record: TunnelRequestRecord) {
-        _proxyRequests.update { it + record }
-        _requestUpdates.tryEmit(record)
+    fun updatePingMs(value: Long) {
+        _pingMs.value = value
     }
 
-    fun updateProxyRequestRecord(requestId: Uuid, update: (TunnelRequestRecord) -> TunnelRequestRecord) {
-        var updated: TunnelRequestRecord? = null
-        _proxyRequests.update { list ->
-            list.map {
-                if (it.requestId == requestId) {
-                    val new = update(it)
-                    updated = new
-                    new
-                } else it
-            }
+    /** Registers a new outgoing HTTP request and returns its live handle. Call [ProxyRequest.send] to fire it. */
+    fun startRequest(record: TunnelRequestRecord, scope: CoroutineScope): ProxyRequest {
+        val request = ProxyRequest(record, this, scope)
+        sinks[record.requestId] = request
+        _requests.update { it + request }
+        return request
+    }
+
+    /** Routes an incoming client message to whatever sink owns its request id. */
+    suspend fun dispatch(message: ClientMessage) {
+        sinks[message.requestId]?.onClientMessage(message)
+    }
+
+    internal fun unregister(requestId: RequestId) {
+        sinks.remove(requestId)
+    }
+
+    suspend fun send(message: ServerMessage) {
+        webSocketSession.sendSerialized<ServerMessage>(message)
+    }
+
+    suspend fun sendBinary(requestId: RequestId, bytes: ByteArray) {
+        val frameData = ByteArray(16 + bytes.size)
+        requestId.toByteArray().copyInto(frameData)
+        bytes.copyInto(frameData, 16)
+        webSocketSession.send(Frame.Binary(true, frameData))
+    }
+
+    suspend fun wsProxy(
+        projectName: String,
+        serviceName: String?,
+        path: String,
+        headers: Map<String, List<String>>,
+    ): WsBridge {
+        val requestId: RequestId = Uuid.random()
+        val bridge = WsBridge(requestId, this)
+        sinks[requestId] = bridge
+
+        send(
+            ServerMessage.WsOpen(
+                requestId = requestId,
+                project = projectName,
+                service = serviceName,
+                path = path,
+                headers = headers.toHeaderLines(),
+            )
+        )
+
+        val opened = withTimeoutOrNull(30.seconds) { bridge.awaitOpened() }
+        if (opened == null) {
+            bridge.close()
+            throw TunnelClosedException("WebSocket proxy timed out waiting for client")
         }
-        updated?.let { _requestUpdates.tryEmit(it) }
+        return bridge
     }
 
     private val pingLock = Any()
@@ -202,166 +206,161 @@ class TunnelInstance(
         }
     }
 
-    suspend fun sendMessage(message: ServerMessage) {
-        webSocketSession.sendSerialized<ServerMessage>(message)
+    fun close() {
+        sinks.values.forEach { it.onClosed(TunnelClosedException()) }
+        sinks.clear()
     }
+}
 
-    suspend fun wsProxy(
-        projectName: String,
-        serviceName: String?,
-        path: String,
-        headers: Map<String, List<String>>,
-    ): WsBridge {
-        val requestId: RequestId = Uuid.random()
+/**
+ * The live handle for a single HTTP request flowing through a tunnel. Once [send] is called it owns
+ * the whole downstream lifecycle: it consumes the client's messages, drives the status transitions
+ * on its own [snapshot] and streams the response body. The tunnel only feeds it messages.
+ */
+class ProxyRequest internal constructor(
+    initial: TunnelRequestRecord,
+    private val connection: TunnelInstance,
+    private val scope: CoroutineScope,
+) : MessageSink {
 
-        val channel = Channel<ClientMessage>()
-        pendingCalls[requestId] = channel
+    val requestId: RequestId = initial.requestId
 
-        webSocketSession.sendSerialized<ServerMessage>(
-            ServerMessage.WsOpen(
-            requestId = requestId,
-            project = projectName,
-            service = serviceName,
-            path = path,
-            headers = headers.flatMap { (key, values) ->
-                values.map { "$key: $it" }
-            }
-        ))
+    private val _snapshot = MutableStateFlow(initial)
 
-        val response = withTimeoutOrNull(30.seconds) {
-            channel.receive()
-        }
+    /** The observable state of this request; every phase transition emits a new value. */
+    val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
 
-        if (response == null) {
-            pendingCalls.remove(requestId)
-            channel.close()
-            throw TunnelClosedException("WebSocket proxy timed out waiting for client")
-        }
+    private val inbox = Channel<ClientMessage>()
+    private val responseBodyChannel = ByteChannel()
+    private val response = CompletableDeferred<TunnelResponse>()
 
-        if (response !is ClientMessage.WsOpened) {
-            pendingCalls.remove(requestId)
-            channel.close()
-            throw IllegalStateException("Expected WsOpened but got $response")
-        }
-
-        val bridge = WsBridge(requestId, this)
-        wsBridges[requestId] = bridge
-        pendingCalls.remove(requestId)
-        channel.close()
-        return bridge
-    }
-
-    suspend fun request(
-        method: HttpMethod,
-        projectName: String,
-        serviceName: String?,
-        path: String,
-        headers: Map<String, List<String>>,
-        body: ByteReadChannel?,
-        coroutineScope: CoroutineScope,
-        requestId: RequestId = Uuid.random(),
-    ): Deferred<Response> {
-
-        val incomingChannel = Channel<ClientMessage>()
-        pendingCalls[requestId] = incomingChannel
-
-        this.webSocketSession.sendSerialized<ServerMessage>(
+    /** Sends the request (headers, body, end) over the tunnel and starts consuming the response. */
+    suspend fun send(body: ByteReadChannel?) {
+        val snap = _snapshot.value
+        connection.send(
             ServerMessage.HttpRequest(
-            requestId = requestId,
-            project = projectName,
-            service = serviceName,
-            path = path,
-            method = method.value,
-            headers = headers.flatMap { (key, values) ->
-                values.map { "$key: $it" }
-            }
-        ))
-
-        body?.rawChunks { rawBytes ->
-            val frameData = ByteArray(16 + rawBytes.size)
-            requestId.toByteArray().copyInto(frameData)
-            rawBytes.copyInto(frameData, 16)
-            webSocketSession.send(Frame.Binary(true, frameData))
-        }
-
-        this.webSocketSession.sendSerialized<ServerMessage>(
-            ServerMessage.HttpEnd(
-                requestId = requestId
+                requestId = requestId,
+                project = snap.projectName,
+                service = snap.serviceName,
+                path = snap.uri,
+                method = snap.method,
+                headers = snap.requestHeaders.toHeaderLines(),
             )
         )
 
-        val responseBodyChannel = ByteChannel()
-        val result = CompletableDeferred<Response>()
-        coroutineScope.launch {
-            for (incoming in incomingChannel) {
-                try {
-                    when (incoming) {
-                        is ClientMessage.Timeout -> throw TimeoutException()
-                        is ClientMessage.ServerNotRuning -> throw ServerNotRunningException()
-                        is ClientMessage.HttpResponse -> result.complete(
-                            Response(
-                                status = HttpStatusCode.fromValue(incoming.statusCode),
-                                headers = incoming.headers
-                                    .map { it.split(": ", limit = 2) }
-                                    .map { it.component1() to it.component2() }
-                                    .groupBy { it.first }
-                                    .mapValues { it.value.map { it.second } },
-                                body = responseBodyChannel
-                            )
-                        )
+        body?.rawChunks { connection.sendBinary(requestId, it) }
 
-                        is ClientMessage.HttpBody -> {
-                            val bytes = Base64.decode(incoming.body)
-                            responseBodyChannel.writeFully(bytes)
-                            responseBodyChannel.flush()
-                        }
+        connection.send(ServerMessage.HttpEnd(requestId))
+        _snapshot.update { it.copy(sentToTunnelAt = System.currentTimeMillis()) }
 
-                        is ClientMessage.HttpEnd -> {
-                            responseBodyChannel.flushAndClose()
-                            pendingCalls[requestId]?.close()
-                            pendingCalls.remove(requestId)
-                        }
+        scope.launch { consume() }
+    }
 
-                        else -> {}
+    /** Suspends until response headers arrive; throws [TimeoutException]/[ServerNotRunningException]/[TunnelClosedException]. */
+    suspend fun awaitResponse(): TunnelResponse = response.await()
+
+    override suspend fun onClientMessage(message: ClientMessage) {
+        inbox.send(message)
+    }
+
+    override fun onClosed(cause: Throwable?) {
+        inbox.close(cause ?: TunnelClosedException())
+    }
+
+    /**
+     * Records a terminal failure that originates outside the tunnel — e.g. the response could not be
+     * streamed to the browser. Idempotent: an already-recorded error/completion is kept.
+     */
+    fun fail(cause: Throwable) {
+        if (!response.isCompleted) response.completeExceptionally(cause)
+        responseBodyChannel.close(cause)
+        _snapshot.update {
+            it.copy(
+                error = it.error ?: cause.message ?: cause::class.simpleName ?: "Request failed",
+                completedAt = it.completedAt ?: System.currentTimeMillis(),
+            )
+        }
+        connection.unregister(requestId)
+        inbox.close()
+    }
+
+    private suspend fun consume() {
+        try {
+            for (message in inbox) {
+                when (message) {
+                    is ClientMessage.RequestResolved ->
+                        _snapshot.update { it.copy(serviceName = message.service) }
+
+                    is ClientMessage.Timeout -> throw TimeoutException()
+                    is ClientMessage.ServerNotRuning -> throw ServerNotRunningException()
+
+                    is ClientMessage.HttpResponse -> onResponse(message)
+
+                    is ClientMessage.HttpBody -> {
+                        responseBodyChannel.writeFully(Base64.decode(message.body))
+                        responseBodyChannel.flush()
                     }
-                } catch (e: Exception) {
-                    pendingCalls[requestId]?.close()
-                    pendingCalls.remove(requestId)
-                    result.completeExceptionally(e)
+
+                    is ClientMessage.HttpEnd -> {
+                        responseBodyChannel.flushAndClose()
+                        finish()
+                    }
+
+                    else -> {}
                 }
             }
-        }
-
-        return result
-    }
-
-    fun close() {
-        this.pendingCalls.values.forEach {
-            it.close(TunnelClosedException())
-        }
-        this.wsBridges.values.toList().forEach {
-            it.close()
+        } catch (e: CancellationException) {
+            fail(e)
+            throw e
+        } catch (e: Exception) {
+            fail(e)
         }
     }
 
-    data class Response(
-        val status: HttpStatusCode,
-        val headers: Map<String, List<String>>,
-        val body: ByteReadChannel?,
-    )
+    private fun onResponse(message: ClientMessage.HttpResponse) {
+        val headers = message.headers
+            .map { it.split(": ", limit = 2) }
+            .filter { it.size == 2 }
+            .groupBy({ it[0] }, { it[1] })
+        _snapshot.update {
+            it.copy(
+                responseStartedAt = System.currentTimeMillis(),
+                statusCode = message.statusCode,
+                responseHeaders = headers,
+            )
+        }
+        response.complete(
+            TunnelResponse(
+                status = HttpStatusCode.fromValue(message.statusCode),
+                headers = headers,
+                body = responseBodyChannel,
+            )
+        )
+    }
+
+    private fun finish() {
+        _snapshot.update { it.copy(completedAt = it.completedAt ?: System.currentTimeMillis()) }
+        connection.unregister(requestId)
+        inbox.close()
+    }
 }
 
 class WsBridge(
-    val requestId: Uuid,
-    private val tunnelInstance: TunnelInstance,
-) {
+    val requestId: RequestId,
+    private val connection: TunnelInstance,
+) : MessageSink {
     private val _incomingFrames = Channel<Frame>(Channel.UNLIMITED)
     val incomingFrames: ReceiveChannel<Frame> = _incomingFrames
 
+    private val opened = CompletableDeferred<Unit>()
+
+    /** Suspends until the client confirms the upstream socket is open. */
+    suspend fun awaitOpened() = opened.await()
+
     suspend fun send(frame: Frame) {
         when (frame) {
-            is Frame.Text -> tunnelInstance.sendMessage(ServerMessage.WsText(requestId, frame.readText()))
-            is Frame.Binary -> tunnelInstance.sendMessage(
+            is Frame.Text -> connection.send(ServerMessage.WsText(requestId, frame.readText()))
+            is Frame.Binary -> connection.send(
                 ServerMessage.WsBinary(
                     requestId = requestId,
                     fin = frame.fin,
@@ -369,7 +368,7 @@ class WsBridge(
                 )
             )
 
-            is Frame.Close -> tunnelInstance.sendMessage(
+            is Frame.Close -> connection.send(
                 ServerMessage.WsClose(
                     requestId,
                     frame.readReason()?.code?.toInt() ?: 1000,
@@ -381,8 +380,9 @@ class WsBridge(
         }
     }
 
-    fun onTunnelMessage(message: ClientMessage) {
+    override suspend fun onClientMessage(message: ClientMessage) {
         when (message) {
+            is ClientMessage.WsOpened -> opened.complete(Unit)
             is ClientMessage.WsText -> _incomingFrames.trySend(Frame.Text(message.text))
             is ClientMessage.WsBinary -> _incomingFrames.trySend(Frame.Binary(true, Base64.decode(message.body)))
             is ClientMessage.WsClose -> {
@@ -393,12 +393,26 @@ class WsBridge(
         }
     }
 
+    override fun onClosed(cause: Throwable?) {
+        close()
+    }
+
     fun close() {
+        if (!opened.isCompleted) opened.completeExceptionally(TunnelClosedException())
         _incomingFrames.close()
-        tunnelInstance.wsBridges.remove(requestId)
+        connection.unregister(requestId)
     }
 }
 
-class TimeoutException : Exception()
-class ServerNotRunningException : Exception()
-class TunnelClosedException(message: String? = null) : Exception(message)
+data class TunnelResponse(
+    val status: HttpStatusCode,
+    val headers: Map<String, List<String>>,
+    val body: ByteReadChannel?,
+)
+
+class TimeoutException : Exception("Request timed out")
+class ServerNotRunningException : Exception("Service not running")
+class TunnelClosedException(message: String? = null) : Exception(message ?: "Tunnel connection closed")
+
+private fun Map<String, List<String>>.toHeaderLines(): List<String> =
+    flatMap { (key, values) -> values.map { "$key: $it" } }

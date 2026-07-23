@@ -28,10 +28,10 @@ fun Route.getRequest() {
                     method = request.method,
                     uri = request.uri,
                     target = RequestResponse.Target(
-                        projectId = request.service.project.id.value,
-                        projectName = request.service.project.name,
-                        serviceId = request.service.id.value,
-                        serviceName = request.service.serviceKey,
+                        projectId = request.project.id.value,
+                        projectName = request.project.name,
+                        serviceId = request.service?.id?.value,
+                        serviceName = request.service?.serviceKey,
                     ),
                     requestHeaders = request.requestHeaders,
                     requestBodySize = if (request.requestBody != null) TunnelRequests
@@ -98,7 +98,7 @@ data class RequestResponse(
     data class Target(
         @SerialName("project_id") val projectId: Uuid,
         @SerialName("project_name") val projectName: String,
-        @SerialName("service_id") val serviceId: Uuid,
-        @SerialName("service_name") val serviceName: String,
+        @SerialName("service_id") val serviceId: Uuid?,
+        @SerialName("service_name") val serviceName: String?,
     )
 }
