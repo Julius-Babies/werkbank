@@ -18,7 +18,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -108,6 +110,15 @@ interface MessageSink {
 }
 
 /**
+ * Something the overview UI can list and observe: an HTTP [ProxyRequest] or a [WsBridge]. Both expose
+ * their evolving state as a [snapshot] so consumers can render and stream it uniformly.
+ */
+sealed interface TrackedRequest {
+    val requestId: RequestId
+    val snapshot: StateFlow<TunnelRequestRecord>
+}
+
+/**
  * One physical tunnel WebSocket, acting purely as a multiplexer: it owns the socket, the ping/pong
  * liveness probe and the routing table from request id to [MessageSink]. The per-request lifecycle
  * (status transitions, response streaming) lives in [ProxyRequest], not here.
@@ -117,10 +128,10 @@ class TunnelInstance(
 ) {
     private val sinks = ConcurrentHashMap<RequestId, MessageSink>()
 
-    private val _requests = MutableStateFlow<List<ProxyRequest>>(emptyList())
+    private val _requests = MutableStateFlow<List<TrackedRequest>>(emptyList())
 
-    /** All requests seen on this tunnel, in arrival order. Observe each one's own [ProxyRequest.snapshot]. */
-    val requests: StateFlow<List<ProxyRequest>> = _requests
+    /** All requests seen on this tunnel, in arrival order. Observe each one's own [TrackedRequest.snapshot]. */
+    val requests: StateFlow<List<TrackedRequest>> = _requests
 
     private val _pingMs = MutableStateFlow<Long?>(null)
     val pingMs: StateFlow<Long?> = _pingMs
@@ -157,23 +168,19 @@ class TunnelInstance(
         webSocketSession.send(Frame.Binary(true, frameData))
     }
 
-    suspend fun wsProxy(
-        projectName: String,
-        serviceName: String?,
-        path: String,
-        headers: Map<String, List<String>>,
-    ): WsBridge {
-        val requestId: RequestId = Uuid.random()
-        val bridge = WsBridge(requestId, this)
-        sinks[requestId] = bridge
+    /** Registers a WebSocket proxy connection, performs the open handshake and returns its live bridge. */
+    suspend fun startWsProxy(record: TunnelRequestRecord): WsBridge {
+        val bridge = WsBridge(record, this)
+        sinks[record.requestId] = bridge
+        _requests.update { it + bridge }
 
         send(
             ServerMessage.WsOpen(
-                requestId = requestId,
-                project = projectName,
-                service = serviceName,
-                path = path,
-                headers = headers.toHeaderLines(),
+                requestId = record.requestId,
+                project = record.projectName,
+                service = record.serviceName,
+                path = record.uri,
+                headers = record.requestHeaders.toHeaderLines(),
             )
         )
 
@@ -182,6 +189,7 @@ class TunnelInstance(
             bridge.close()
             throw TunnelClosedException("WebSocket proxy timed out waiting for client")
         }
+        bridge.markEstablished()
         return bridge
     }
 
@@ -221,14 +229,14 @@ class ProxyRequest internal constructor(
     initial: TunnelRequestRecord,
     private val connection: TunnelInstance,
     private val scope: CoroutineScope,
-) : MessageSink {
+) : MessageSink, TrackedRequest {
 
-    val requestId: RequestId = initial.requestId
+    override val requestId: RequestId = initial.requestId
 
     private val _snapshot = MutableStateFlow(initial)
 
     /** The observable state of this request; every phase transition emits a new value. */
-    val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
+    override val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
 
     private val inbox = Channel<ClientMessage>()
     private val responseBodyChannel = ByteChannel()
@@ -345,10 +353,21 @@ class ProxyRequest internal constructor(
     }
 }
 
-class WsBridge(
-    val requestId: RequestId,
+/**
+ * The live handle for a proxied WebSocket connection. Every frame passes through here in both
+ * directions ([send] browser→dev-server, [onClientMessage] dev-server→browser), so this is also the
+ * capture point for the inspector: each frame is appended to the frame log and counted on [snapshot].
+ */
+class WsBridge internal constructor(
+    initial: TunnelRequestRecord,
     private val connection: TunnelInstance,
-) : MessageSink {
+) : MessageSink, TrackedRequest {
+
+    override val requestId: RequestId = initial.requestId
+
+    private val _snapshot = MutableStateFlow(initial)
+    override val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
+
     private val _incomingFrames = Channel<Frame>(Channel.UNLIMITED)
     val incomingFrames: ReceiveChannel<Frame> = _incomingFrames
 
@@ -357,50 +376,133 @@ class WsBridge(
     /** Suspends until the client confirms the upstream socket is open. */
     suspend fun awaitOpened() = opened.await()
 
+    private val frameLock = Any()
+    private val _frames = mutableListOf<WsFrameRecord>()
+    private val _frameEvents = MutableSharedFlow<WsFrameRecord>(extraBufferCapacity = 256)
+
+    /** New frames as they are captured. Combine with [framesSnapshot] for a gap-free replay-then-live view. */
+    val frameEvents: SharedFlow<WsFrameRecord> = _frameEvents
+
+    fun framesSnapshot(): List<WsFrameRecord> = synchronized(frameLock) { _frames.toList() }
+
+    fun markEstablished() {
+        _snapshot.update {
+            it.copy(
+                statusCode = 101,
+                sentToTunnelAt = it.sentToTunnelAt ?: System.currentTimeMillis(),
+                responseStartedAt = it.responseStartedAt ?: System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun record(
+        direction: WsFrameDirection,
+        opcode: WsFrameOpcode,
+        text: String?,
+        binaryBase64: String?,
+        size: Int,
+        closeCode: Int? = null,
+        closeReason: String? = null,
+    ) {
+        val frame = synchronized(frameLock) {
+            if (_frames.size >= MAX_FRAMES) return
+            WsFrameRecord(
+                sequence = _frames.size,
+                direction = direction,
+                opcode = opcode,
+                text = text,
+                binaryBase64 = binaryBase64,
+                size = size,
+                timestamp = System.currentTimeMillis(),
+                closeCode = closeCode,
+                closeReason = closeReason,
+            ).also { _frames.add(it) }
+        }
+        _snapshot.update {
+            when (direction) {
+                WsFrameDirection.CLIENT_TO_SERVER -> it.copy(wsFramesSent = it.wsFramesSent + 1)
+                WsFrameDirection.SERVER_TO_CLIENT -> it.copy(wsFramesReceived = it.wsFramesReceived + 1)
+            }
+        }
+        _frameEvents.tryEmit(frame)
+    }
+
+    /** Browser → dev server. */
     suspend fun send(frame: Frame) {
         when (frame) {
-            is Frame.Text -> connection.send(ServerMessage.WsText(requestId, frame.readText()))
-            is Frame.Binary -> connection.send(
-                ServerMessage.WsBinary(
-                    requestId = requestId,
-                    fin = frame.fin,
-                    body = Base64.encode(frame.readBytes())
-                )
-            )
+            is Frame.Text -> {
+                val text = frame.readText()
+                record(WsFrameDirection.CLIENT_TO_SERVER, WsFrameOpcode.TEXT, text, null, text.encodeToByteArray().size)
+                connection.send(ServerMessage.WsText(requestId, text))
+            }
 
-            is Frame.Close -> connection.send(
-                ServerMessage.WsClose(
-                    requestId,
-                    frame.readReason()?.code?.toInt() ?: 1000,
-                    frame.readReason()?.message ?: ""
-                )
-            )
+            is Frame.Binary -> {
+                val bytes = frame.readBytes()
+                val encoded = Base64.encode(bytes)
+                record(WsFrameDirection.CLIENT_TO_SERVER, WsFrameOpcode.BINARY, null, encoded, bytes.size)
+                connection.send(ServerMessage.WsBinary(requestId, frame.fin, encoded))
+            }
+
+            is Frame.Close -> {
+                val reason = frame.readReason()
+                val code = reason?.code?.toInt() ?: 1000
+                val message = reason?.message ?: ""
+                record(WsFrameDirection.CLIENT_TO_SERVER, WsFrameOpcode.CLOSE, null, null, 0, code, message)
+                connection.send(ServerMessage.WsClose(requestId, code, message))
+            }
 
             else -> {}
         }
     }
 
+    /** Dev server → browser. */
     override suspend fun onClientMessage(message: ClientMessage) {
         when (message) {
             is ClientMessage.WsOpened -> opened.complete(Unit)
-            is ClientMessage.WsText -> _incomingFrames.trySend(Frame.Text(message.text))
-            is ClientMessage.WsBinary -> _incomingFrames.trySend(Frame.Binary(true, Base64.decode(message.body)))
+
+            is ClientMessage.WsText -> {
+                record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.TEXT, message.text, null, message.text.encodeToByteArray().size)
+                _incomingFrames.trySend(Frame.Text(message.text))
+            }
+
+            is ClientMessage.WsBinary -> {
+                val bytes = Base64.decode(message.body)
+                record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.BINARY, null, message.body, bytes.size)
+                _incomingFrames.trySend(Frame.Binary(true, bytes))
+            }
+
             is ClientMessage.WsClose -> {
+                record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.CLOSE, null, null, 0, message.code, message.reason)
+                // A close before the open handshake completed means the upstream refused the connection;
+                // surface its reason so the proxy can report why instead of a generic failure.
+                if (!opened.isCompleted) {
+                    opened.completeExceptionally(
+                        TunnelClosedException("Upstream refused WebSocket (${message.code}): ${message.reason}")
+                    )
+                }
                 _incomingFrames.trySend(Frame.Close(CloseReason(message.code.toShort(), message.reason)))
                 close()
             }
+
             else -> {}
         }
     }
 
     override fun onClosed(cause: Throwable?) {
+        if (cause != null) _snapshot.update { it.copy(error = it.error ?: cause.message) }
         close()
     }
 
     fun close() {
         if (!opened.isCompleted) opened.completeExceptionally(TunnelClosedException())
+        _snapshot.update { it.copy(completedAt = it.completedAt ?: System.currentTimeMillis()) }
         _incomingFrames.close()
         connection.unregister(requestId)
+    }
+
+    companion object {
+        /** Safety cap on how many frames a single connection retains for the inspector. */
+        private const val MAX_FRAMES = 2000
     }
 }
 

@@ -17,6 +17,7 @@ class TunnelRequest(id: EntityID<Uuid>): UuidEntity(id) {
 
     var service by Service optionalReferencedOn TunnelRequests.service
     var project by Project referencedOn TunnelRequests.project
+    var kind by TunnelRequests.kind
     var method by TunnelRequests.method
     var uri by TunnelRequests.uri
     var requestHeaders by TunnelRequests.requestHeaders
@@ -26,6 +27,8 @@ class TunnelRequest(id: EntityID<Uuid>): UuidEntity(id) {
     var responseBody by TunnelRequests.responseBody
     var startedAt by TunnelRequests.startedAt
     var responseReadyAt by TunnelRequests.responseReadyAt
+    var wsFramesSent by TunnelRequests.wsFramesSent
+    var wsFramesReceived by TunnelRequests.wsFramesReceived
 
     fun canBeAccessedBy(user: User): Boolean {
         return project.owner.id.value == user.id.value
@@ -41,6 +44,8 @@ object TunnelRequests : UuidTable("tunnel_requests") {
 
     val service = reference("service", Services, onDelete = ReferenceOption.CASCADE).nullable()
     val project = reference("project", Projects, onDelete = ReferenceOption.CASCADE)
+    // "http" | "websocket"; nullable so existing rows created before this column read as HTTP.
+    val kind = varchar("kind", 16).nullable()
     val method = varchar("method", 16)
     val uri = varchar("uri", 1024)
     val requestHeaders = json<Map<String, List<String>>>("request_headers", jsonFormat)
@@ -50,6 +55,22 @@ object TunnelRequests : UuidTable("tunnel_requests") {
     val responseBody = blob("response_body").nullable()
     val startedAt = timestamp("started_at")
     val responseReadyAt = timestamp("response_ready_at").nullable()
+    val wsFramesSent = integer("ws_frames_sent").default(0)
+    val wsFramesReceived = integer("ws_frames_received").default(0)
+}
+
+/** One captured frame of a proxied WebSocket connection, for the inspector timeline. */
+object TunnelRequestFrames : UuidTable("tunnel_request_frames") {
+    val request = reference("request", TunnelRequests, onDelete = ReferenceOption.CASCADE)
+    val sequence = integer("sequence")
+    val direction = varchar("direction", 32)
+    val opcode = varchar("opcode", 16)
+    val text = text("text").nullable()
+    val binaryBase64 = text("binary_base64").nullable()
+    val size = integer("size")
+    val timestamp = timestamp("timestamp")
+    val closeCode = integer("close_code").nullable()
+    val closeReason = varchar("close_reason", 512).nullable()
 }
 
 @Serializable

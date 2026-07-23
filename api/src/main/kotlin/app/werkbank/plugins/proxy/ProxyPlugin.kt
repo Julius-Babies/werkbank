@@ -19,12 +19,14 @@ import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.lowerCase
 import org.jetbrains.exposed.v1.core.statements.api.ExposedBlob
+import org.jetbrains.exposed.v1.jdbc.batchInsert
 import org.koin.ktor.ext.inject
 import java.io.File
 import java.util.*
@@ -117,50 +119,94 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             }
 
             if (isWebSocket) {
+                val requestId = Uuid.random()
+                val wsRecord = TunnelRequestRecord(
+                    requestId = requestId,
+                    kind = RequestKind.WEBSOCKET,
+                    method = call.request.httpMethod.value,
+                    uri = call.request.uri,
+                    projectId = project.id.value.toHexString(),
+                    projectName = project.projectKey,
+                    serviceName = service?.serviceKey,
+                    requestHeaders = call.request.headers.toMap(),
+                    responseHeaders = null,
+                    statusCode = null,
+                    error = null,
+                    startedAt = System.currentTimeMillis(),
+                    sentToTunnelAt = null,
+                    responseStartedAt = null,
+                    completedAt = null,
+                    requestBodyPath = null,
+                    responseBodyPath = null,
+                )
+
                 val wsProxy = try {
-                    tunnel.wsProxy(
-                        projectName = project.projectKey,
-                        serviceName = service?.serviceKey,
-                        path = call.request.uri,
-                        headers = call.request.headers.toMap(),
-                    )
-                } catch (_: TunnelClosedException) {
+                    tunnel.startWsProxy(wsRecord)
+                } catch (e: TunnelClosedException) {
+                    call.application.environment.log.warn("WebSocket proxy failed for ${wsRecord.uri}: ${e.message}")
                     call.respondText("Tunnel connection closed", status = HttpStatusCode.BadGateway)
                     return@onCall
                 } catch (_: TimeoutException) {
+                    call.application.environment.log.warn("WebSocket proxy timed out for ${wsRecord.uri}")
                     call.respondText("WebSocket proxy timed out", status = HttpStatusCode.GatewayTimeout)
                     return@onCall
                 }
 
-                call.respond(WebSocketUpgrade(call) {
-                    launchConnectionJob(call.application, "ws-proxy-client-to-tunnel") {
-                        for (frame in incoming) {
-                            when (frame) {
-                                is Frame.Text -> wsProxy.send(Frame.Text(frame.readText()))
-                                is Frame.Binary -> wsProxy.send(Frame.Binary(frame.fin, frame.readBytes()))
-                                is Frame.Close -> {
-                                    val reason = frame.readReason() ?: CloseReason(1000, "")
-                                    wsProxy.send(Frame.Close(reason))
-                                    close(reason)
-                                    break
-                                }
-                                else -> {}
-                            }
-                        }
-                    }
+                // Echo the requested subprotocol back in the 101; browsers (e.g. Vite HMR's "vite-hmr")
+                // abort the handshake if the subprotocol they offered is not confirmed.
+                val requestedSubprotocol = call.request.headers["Sec-WebSocket-Protocol"]
+                    ?.split(",")
+                    ?.map { it.trim() }
+                    ?.firstOrNull { it.isNotEmpty() }
 
-                    launchConnectionJob(call.application, "ws-proxy-tunnel-to-client") {
-                        for (frame in wsProxy.incomingFrames) {
-                            when (frame) {
-                                is Frame.Text -> send(Frame.Text(frame.readText()))
-                                is Frame.Binary -> send(Frame.Binary(true, frame.readBytes()))
-                                is Frame.Close -> {
-                                    close(frame.readReason() ?: CloseReason(1000, ""))
-                                    break
+                call.respond(WebSocketUpgrade(call, protocol = requestedSubprotocol) {
+                    try {
+                        coroutineScope {
+                            val clientToTunnel = launchConnectionJob(call.application, "ws-proxy-client-to-tunnel") {
+                                for (frame in incoming) {
+                                    when (frame) {
+                                        is Frame.Text -> wsProxy.send(Frame.Text(frame.readText()))
+                                        is Frame.Binary -> wsProxy.send(Frame.Binary(frame.fin, frame.readBytes()))
+                                        is Frame.Close -> {
+                                            val reason = frame.readReason() ?: CloseReason(1000, "")
+                                            wsProxy.send(Frame.Close(reason))
+                                            close(reason)
+                                            break
+                                        }
+                                        else -> {}
+                                    }
                                 }
-                                else -> {}
                             }
+
+                            val tunnelToClient = launchConnectionJob(call.application, "ws-proxy-tunnel-to-client") {
+                                for (frame in wsProxy.incomingFrames) {
+                                    when (frame) {
+                                        is Frame.Text -> send(Frame.Text(frame.readText()))
+                                        is Frame.Binary -> send(Frame.Binary(true, frame.readBytes()))
+                                        is Frame.Close -> {
+                                            close(frame.readReason() ?: CloseReason(1000, ""))
+                                            break
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                            }
+
+                            // When either side ends, tear the other down so the connection actually closes.
+                            clientToTunnel.invokeOnCompletion { tunnelToClient.cancel() }
+                            tunnelToClient.invokeOnCompletion { clientToTunnel.cancel() }
                         }
+                    } finally {
+                        wsProxy.close()
+                        persistTunnelRequest(
+                            db = db,
+                            record = wsProxy.snapshot.value,
+                            projectId = project.id,
+                            explicitServiceId = service?.id,
+                            requestBodyFile = null,
+                            responseBodyFile = null,
+                            frames = wsProxy.framesSnapshot(),
+                        )
                     }
                 })
             } else {
@@ -174,6 +220,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 val proxyRequest = tunnel.startRequest(
                     TunnelRequestRecord(
                         requestId = requestId,
+                        kind = RequestKind.HTTP,
                         method = call.request.httpMethod.value,
                         uri = call.request.uri,
                         projectId = project.id.value.toHexString(),
@@ -324,7 +371,9 @@ private fun ByteReadChannel.teeToFile(file: File, scope: CoroutineScope): ByteRe
 /**
  * Persists the finished proxy request described by the in-memory record into [TunnelRequests].
  * Bodies are streamed from their temp files straight into the blob columns via [ExposedBlob], so
- * they are never fully materialised on the heap. Requests without a resolved service are skipped.
+ * they are never fully materialised on the heap. For WebSocket connections the captured [frames] are
+ * written into [TunnelRequestFrames]. The service may be unresolved (the CLI picks it), so requests
+ * are persisted even without a service.
  */
 private suspend fun persistTunnelRequest(
     db: DatabaseManager,
@@ -333,6 +382,7 @@ private suspend fun persistTunnelRequest(
     explicitServiceId: EntityID<Uuid>?,
     requestBodyFile: File?,
     responseBodyFile: File?,
+    frames: List<WsFrameRecord> = emptyList(),
 ) {
     // Bodies are stored exactly as they came over the tunnel, i.e. still compressed. Decode them so
     // the stored copy is the plain body and drop the Content-Encoding header that no longer applies.
@@ -360,10 +410,6 @@ private suspend fun persistTunnelRequest(
                             (Services.project eq projectId) and (Services.serviceKey.lowerCase() eq name.lowercase())
                         }.firstOrNull()
                     }
-                if (serviceEntity == null) {
-                    println("Skipping tunnel request persistence for ${record.requestId}: no resolved service")
-                    return@query
-                }
 
                 val statusCode = record.statusCode
                 val error = record.error
@@ -373,8 +419,13 @@ private suspend fun persistTunnelRequest(
                     else -> TunnelRequestResult.Failure("Request did not complete")
                 }
 
-                TunnelRequest.new(record.requestId) {
+                val entity = TunnelRequest.new(record.requestId) {
                     this.service = serviceEntity
+                    this.project = Project[projectId]
+                    this.kind = when (record.kind) {
+                        RequestKind.HTTP -> "http"
+                        RequestKind.WEBSOCKET -> "websocket"
+                    }
                     this.method = record.method
                     this.uri = record.uri
                     this.requestHeaders =
@@ -388,6 +439,23 @@ private suspend fun persistTunnelRequest(
                     this.responseBody = responseBody?.let { ExposedBlob(it.stream) }
                     this.startedAt = Instant.fromEpochMilliseconds(record.startedAt)
                     this.responseReadyAt = record.responseStartedAt?.let { Instant.fromEpochMilliseconds(it) }
+                    this.wsFramesSent = record.wsFramesSent
+                    this.wsFramesReceived = record.wsFramesReceived
+                }
+
+                if (frames.isNotEmpty()) {
+                    TunnelRequestFrames.batchInsert(frames) { frame ->
+                        this[TunnelRequestFrames.request] = entity.id
+                        this[TunnelRequestFrames.sequence] = frame.sequence
+                        this[TunnelRequestFrames.direction] = frame.direction.name.lowercase()
+                        this[TunnelRequestFrames.opcode] = frame.opcode.name.lowercase()
+                        this[TunnelRequestFrames.text] = frame.text
+                        this[TunnelRequestFrames.binaryBase64] = frame.binaryBase64
+                        this[TunnelRequestFrames.size] = frame.size
+                        this[TunnelRequestFrames.timestamp] = Instant.fromEpochMilliseconds(frame.timestamp)
+                        this[TunnelRequestFrames.closeCode] = frame.closeCode
+                        this[TunnelRequestFrames.closeReason] = frame.closeReason
+                    }
                 }
             }
         } finally {

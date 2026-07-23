@@ -2,8 +2,14 @@ package app.werkbank.app.tunnel
 
 import kotlin.uuid.Uuid
 
+enum class RequestKind {
+    HTTP,
+    WEBSOCKET,
+}
+
 data class TunnelRequestRecord(
     val requestId: Uuid,
+    val kind: RequestKind,
     val method: String,
     val uri: String,
     val projectId: String,
@@ -19,4 +25,8 @@ data class TunnelRequestRecord(
     val completedAt: Long?,
     val requestBodyPath: String?,
     val responseBodyPath: String?,
+    // WebSocket-only frame counters, kept live on the record so the overview (popover/list) can show
+    // the ↑ outgoing / ↓ incoming counts without streaming frame contents.
+    val wsFramesSent: Int = 0,
+    val wsFramesReceived: Int = 0,
 )

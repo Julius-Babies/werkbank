@@ -21,6 +21,7 @@ import app.werkbank.app.webapp.projects.webappProjects
 import app.werkbank.app.webapp.requests.getRequests
 import app.werkbank.app.webapp.requests.item.downloadTunnelRequestBody
 import app.werkbank.app.webapp.requests.item.getRequest
+import app.werkbank.app.webapp.requests.item.getRequestFrames
 import app.werkbank.app.webapp.settings.access_keys.createAccessKey
 import app.werkbank.app.webapp.settings.access_keys.getAccessKeys
 import app.werkbank.app.webapp.settings.access_keys.deleteAccessKey
@@ -120,6 +121,10 @@ fun Application.configureRouting() {
                         route("/{requestId}") {
                             route("/download-body") {
                                 downloadTunnelRequestBody()
+                            }
+
+                            route("/frames") {
+                                getRequestFrames()
                             }
 
                             getRequest()

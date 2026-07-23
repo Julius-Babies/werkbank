@@ -38,6 +38,20 @@ class TunnelViewModel: KoinComponent {
 
     companion object {
         val TUNNEL_RECONNECT_DELAY = 5.seconds
+
+        // WebSocket handshake control headers the ktor client manages itself; forwarding the browser's
+        // copies would conflict. Everything else (incl. Sec-WebSocket-Protocol, e.g. Vite's "vite-hmr")
+        // is passed through to the upstream so the dev server negotiates the handshake correctly.
+        private val NON_FORWARDED_WS_HEADERS = setOf(
+            "host",
+            "connection",
+            "upgrade",
+            "sec-websocket-key",
+            "sec-websocket-version",
+            "sec-websocket-extensions",
+            "sec-websocket-accept",
+            "content-length",
+        )
     }
 
     private val mainConfig by inject<MainConfig>()
@@ -336,7 +350,20 @@ class TunnelViewModel: KoinComponent {
 //                                                )
 
                                                 try {
-                                                    client.webSocket(urlString = target.url) {
+                                                    client.webSocket(
+                                                        urlString = target.url,
+                                                        request = {
+                                                            msg.headers.forEach { header ->
+                                                                val separator = header.indexOf(": ")
+                                                                if (separator <= 0) return@forEach
+                                                                val name = header.substring(0, separator)
+                                                                val value = header.substring(separator + 2)
+                                                                if (name.lowercase() !in NON_FORWARDED_WS_HEADERS) {
+                                                                    headers.append(name, value)
+                                                                }
+                                                            }
+                                                        }
+                                                    ) {
                                                         wsProxyState[msg.requestId] = this
                                                         this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
                                                             requestId = msg.requestId
