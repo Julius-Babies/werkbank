@@ -7,17 +7,19 @@ import kotlin.uuid.Uuid
 @Serializable
 sealed class ClientMessage {
 
+    abstract val requestId: Uuid
+
     @Serializable
     @SerialName("request.resolved")
     data class RequestResolved(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
         @SerialName("service") val service: String,
     ): ClientMessage()
 
     @Serializable
     @SerialName("http.response")
     data class HttpResponse(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
         @SerialName("status_code") val statusCode: Int,
         @SerialName("headers") val headers: List<String>,
     ): ClientMessage()
@@ -25,52 +27,52 @@ sealed class ClientMessage {
     @Serializable
     @SerialName("http.error.timeout")
     data class Timeout(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
     ): ClientMessage()
 
     @Serializable
     @SerialName("http.error.server_not_running")
     data class ServerNotRuning(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
     ): ClientMessage()
 
     @Serializable
     @SerialName("http.body")
     data class HttpBody(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
         @SerialName("body") val body: String,
     ): ClientMessage()
 
     @Serializable
     @SerialName("http.end")
     data class HttpEnd(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
     ): ClientMessage()
 
     @Serializable
     @SerialName("ws.opened")
     data class WsOpened(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
     ): ClientMessage()
 
     @Serializable
     @SerialName("ws.text")
     data class WsText(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
         @SerialName("text") val text: String,
     ): ClientMessage()
 
     @Serializable
     @SerialName("ws.binary")
     data class WsBinary(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
         @SerialName("body") val body: String,
     ): ClientMessage()
 
     @Serializable
     @SerialName("ws.close")
     data class WsClose(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
         @SerialName("code") val code: Int,
         @SerialName("reason") val reason: String,
     ): ClientMessage()
@@ -78,12 +80,12 @@ sealed class ClientMessage {
     @Serializable
     @SerialName("ping")
     data class Ping(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
     ): ClientMessage()
 
     @Serializable
     @SerialName("pong")
     data class Pong(
-        @SerialName("request_id") val requestId: Uuid,
+        @SerialName("request_id") override val requestId: Uuid,
     ): ClientMessage()
 }

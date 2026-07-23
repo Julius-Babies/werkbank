@@ -28,7 +28,7 @@ class TunnelRequest(id: EntityID<Uuid>): UuidEntity(id) {
     var responseReadyAt by TunnelRequests.responseReadyAt
 
     fun canBeAccessedBy(user: User): Boolean {
-        return service.project.owner.id.value == user.id.value
+        return project.owner.id.value == user.id.value
     }
 }
 

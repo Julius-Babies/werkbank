@@ -1,6 +1,8 @@
 package app.werkbank.app.webapp.socket
 
+import app.werkbank.app.tunnel.RequestId
 import app.werkbank.app.tunnel.TunnelManager
+import app.werkbank.app.tunnel.TunnelRequestRecord
 import app.werkbank.database.TunnelRequest
 import app.werkbank.database.TunnelRequestResult
 import app.werkbank.plugins.auth.AUTH_USER_JWT
@@ -12,13 +14,11 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlin.time.Duration.Companion.seconds
 import org.koin.ktor.ext.inject
 
 fun Route.webappSocket() {
@@ -29,78 +29,41 @@ fun Route.webappSocket() {
         webSocket {
             val principal = call.principal<UserPrincipal>()!!
 
-            val tunnelUpdateChannel = tunnelManager
-                .subscribeToTunnel(principal.user)
-
-            var requestUpdatesJob: Job? = null
+            var activeTunnelJob: Job? = null
             launchConnectionJob(call.application, "webapp-tunnel-updates") {
-                tunnelUpdateChannel
-                    .receiveAsFlow()
-                    .collect { tunnel ->
-                        requestUpdatesJob?.cancel()
-                        requestUpdatesJob = null
-                        if (tunnel != null) {
-                            sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelActive(pingMs = tunnel.currentPingMs))
-                            tunnel.proxyRequests.value.forEach { record ->
-                                sendSerialized<WebAppServerMessage>(WebAppServerMessage.RequestUpdate(
-                                    requestId = record.requestId.toString(),
-                                    method = record.method,
-                                    uri = record.uri,
-                                    target = WebAppServerMessage.RequestTarget(
-                                        projectId = record.projectId,
-                                        projectName = record.projectName,
-                                        serviceName = record.serviceName,
-                                    ),
-                                    statusCode = record.statusCode,
-                                    error = record.error,
-                                    startedAt = record.startedAt,
-                                    sentToTunnelAt = record.sentToTunnelAt,
-                                    responseStartedAt = record.responseStartedAt,
-                                    completedAt = record.completedAt,
-                                ))
-                            }
+                tunnelManager.tunnelFlow(principal.user).collect { tunnel ->
+                    activeTunnelJob?.cancel()
+                    activeTunnelJob = null
 
-                            requestUpdatesJob = launchConnectionJob(call.application, "webapp-request-updates") {
-                                tunnel.requestUpdates.collect { record ->
-                                    sendSerialized<WebAppServerMessage>(WebAppServerMessage.RequestUpdate(
-                                        requestId = record.requestId.toString(),
-                                        method = record.method,
-                                        uri = record.uri,
-                                        target = WebAppServerMessage.RequestTarget(
-                                            projectId = record.projectId,
-                                            projectName = record.projectName,
-                                            serviceName = record.serviceName,
-                                        ),
-                                        statusCode = record.statusCode,
-                                        error = record.error,
-                                        startedAt = record.startedAt,
-                                        sentToTunnelAt = record.sentToTunnelAt,
-                                        responseStartedAt = record.responseStartedAt,
-                                        completedAt = record.completedAt,
-                                    ))
+                    if (tunnel == null) {
+                        sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelInactive)
+                        return@collect
+                    }
+
+                    activeTunnelJob = launchConnectionJob(call.application, "webapp-tunnel-active") {
+                        // StateFlow emits the current ping immediately, so this also signals TunnelActive.
+                        launch {
+                            tunnel.pingMs.collect { pingMs ->
+                                sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelActive(pingMs = pingMs))
+                            }
+                        }
+
+                        // Observe every request individually. A ProxyRequest's snapshot StateFlow replays
+                        // its current state on subscription, so the history is sent automatically and every
+                        // later phase transition streams through as a RequestUpdate.
+                        val observed = mutableSetOf<RequestId>()
+                        tunnel.requests.collect { requests ->
+                            requests.filter { observed.add(it.requestId) }.forEach { request ->
+                                launch {
+                                    request.snapshot.collect { sendSerialized<WebAppServerMessage>(it.toRequestUpdate()) }
                                 }
                             }
-                        } else {
-                            sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelInactive)
                         }
-                    }
-            }
-
-            launchConnectionJob(call.application, "webapp-tunnel-ping") {
-                while (isActive) {
-                    delay(2.seconds)
-                    val tunnel = tunnelManager.getTunnel(principal.user)
-                    if (tunnel != null) {
-                        sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelActive(pingMs = tunnel.currentPingMs))
                     }
                 }
             }
 
-            try {
-                incoming.receiveAsFlow().collect()
-            } finally {
-                tunnelManager.unsubscribeFromTunnel(principal.user, tunnelUpdateChannel)
-            }
+            incoming.receiveAsFlow().collect()
         }
     }
 }
@@ -109,6 +72,24 @@ private val gson = Gson()
 suspend fun DefaultWebSocketServerSession.sendJson(data: Map<String, Any?>) {
     this.send(gson.toJson(data))
 }
+
+private fun TunnelRequestRecord.toRequestUpdate(): WebAppServerMessage.RequestUpdate =
+    WebAppServerMessage.RequestUpdate(
+        requestId = requestId.toString(),
+        method = method,
+        uri = uri,
+        target = WebAppServerMessage.RequestTarget(
+            projectId = projectId,
+            projectName = projectName,
+            serviceName = serviceName,
+        ),
+        statusCode = statusCode,
+        error = error,
+        startedAt = startedAt,
+        sentToTunnelAt = sentToTunnelAt,
+        responseStartedAt = responseStartedAt,
+        completedAt = completedAt,
+    )
 
 @Serializable
 sealed class WebAppServerMessage {
@@ -142,9 +123,9 @@ sealed class WebAppServerMessage {
                 method = request.method,
                 uri = request.uri,
                 target = RequestTarget(
-                    projectId = request.service.project.id.value.toString(),
-                    projectName = request.service.project.name,
-                    serviceName = request.service.serviceKey,
+                    projectId = request.project.id.value.toString(),
+                    projectName = request.project.name,
+                    serviceName = request.service?.serviceKey,
                 ),
                 statusCode = (request.result as? TunnelRequestResult.Success)?.statusCode,
                 error = (request.result as? TunnelRequestResult.Failure)?.error,
