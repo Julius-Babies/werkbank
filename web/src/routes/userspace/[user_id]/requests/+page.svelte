@@ -16,6 +16,7 @@
     import {ArrowBendDownRightIcon, ListDashesIcon} from "phosphor-svelte";
     import {Button} from "$lib/components/ui/button";
     import PageContent from "../_lib/appshell/page/PageContent.svelte";
+    import RequestFilterComponent, { defaultFilter, type RequestsFilter } from "./RequestFilter.svelte";
 
     $effect(() => {
         title.set($_("userspace.requests.title"))
@@ -27,6 +28,8 @@
         fetchRequests()
             .then(() => isLoading = false);
     })
+
+    let currentFilter: RequestsFilter = $state(defaultFilter)
 
     let table = createSvelteTable({
         get data() {
@@ -49,6 +52,7 @@
         {#if isLoading}
             <ContentLoading />
         {:else}
+            <RequestFilterComponent state={currentFilter} />
             <DataTable
                     {table}
                     cellClass="py-1.5"
