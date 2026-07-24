@@ -3,15 +3,17 @@
     import type { Component } from "svelte";
 
     let {
-        icon,
+        icon: Icon,
         title,
         isActive,
         onClick,
+        href,
     }: {
         icon: Component<any>,
         title: string,
         isActive: boolean,
         onClick?: () => void,
+        href?: string,
     } = $props();
 
     let classes = $derived(isActive ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground min-w-8 duration-200 ease-linear" : "");
@@ -23,7 +25,18 @@
             tooltipContent={title}
             onclick={onClick}
     >
-        <svelte:component this={icon} class="!size-4.5" weight={isActive ? "fill" : "regular"} />
-        <span>{title}</span>
+        {#snippet child({ props })}
+            {#if href}
+                <a {href} {...props}>
+                    <Icon class="size-4.5!" weight={isActive ? "fill" : "regular"} />
+                    <span>{title}</span>
+                </a>
+            {:else}
+                <button {...props}>
+                    <Icon class="size-4.5!" weight={isActive ? "fill" : "regular"} />
+                    <span>{title}</span>
+                </button>
+            {/if}
+        {/snippet}
     </SidebarMenuButton>
 </SidebarMenuItem>

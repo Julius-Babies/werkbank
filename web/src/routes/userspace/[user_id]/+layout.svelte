@@ -31,7 +31,6 @@
     import {title, user} from "./state.ts";
     import webappSocket from "./webappSocket.ts";
     import SidebarItem from "./_lib/appshell/sidebar/SidebarItem.svelte";
-    import {goto} from "$app/navigation";
     import TunnelState from "./_lib/appshell/topbar/TunnelState.svelte";
 
     const sidebar = useSidebar();
@@ -126,25 +125,25 @@
                                         icon={HouseIcon}
                                         title={$_("userspace.sidebar.home")}
                                         isActive={page.url.pathname === "/"}
-                                        onClick={() => goto("/")}
+                                        href="/"
                                 />
                                 <SidebarItem
                                         icon={FolderSimpleIcon}
                                         title={$_("userspace.sidebar.projects")}
                                         isActive={page.url.pathname.startsWith("/projects")}
-                                        onClick={() => goto("/projects")}
+                                        href="/projects"
                                 />
                                 <SidebarItem
                                         icon={ListDashesIcon}
                                         title={$_("userspace.sidebar.requests")}
                                         isActive={page.url.pathname.startsWith("/requests")}
-                                        onClick={() => goto("/requests")}
+                                        href="/requests"
                                 />
                                 <SidebarItem
                                         icon={GearIcon}
                                         title={$_("userspace.sidebar.settings")}
                                         isActive={page.url.pathname.startsWith("/settings")}
-                                        onClick={() => goto("/settings")}
+                                        href="/settings"
                                 />
                             </SidebarMenu>
                         </SidebarGroupContent>
