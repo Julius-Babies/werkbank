@@ -33,6 +33,18 @@ val kotlinNativeTarget: String = run {
 val linkTaskName = "linkDebugExecutable${kotlinNativeTarget.replaceFirstChar { it.uppercase() }}"
 val linkedExecutable = layout.buildDirectory.file("bin/$kotlinNativeTarget/debugExecutable/cli.kexe")
 
+fun Task.deleteLinkedExecutableAction() {
+    val kexe = linkedExecutable.get().asFile
+    val dsym = File("${kexe.path}.dSYM")
+    doLast {
+        val removed = kexe.delete()
+        dsym.deleteRecursively()
+        if (removed) {
+            logger.lifecycle("Removed stale binary ${kexe.path} to force a fresh link.")
+        }
+    }
+}
+
 fun Task.ensureLocalBinOnPathAction() {
     val binDir = localBinDir
     doLast {
@@ -81,16 +93,17 @@ fun registerInstallTask(name: String, binaryName: String) =
 val installLocalCli = registerInstallTask("installLocalCli", "wb")
 val installLocalDevCli = registerInstallTask("installLocalDevCli", "wbdev")
 
-tasks.register("updateLocalCli") {
-    group = "werkbank"
-    description = "Sets cli.dev=false, links the executable and installs it as ~/.local/bin/wb"
-    setLocalPropertyAction("cli.dev", "false")
-    finalizedBy(installLocalCli)
+// buildkonfig derives isDevelopment from the requested task name at configuration time
+// (see cli/build.gradle.kts), so a single invocation already links with the correct value.
+fun registerUpdateTask(taskName: String, devValue: String, install: TaskProvider<*>, binaryName: String) {
+    tasks.register(taskName) {
+        group = "werkbank"
+        description = "Sets cli.dev=$devValue, links the executable and installs it as ~/.local/bin/$binaryName"
+        setLocalPropertyAction("cli.dev", devValue)
+        deleteLinkedExecutableAction()
+        finalizedBy(install)
+    }
 }
 
-tasks.register("updateLocalDevCli") {
-    group = "werkbank"
-    description = "Sets cli.dev=true, links the executable and installs it as ~/.local/bin/wbdev"
-    setLocalPropertyAction("cli.dev", "true")
-    finalizedBy(installLocalDevCli)
-}
+registerUpdateTask("updateLocalCli", "false", installLocalCli, "wb")
+registerUpdateTask("updateLocalDevCli", "true", installLocalDevCli, "wbdev")

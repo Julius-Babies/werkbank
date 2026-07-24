@@ -65,9 +65,17 @@ kotlin {
     }
 }
 
-val isDevelopment = localProperties.getOrDefault("cli.dev", "null").toString().toBooleanStrictOrNull() ?: run {
-    project.logger.warn("w: cli.dev property not set, defaulting to true")
-    true
+// The update tasks write cli.dev to local.properties only at execution time, which is too late
+// for buildkonfig (it reads the value at configuration time). So when one of them is the
+// requested task, derive the value directly from the requested task name instead.
+val requestedTasks = gradle.startParameter.taskNames
+val isDevelopment = when {
+    requestedTasks.any { it.substringAfterLast(':') == "updateLocalDevCli" } -> true
+    requestedTasks.any { it.substringAfterLast(':') == "updateLocalCli" } -> false
+    else -> localProperties.getOrDefault("cli.dev", "null").toString().toBooleanStrictOrNull() ?: run {
+        project.logger.warn("w: cli.dev property not set, defaulting to true")
+        true
+    }
 }
 
 val cliVersion = localProperties["cli.version"]?.toString() ?: run {
