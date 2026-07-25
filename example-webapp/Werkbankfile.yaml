@@ -1,0 +1,15 @@
+project:
+  name: "Demo Project"
+  id: "demoproject"
+
+services:
+  - name: "web"
+    modes:
+      local:
+        port: 5173
+
+http:
+  - description: "Vite dev server"
+    path_prefixes:
+      - /
+    target_service: web
