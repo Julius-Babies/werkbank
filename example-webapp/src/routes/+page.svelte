@@ -1,5 +1,6 @@
 <script lang="ts">
     import {baseUrl} from "$lib";
+    import WebSocketPanel from "$lib/WebSocketPanel.svelte";
 
     const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
     type Method = typeof METHODS[number];
@@ -149,4 +150,8 @@
             </ul>
         {/if}
     </div>
+
+    <hr class="border-neutral-200 dark:border-neutral-800" />
+
+    <WebSocketPanel />
 </div>
