@@ -25,8 +25,11 @@ fun Route.getRequest() {
             db.query {
                 RequestResponse(
                     requestId = request.id.value,
+                    kind = request.kind ?: "http",
                     method = request.method,
                     uri = request.uri,
+                    wsFramesSent = request.wsFramesSent,
+                    wsFramesReceived = request.wsFramesReceived,
                     target = RequestResponse.Target(
                         projectId = request.project.id.value,
                         projectName = request.project.name,
@@ -84,8 +87,11 @@ suspend fun ApplicationCall.getRequestWithPrincipalAsOwner(): TunnelRequest? {
 @Serializable
 data class RequestResponse(
     @SerialName("request_id") val requestId: Uuid,
+    @SerialName("kind") val kind: String,
     @SerialName("method") val method: String,
     @SerialName("uri") val uri: String,
+    @SerialName("ws_frames_sent") val wsFramesSent: Int,
+    @SerialName("ws_frames_received") val wsFramesReceived: Int,
     @SerialName("target") val target: Target,
     @SerialName("request_headers") val requestHeaders: Map<String, List<String>>,
     @SerialName("request_body_size") val requestBodySize: Long,

@@ -13,6 +13,8 @@
     import {fromRequestUpdate, getRequest, type Request} from "./request.ts";
     import HeaderTable from "./HeaderTable.svelte";
     import Body from "./Body.svelte";
+    import WsTimeline from "./WsTimeline.svelte";
+    import {ArrowDown, ArrowUp} from "@lucide/svelte";
     import {title} from "../../state.ts";
 
     let requestId = $derived(page.params.requestId)
@@ -73,6 +75,21 @@
                 </div>
             </div>
 
+            {#if request.kind === "websocket"}
+                <div class="flex flex-row items-center gap-3 pt-4 font-mono text-sm">
+                    <span class="flex flex-row items-center gap-0.5 text-emerald-600" title="ausgehend">
+                        <ArrowUp size={16} />{request.ws_frames_sent}
+                    </span>
+                    <span class="flex flex-row items-center gap-0.5 text-sky-600" title="eingehend">
+                        <ArrowDown size={16} />{request.ws_frames_received}
+                    </span>
+                </div>
+
+                <div class="pt-4">
+                    <h2 class="font-heading font-semibold text-gray-800 uppercase pb-2">Messages</h2>
+                    <WsTimeline requestId={request.request_id} />
+                </div>
+            {:else}
             <div class="flex max-xl:flex-col xl:flex-row gap-2 pt-4">
                 <div class="flex-1 min-w-0 bg-zinc-50 p-4 rounded-sm overflow-hidden">
                     <h2 class="font-heading font-semibold text-gray-800 uppercase">Request</h2>
@@ -119,6 +136,7 @@
                     {/if}
                 </div>
             </div>
+            {/if}
         {:else}
             <ContentLoading />
         {/if}
