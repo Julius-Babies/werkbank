@@ -23,7 +23,17 @@ export default defineConfig({
 		// Bind explicitly so the proxy can always reach the dev server.
 		host: '127.0.0.1',
 		port: 5173,
-		strictPort: true
+		strictPort: true,
+		hmr: {
+			// The app is served through the werkbank proxy, so the browser is on the
+			// proxy's https domain, not 127.0.0.1:5173. Vite would otherwise tell the
+			// HMR client to connect to `:5173` (from server.port), which the proxy does
+			// not listen on. Leaving `host` unset makes the client fall back to the
+			// current page domain; we only override the port/protocol so it dials back
+			// through the proxy over wss/443 instead of the local dev port.
+			clientPort: 443,
+			protocol: 'wss'
+		}
 	},
 	plugins: [
 		tailwindcss(),
