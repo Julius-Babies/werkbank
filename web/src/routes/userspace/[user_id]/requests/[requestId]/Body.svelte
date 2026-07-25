@@ -31,6 +31,17 @@
     let text: string | null = $state(null);
     let hasContent = $derived(bytes !== null || text !== null);
 
+    let imageUrl: string | null = $state(null);
+    $effect(() => {
+        if (!bytes) {
+            imageUrl = null;
+            return;
+        }
+        const url = URL.createObjectURL(bytes);
+        imageUrl = url;
+        return () => URL.revokeObjectURL(url);
+    });
+
     function contentEncoding(): string | null {
         const headers = type === "request"
             ? request.request.headers
@@ -84,6 +95,10 @@
                     <div class="w-full overflow-x-auto **:break-all! **:whitespace-normal!">
                         <JsonView json={json} />
                     </div>
+                {:else if (contentType ?? "").toLowerCase().startsWith("image/")}
+                    {#if imageUrl}
+                        <img src={imageUrl} alt="Body preview" class="max-w-full h-auto object-contain" />
+                    {/if}
                 {/if}
             {:else if currentBodyType === "text"}
                 <div class="font-mono text-sm break-all">
