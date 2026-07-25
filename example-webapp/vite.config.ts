@@ -16,6 +16,15 @@ const websocketPlugin: PluginOption = {
 };
 
 export default defineConfig({
+	server: {
+		// The werkbank CLI connects to the local service over IPv4 (127.0.0.1:5173,
+		// see TunnelRequestResolver). Vite's default host `localhost` may bind to IPv6
+		// (::1) only, which makes that IPv4 connect fail with "connection refused".
+		// Bind explicitly so the proxy can always reach the dev server.
+		host: '127.0.0.1',
+		port: 5173,
+		strictPort: true
+	},
 	plugins: [
 		tailwindcss(),
 		websocketPlugin,
