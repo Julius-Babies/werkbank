@@ -184,12 +184,12 @@ class TunnelInstance(
             )
         )
 
-        val opened = withTimeoutOrNull(30.seconds) { bridge.awaitOpened() }
-        if (opened == null) {
+        val responseHeaderLines = withTimeoutOrNull(30.seconds) { bridge.awaitOpened() }
+        if (responseHeaderLines == null) {
             bridge.close()
             throw TunnelClosedException("WebSocket proxy timed out waiting for client")
         }
-        bridge.markEstablished()
+        bridge.markEstablished(responseHeaderLines)
         return bridge
     }
 
@@ -371,10 +371,10 @@ class WsBridge internal constructor(
     private val _incomingFrames = Channel<Frame>(Channel.UNLIMITED)
     val incomingFrames: ReceiveChannel<Frame> = _incomingFrames
 
-    private val opened = CompletableDeferred<Unit>()
+    private val opened = CompletableDeferred<List<String>>()
 
-    /** Suspends until the client confirms the upstream socket is open. */
-    suspend fun awaitOpened() = opened.await()
+    /** Suspends until the client confirms the upstream socket is open; returns the 101 response header lines. */
+    suspend fun awaitOpened(): List<String> = opened.await()
 
     private val frameLock = Any()
     private val _frames = mutableListOf<WsFrameRecord>()
@@ -385,10 +385,15 @@ class WsBridge internal constructor(
 
     fun framesSnapshot(): List<WsFrameRecord> = synchronized(frameLock) { _frames.toList() }
 
-    fun markEstablished() {
+    fun markEstablished(responseHeaderLines: List<String>) {
+        val headers = responseHeaderLines
+            .map { it.split(": ", limit = 2) }
+            .filter { it.size == 2 }
+            .groupBy({ it[0] }, { it[1] })
         _snapshot.update {
             it.copy(
                 statusCode = 101,
+                responseHeaders = headers,
                 sentToTunnelAt = it.sentToTunnelAt ?: System.currentTimeMillis(),
                 responseStartedAt = it.responseStartedAt ?: System.currentTimeMillis(),
             )
@@ -458,7 +463,7 @@ class WsBridge internal constructor(
     /** Dev server → browser. */
     override suspend fun onClientMessage(message: ClientMessage) {
         when (message) {
-            is ClientMessage.WsOpened -> opened.complete(Unit)
+            is ClientMessage.WsOpened -> opened.complete(message.headers)
 
             is ClientMessage.WsText -> {
                 record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.TEXT, message.text, null, message.text.encodeToByteArray().size)

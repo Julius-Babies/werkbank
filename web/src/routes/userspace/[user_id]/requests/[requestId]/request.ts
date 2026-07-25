@@ -27,8 +27,15 @@ export interface Request {
     } | null;
 }
 
-export function fromRequestUpdate(requestUpdate: RequestUpdate): Request | null {
+/**
+ * Builds a {@link Request} from a live {@link RequestUpdate}. Live updates do not carry headers or
+ * body sizes (those only come from {@link getRequest}), so when a `previous` fully-loaded request is
+ * passed its headers are carried over instead of being wiped — otherwise the constant WebSocket
+ * frame-count updates would blank out the header tables on the detail page.
+ */
+export function fromRequestUpdate(requestUpdate: RequestUpdate, previous?: Request): Request | null {
     if (requestUpdate.target === null) return null;
+    const previousResponse = previous?.response;
     return  {
         request_id: requestUpdate.request_id,
         kind: requestUpdate.kind,
@@ -42,14 +49,14 @@ export function fromRequestUpdate(requestUpdate: RequestUpdate): Request | null 
             service_key: requestUpdate.target.service_name,
         },
         request: {
-            headers: {},
+            headers: previous?.request.headers ?? {},
             method: requestUpdate.method,
             uri: requestUpdate.uri
         },
         response: requestUpdate.status_code ? {
             type: "success",
             status_code: requestUpdate.status_code,
-            headers: {},
+            headers: previousResponse?.type === "success" ? previousResponse.headers : {},
         } : requestUpdate.error ? {
             type: "error",
             error: requestUpdate.error,
