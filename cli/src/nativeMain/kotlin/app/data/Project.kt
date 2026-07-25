@@ -94,6 +94,26 @@ data class Project(
         reverseProxy.provision()
     }
 
+    /**
+     * A volume source is treated as a named Docker volume when it is not a path,
+     * i.e. it is not absolute and does not start with a relative path marker or contain a separator
+     * ("database" -> named volume, "./database" / "/database" -> bind mount).
+     */
+    private fun isNamedVolumeSource(source: String): Boolean =
+        !File.isPathAbsolute(source) && !source.startsWith(".") && !source.startsWith("~") && !source.contains("/")
+
+    /**
+     * Builds the name for a managed Docker volume, e.g. "werkbank-<project>-<name>"
+     * (with a "dev-" marker in dev mode).
+     */
+    private fun namedVolumeName(source: String): String = buildString {
+        append("werkbank-")
+        if (isDevMode) append("dev-")
+        append(this@Project.id)
+        append("-")
+        append(source)
+    }
+
     fun getContainers(): List<ProjectContainer> {
         val config = getConfig()
         return config.containers.map { container ->
@@ -109,6 +129,9 @@ data class Project(
                             val source = bind.first
                             if (source is Container.VolumeBind.Host) {
                                 val path = source.path
+                                if (isNamedVolumeSource(path)) {
+                                    return@associate Container.VolumeBind.Volume(namedVolumeName(path), source.readOnly) to bind.second
+                                }
                                 if (File.isPathAbsolute(path)) return@associate bind
                                 val absolutePath = File(this.path).resolve(path).absolutePath
                                 Container.VolumeBind.Host(absolutePath, source.readOnly) to bind.second
