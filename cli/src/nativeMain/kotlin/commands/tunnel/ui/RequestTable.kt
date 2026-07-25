@@ -12,7 +12,9 @@ import kotlinx.datetime.format
 import kotlinx.datetime.format.Padding
 import kotlinx.datetime.format.char
 import kotlinx.datetime.toLocalDateTime
+import util.DOWN_ARROW
 import util.RIGHT_ARROW
+import util.UP_ARROW
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -87,24 +89,31 @@ fun RequestTable(
                 TableConfig.ColumnConfig.ComposableColumnConfig(
                     title = "STATUS",
                     content = { request ->
-                        when (request.result) {
-                            null -> AnimatableCharacter(
-                                characters = AnimatableCharacters.DotSpinner,
-                                delay = 200.milliseconds,
-                            )
-                            is Request.Result.Timeout -> Text("Timeout", color = Color.Red)
-                            is Request.Result.ServiceNotRunning -> Text("Down", color = Color.Red)
-                            is Request.Result.Success -> Row {
-                                val ms = request.result.finishedAt.toEpochMilliseconds() - request.startedAt.toEpochMilliseconds()
-                                val timeText = if (ms >= 100_000L) {
-                                    val secs = ms / 1000
-                                    val dec = (ms % 1000) / 100
-                                    "${secs}.${dec}s"
-                                } else {
-                                    "${ms}ms"
+                        val ws = request.ws
+                        when {
+                            ws != null -> Row {
+                                Text("$UP_ARROW${ws.framesSent}", color = Color.Green)
+                                Text(" $DOWN_ARROW${ws.framesReceived}", color = Color.Cyan)
+                            }
+                            else -> when (request.result) {
+                                null -> AnimatableCharacter(
+                                    characters = AnimatableCharacters.DotSpinner,
+                                    delay = 200.milliseconds,
+                                )
+                                is Request.Result.Timeout -> Text("Timeout", color = Color.Red)
+                                is Request.Result.ServiceNotRunning -> Text("Down", color = Color.Red)
+                                is Request.Result.Success -> Row {
+                                    val ms = request.result.finishedAt.toEpochMilliseconds() - request.startedAt.toEpochMilliseconds()
+                                    val timeText = if (ms >= 100_000L) {
+                                        val secs = ms / 1000
+                                        val dec = (ms % 1000) / 100
+                                        "${secs}.${dec}s"
+                                    } else {
+                                        "${ms}ms"
+                                    }
+                                    Text(request.result.statusCode.toString(), color = Color.Green)
+                                    Text(" ($timeText)", color = Color.White)
                                 }
-                                Text(request.result.statusCode.toString(), color = Color.Green)
-                                Text(" ($timeText)", color = Color.White)
                             }
                         }
                     },
@@ -125,6 +134,7 @@ fun String.httpMethodColors(): Pair<Color, Color> {
         "HEAD" -> Color.Cyan to Color.Unspecified
         "OPTIONS" -> Color.Cyan to Color.Unspecified
         "WEBSOCKET" -> Color.Yellow to Color.Unspecified
+        "WS/GET" -> Color.Magenta to Color.Unspecified
         else -> Color.Black to Color.Unspecified
     }
 }

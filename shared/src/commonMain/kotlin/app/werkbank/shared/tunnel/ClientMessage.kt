@@ -53,6 +53,9 @@ sealed class ClientMessage {
     @SerialName("ws.opened")
     data class WsOpened(
         @SerialName("request_id") override val requestId: Uuid,
+        // Handshake (101 Switching Protocols) response headers of the upstream WebSocket, as
+        // "Name: Value" lines. Defaulted so older clients that omit it still deserialize.
+        @SerialName("headers") val headers: List<String> = emptyList(),
     ): ClientMessage()
 
     @Serializable
