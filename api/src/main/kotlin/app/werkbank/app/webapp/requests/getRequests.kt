@@ -7,6 +7,7 @@ import app.werkbank.plugins.auth.UserPrincipal
 import io.ktor.server.auth.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
@@ -26,8 +27,7 @@ fun Route.getRequests() {
 
             val requests = db.query {
                 TunnelRequests
-                    .leftJoin(Services)
-                    .leftJoin(Projects)
+                    .join(Projects, JoinType.INNER, onColumn = TunnelRequests.project, otherColumn = Projects.id)
                     .select(TunnelRequests.columns)
                     .where { Projects.owner eq principal.user.id.value }
                     .andWhere { TunnelRequests.startedAt greaterEq Clock.System.now() - 8.hours }

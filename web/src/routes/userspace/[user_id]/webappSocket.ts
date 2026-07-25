@@ -1,8 +1,32 @@
-import {latestRequests, MAX_LATEST_REQUESTS, tunnelState, user, type RequestUpdate} from "./state.ts";
+import {latestRequests, MAX_LATEST_REQUESTS, tunnelState, user, watchedFrames, type RequestUpdate} from "./state.ts";
 import {page} from "$app/state";
 import {requests} from "./requests/requests.ts";
 
 let webSocket: WebSocket | null = null;
+
+// The request whose WebSocket frame timeline the detail page is currently watching, if any.
+let currentWatchId: string | null = null;
+
+/** Subscribe to live WebSocket frames of a request. Clears any previously watched frames. */
+export function watchFrames(requestId: string) {
+    if (currentWatchId === requestId) return;
+    if (currentWatchId) unwatchFrames();
+    currentWatchId = requestId;
+    watchedFrames.set([]);
+    if (webSocket?.readyState === WebSocket.OPEN) {
+        webSocket.send(JSON.stringify({type: "watch", request_id: requestId}));
+    }
+}
+
+/** Stop watching frames of the currently watched request. */
+export function unwatchFrames() {
+    if (!currentWatchId) return;
+    if (webSocket?.readyState === WebSocket.OPEN) {
+        webSocket.send(JSON.stringify({type: "unwatch", request_id: currentWatchId}));
+    }
+    currentWatchId = null;
+    watchedFrames.set([]);
+}
 
 // Incoming request.update messages arrive in bursts (a single page opened through
 // the tunnel produces many sub-requests, each emitting several status updates).
@@ -77,6 +101,13 @@ export default function () {
         function connect() {
             webSocket = new WebSocket("/api/webapp/ws")
 
+            webSocket.onopen = () => {
+                // Re-arm an active watch after a (re)connect.
+                if (currentWatchId) {
+                    webSocket?.send(JSON.stringify({type: "watch", request_id: currentWatchId}));
+                }
+            }
+
             webSocket.onmessage = (event) => {
                 const message = JSON.parse(event.data);
 
@@ -84,6 +115,13 @@ export default function () {
                     tunnelState.set({ active: false, pingMs: null });
                 } else if (message.type === "tunnel.active") {
                     tunnelState.set({ active: true, pingMs: message.ping_ms ?? null });
+                } else if (message.type === "ws.frame") {
+                    if (message.request_id === currentWatchId) {
+                        watchedFrames.update(list => {
+                            if (list.some(f => f.sequence === message.sequence)) return list;
+                            return [...list, message];
+                        });
+                    }
                 } else if (message.type === "request.update") {
                     // Buffer by id (insertion-ordered) and flush once per frame. Repeated
                     // updates for the same request within a frame collapse to the latest

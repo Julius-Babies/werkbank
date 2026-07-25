@@ -13,6 +13,9 @@
     import {fromRequestUpdate, getRequest, type Request} from "./request.ts";
     import HeaderTable from "./HeaderTable.svelte";
     import Body from "./Body.svelte";
+    import WsTimeline from "./WsTimeline.svelte";
+    import CollapsibleSection from "./CollapsibleSection.svelte";
+    import {ArrowDown, ArrowUp} from "@lucide/svelte";
     import {title} from "../../state.ts";
 
     let requestId = $derived(page.params.requestId)
@@ -22,13 +25,23 @@
     let requestBodySize = $state(0)
     let responseBodySize = $state(0)
 
+    const headerCount = (headers: Record<string, string[]>) =>
+        Object.values(headers).reduce((sum, values) => sum + values.length, 0)
+
     $effect(() => {
         title.set(request === "loading" ? "Request " + requestId : request.request.method + " " + request.request.uri.slice(0, 100))
     })
 
     $effect(() => {
         const foundRequest = $requests.find(r => r.request_id === requestId)
-        if (foundRequest) request = fromRequestUpdate(foundRequest) ?? "loading"
+        if (!foundRequest) return
+        untrack(() => {
+            // Merge onto the already-loaded request so headers/body loaded via getRequest survive
+            // the frequent live updates (esp. WebSocket frame counters). Never downgrade a loaded
+            // request back to "loading" when the update lacks a resolved target.
+            const previous = request === "loading" ? undefined : request
+            request = fromRequestUpdate(foundRequest, previous) ?? request
+        })
     })
 
     $effect(() => {
@@ -73,6 +86,32 @@
                 </div>
             </div>
 
+            {#if request.kind === "websocket"}
+                <div class="flex flex-row items-center gap-3 pt-4 font-mono text-sm">
+                    <span class="flex flex-row items-center gap-0.5 text-emerald-600" title="ausgehend">
+                        <ArrowUp size={16} />{request.ws_frames_sent}
+                    </span>
+                    <span class="flex flex-row items-center gap-0.5 text-sky-600" title="eingehend">
+                        <ArrowDown size={16} />{request.ws_frames_received}
+                    </span>
+                </div>
+
+                <div class="flex flex-col gap-2 pt-4">
+                    <CollapsibleSection title="Request Headers" count={headerCount(request.request.headers)}>
+                        <HeaderTable headers={request.request.headers} />
+                    </CollapsibleSection>
+                    {#if request.response?.type === "success"}
+                        <CollapsibleSection title="Response Headers" count={headerCount(request.response.headers)}>
+                            <HeaderTable headers={request.response.headers} />
+                        </CollapsibleSection>
+                    {/if}
+                </div>
+
+                <div class="pt-4">
+                    <h2 class="font-heading font-semibold text-gray-800 uppercase pb-2">Messages</h2>
+                    <WsTimeline requestId={request.request_id} />
+                </div>
+            {:else}
             <div class="flex max-xl:flex-col xl:flex-row gap-2 pt-4">
                 <div class="flex-1 min-w-0 bg-zinc-50 p-4 rounded-sm overflow-hidden">
                     <h2 class="font-heading font-semibold text-gray-800 uppercase">Request</h2>
@@ -119,6 +158,7 @@
                     {/if}
                 </div>
             </div>
+            {/if}
         {:else}
             <ContentLoading />
         {/if}

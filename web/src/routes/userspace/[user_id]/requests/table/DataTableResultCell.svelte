@@ -1,6 +1,7 @@
 <script lang="ts">
     import type {RequestUpdate} from "../../state";
     import {statusColor} from "$lib/components/requests/colors";
+    import {ArrowDown, ArrowUp} from "@lucide/svelte";
 
     let {
         request,
@@ -14,7 +15,16 @@
     })
 </script>
 
-{#if request.error}
+{#if request.kind === "websocket"}
+    <div class="flex flex-row items-center gap-2 font-mono text-sm">
+        <span class="flex flex-row items-center gap-0.5 text-emerald-600" title="ausgehend">
+            <ArrowUp size={14} />{request.ws_frames_sent}
+        </span>
+        <span class="flex flex-row items-center gap-0.5 text-sky-600" title="eingehend">
+            <ArrowDown size={14} />{request.ws_frames_received}
+        </span>
+    </div>
+{:else if request.error}
     <span class="text-red-500 text-sm uppercase font-medium font-mono">ERR</span>
 {:else if request.status_code}
     <div class="flex flex-row items-baseline gap-1">

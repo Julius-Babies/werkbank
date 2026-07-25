@@ -25,13 +25,16 @@ fun Route.getRequest() {
             db.query {
                 RequestResponse(
                     requestId = request.id.value,
+                    kind = request.kind ?: "http",
                     method = request.method,
                     uri = request.uri,
+                    wsFramesSent = request.wsFramesSent,
+                    wsFramesReceived = request.wsFramesReceived,
                     target = RequestResponse.Target(
-                        projectId = request.service.project.id.value,
-                        projectName = request.service.project.name,
-                        serviceId = request.service.id.value,
-                        serviceName = request.service.serviceKey,
+                        projectId = request.project.id.value,
+                        projectName = request.project.name,
+                        serviceId = request.service?.id?.value,
+                        serviceName = request.service?.serviceKey,
                     ),
                     requestHeaders = request.requestHeaders,
                     requestBodySize = if (request.requestBody != null) TunnelRequests
@@ -84,8 +87,11 @@ suspend fun ApplicationCall.getRequestWithPrincipalAsOwner(): TunnelRequest? {
 @Serializable
 data class RequestResponse(
     @SerialName("request_id") val requestId: Uuid,
+    @SerialName("kind") val kind: String,
     @SerialName("method") val method: String,
     @SerialName("uri") val uri: String,
+    @SerialName("ws_frames_sent") val wsFramesSent: Int,
+    @SerialName("ws_frames_received") val wsFramesReceived: Int,
     @SerialName("target") val target: Target,
     @SerialName("request_headers") val requestHeaders: Map<String, List<String>>,
     @SerialName("request_body_size") val requestBodySize: Long,
@@ -98,7 +104,7 @@ data class RequestResponse(
     data class Target(
         @SerialName("project_id") val projectId: Uuid,
         @SerialName("project_name") val projectName: String,
-        @SerialName("service_id") val serviceId: Uuid,
-        @SerialName("service_name") val serviceName: String,
+        @SerialName("service_id") val serviceId: Uuid?,
+        @SerialName("service_name") val serviceName: String?,
     )
 }

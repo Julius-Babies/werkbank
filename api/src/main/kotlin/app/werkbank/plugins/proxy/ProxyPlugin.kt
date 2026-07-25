@@ -1,47 +1,43 @@
 package app.werkbank.plugins.proxy
 
-import app.werkbank.app.tunnel.ServerNotRunningException
-import app.werkbank.app.tunnel.TimeoutException
-import app.werkbank.app.tunnel.TunnelClosedException
-import app.werkbank.app.tunnel.TunnelInstance
-import app.werkbank.app.tunnel.TunnelManager
-import app.werkbank.app.tunnel.TunnelRequestRecord
+import app.werkbank.app.tunnel.*
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
+import app.werkbank.util.isLikelyBrowser
 import app.werkbank.util.launchConnectionJob
-import app.werkbank.util.sha256
-import com.auth0.jwt.JWT
-import com.auth0.jwt.algorithms.Algorithm
-import com.auth0.jwt.exceptions.JWTVerificationException
-import io.ktor.client.HttpClient
-import io.ktor.client.request.get
-import io.ktor.client.statement.bodyAsChannel
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.http.content.OutgoingContent
+import io.ktor.http.content.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.websocket.*
 import io.ktor.util.*
-import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.ByteWriteChannel
-import io.ktor.utils.io.readAvailable
-import io.ktor.utils.io.writeFully
-import io.ktor.utils.io.writer
+import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.lowerCase
 import org.jetbrains.exposed.v1.core.statements.api.ExposedBlob
+import org.jetbrains.exposed.v1.jdbc.batchInsert
 import org.koin.ktor.ext.inject
 import java.io.File
+import java.util.*
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
+
+val subdomain = AttributeKey<String>("subdomain")
+val requestedDestination = AttributeKey<String>("requested_destination")
+val currentUser = AttributeKey<User>("user")
+val targetProject = AttributeKey<Project>("project")
+val targetService = AttributeKey<Optional<Service>>("service")
 
 val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
     val appConfig by application.inject<AppConfig>()
@@ -56,118 +52,56 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
         if (host == appConfig.appDomain) return@onCall
         if (regex.matches(host)) {
             val domain = host.removeSuffix(".$suffix")
-            val (destination, username) = domain.split(".", limit = 2)
+            call.attributes[subdomain] = domain
 
+            val (destination, username) = domain.split(".", limit = 2)
             val user = db.query { User.find { Users.username.lowerCase() eq username.lowercase() }.firstOrNull() }
+            call.attributes[requestedDestination] = destination
+
             if (user == null) {
+                call.markRequestAsWerkbankHandled()
                 call.respondText("User not found", status = HttpStatusCode.NotFound)
                 return@onCall
             }
 
-            val project: Project
-            val service: Service?
+            call.attributes[currentUser] = user
 
-            if ('-' in destination) {
-                val (serviceName, projectName) = destination.split('-', limit = 2)
-
-                val requestedProject = db.query { Project.find { (Projects.projectKey.lowerCase() eq projectName.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
-                if (requestedProject == null) {
-                    call.respondText("Project not found", status = HttpStatusCode.NotFound)
-                    return@onCall
-                }
-                project = requestedProject
-
-                val requestedService = db.query { Service.find { Services.project eq project.id and (Services.serviceKey.lowerCase() eq serviceName.lowercase()) }.firstOrNull() }
-                if (requestedService == null) {
-                    call.respondText("Service not found", status = HttpStatusCode.NotFound)
-                    return@onCall
-                }
-                service = requestedService
-            } else {
-                val requestedProject = db.query { Project.find { (Projects.projectKey.lowerCase() eq destination.lowercase()) and (Projects.owner eq user.id) }.firstOrNull() }
-                if (requestedProject == null) {
-                    call.respondText("Project not found", status = HttpStatusCode.NotFound)
-                    return@onCall
-                }
-                project = requestedProject
-                service = null
+            val destinationResolution = call.getProjectAndServiceFromRequest()
+            if (destinationResolution !is ProjectResolveResult.Success) {
+                call.markRequestAsWerkbankHandled()
+                destinationResolution as ProjectResolveResult.Failure
+                destinationResolution.respondIn(call, HttpStatusCode.NotFound)
+                return@onCall
             }
 
-            val authCookieName = "werkbank-project-auth-token-${project.id.value.toHexString()}"
-            val cookieValue = call.request.cookies[authCookieName]
+            val (project, service) = destinationResolution
+            call.attributes[targetProject] = project
+            call.attributes[targetService] = service?.let { Optional.of(it) } ?: Optional.empty()
 
-            var isAuthorized = if (project.accessState == Project.AccessState.Open) true else run authorizationValidation@{
-                if (cookieValue == null) return@authorizationValidation false
-                else {
-                    val jwtVerifier = JWT
-                        .require(Algorithm.HMAC256(appConfig.jwt.secret))
-                        .withAudience("werkbank-project-${project.id.value.toHexString()}")
-                        .withIssuer("werkbank")
-                        .build()
-                    try {
-                        val jwt = jwtVerifier.verify(cookieValue)
+            val authorizationResult = call.checkRequestAuthorization()
+            if (authorizationResult !is AuthorizationResult.Success) {
+                call.markRequestAsWerkbankHandled()
+                if (call.request.headers["Werkbank-No-Browser"] == "true" || !call.isLikelyBrowser()) {
+                    authorizationResult as AuthorizationResult.Failure
+                    authorizationResult.respondIn(call, HttpStatusCode.Unauthorized)
+                } else {
+                    val proxyAuthSession = ProxyAuthSession(
+                        path = call.request.uri,
+                        project = project,
+                        host = call.request.host(),
+                        headers = call.request.headers.entries().flatMap { entry -> entry.value.map { "${entry.key}=$it" } }
+                    )
 
-                        if (jwt.audience.first() == "werkbank-projects") {
-                            val accessKey = db.query { AccessKey.find { AccessKeys.key eq cookieValue.sha256() }.firstOrNull() }
-                                ?: return@authorizationValidation false
-                            val user = db.query { accessKey.createdBy }
-                            val isOwner = db.query { project.owner.id.value == user.id.value }
-                            if (isOwner) return@authorizationValidation true
-                            return@authorizationValidation false
-                        }
+                    val authSessionId = Uuid.random()
+                    proxyAuthSessions[authSessionId] = proxyAuthSession
 
-                        if (jwt.audience.first() != "werkbank-project-${project.id.value.toHexString()}") return@authorizationValidation false
-                        when (jwt.getClaim("source").asString()) {
-                            "user" -> {
-                                val user = db.query { User.findById(Uuid.parse(jwt.getClaim("user_id").asString())) }
-                                if (user == null) return@authorizationValidation false
-                                val isOwner = db.query { project.owner.id.value == user.id.value }
-                                if (isOwner) return@authorizationValidation true
-                                return@authorizationValidation false
-                            }
-                            "password" -> {
-                                if (project.accessState == Project.AccessState.Disabled) return@authorizationValidation false
-                                val passwordId = jwt.getClaim("password_id").asString()
-                                val projectUsesPassword = db.query { project.passwords.any { password -> password.password.id.value.toHexString() == passwordId } }
-                                return@authorizationValidation projectUsesPassword
-                            }
-                        }
-                    } catch (_: JWTVerificationException) {
-                        return@authorizationValidation false
+                    val url = URLBuilder("https://${appConfig.appDomain}/api/proxy/auth/landing").apply {
+                        parameters.append("proxy_auth_session_id", authSessionId.toString())
                     }
+                    call.respondRedirect(url.build(), permanent = false)
                 }
-
-                return@authorizationValidation null
-            }
-
-            if (isAuthorized == null) {
-                call.respondText(
-                    "Something went wrong, we couldn't determine whether this request is authorized. We're sorry for the inconvenience. This is a bug, please report it to us.",
-                    status = HttpStatusCode.InternalServerError
-                )
                 return@onCall
             }
-
-            if (!isAuthorized) {
-
-                val proxyAuthSession = ProxyAuthSession(
-                    path = call.request.uri,
-                    project = project,
-                    host = call.request.host(),
-                    headers = call.request.headers.entries().flatMap { entry -> entry.value.map { "${entry.key}=$it" } }
-                )
-
-                val authSessionId = Uuid.random()
-                proxyAuthSessions[authSessionId] = proxyAuthSession
-
-                val url = URLBuilder("https://${appConfig.appDomain}/api/proxy/auth/landing").apply {
-                    parameters.append("proxy_auth_session_id", authSessionId.toString())
-                }
-                call.respondRedirect(url.build(), permanent = false)
-                return@onCall
-            }
-
-            require(isAuthorized) { "isAuthorized should be true" }
 
             val isWebSocket = call.request.httpMethod == HttpMethod.Get &&
                 call.request.headers["Upgrade"]?.lowercase() == "websocket"
@@ -175,61 +109,104 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             val tunnel = tunnelManager.getTunnel(user)
 
             if (tunnel == null) {
-                val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-not-running").apply {
-                    parameters.append("project_id", project.id.value.toHexString())
-                    parameters.append("owner_id", project.owner.id.value.toHexString())
-                    parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                    parameters.append("owner_username", project.owner.username)
-                } }.build()
+                val url = with(call) {
+                    URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-not-running")
+                        .applyProjectContextForErrorPage()
+                        .build()
+                }
                 call.respondWebpage(url, appConfig.appDomain)
                 return@onCall
             }
 
             if (isWebSocket) {
+                val requestId = Uuid.random()
+                val wsRecord = TunnelRequestRecord(
+                    requestId = requestId,
+                    kind = RequestKind.WEBSOCKET,
+                    method = call.request.httpMethod.value,
+                    uri = call.request.uri,
+                    projectId = project.id.value.toHexString(),
+                    projectName = project.projectKey,
+                    serviceName = service?.serviceKey,
+                    requestHeaders = call.request.headers.toMap(),
+                    responseHeaders = null,
+                    statusCode = null,
+                    error = null,
+                    startedAt = System.currentTimeMillis(),
+                    sentToTunnelAt = null,
+                    responseStartedAt = null,
+                    completedAt = null,
+                    requestBodyPath = null,
+                    responseBodyPath = null,
+                )
+
                 val wsProxy = try {
-                    tunnel.wsProxy(
-                        projectName = project.projectKey,
-                        serviceName = service?.serviceKey,
-                        path = call.request.uri,
-                        headers = call.request.headers.toMap(),
-                    )
-                } catch (_: TunnelClosedException) {
+                    tunnel.startWsProxy(wsRecord)
+                } catch (e: TunnelClosedException) {
+                    call.application.environment.log.warn("WebSocket proxy failed for ${wsRecord.uri}: ${e.message}")
                     call.respondText("Tunnel connection closed", status = HttpStatusCode.BadGateway)
                     return@onCall
                 } catch (_: TimeoutException) {
+                    call.application.environment.log.warn("WebSocket proxy timed out for ${wsRecord.uri}")
                     call.respondText("WebSocket proxy timed out", status = HttpStatusCode.GatewayTimeout)
                     return@onCall
                 }
 
-                call.respond(WebSocketUpgrade(call) {
-                    launchConnectionJob(call.application, "ws-proxy-client-to-tunnel") {
-                        for (frame in incoming) {
-                            when (frame) {
-                                is Frame.Text -> wsProxy.send(Frame.Text(frame.readText()))
-                                is Frame.Binary -> wsProxy.send(Frame.Binary(frame.fin, frame.readBytes()))
-                                is Frame.Close -> {
-                                    val reason = frame.readReason() ?: CloseReason(1000, "")
-                                    wsProxy.send(Frame.Close(reason))
-                                    close(reason)
-                                    break
-                                }
-                                else -> {}
-                            }
-                        }
-                    }
+                // Echo the requested subprotocol back in the 101; browsers (e.g. Vite HMR's "vite-hmr")
+                // abort the handshake if the subprotocol they offered is not confirmed.
+                val requestedSubprotocol = call.request.headers["Sec-WebSocket-Protocol"]
+                    ?.split(",")
+                    ?.map { it.trim() }
+                    ?.firstOrNull { it.isNotEmpty() }
 
-                    launchConnectionJob(call.application, "ws-proxy-tunnel-to-client") {
-                        for (frame in wsProxy.incomingFrames) {
-                            when (frame) {
-                                is Frame.Text -> send(Frame.Text(frame.readText()))
-                                is Frame.Binary -> send(Frame.Binary(true, frame.readBytes()))
-                                is Frame.Close -> {
-                                    close(frame.readReason() ?: CloseReason(1000, ""))
-                                    break
+                call.respond(WebSocketUpgrade(call, protocol = requestedSubprotocol) {
+                    try {
+                        coroutineScope {
+                            val clientToTunnel = launchConnectionJob(call.application, "ws-proxy-client-to-tunnel") {
+                                for (frame in incoming) {
+                                    when (frame) {
+                                        is Frame.Text -> wsProxy.send(Frame.Text(frame.readText()))
+                                        is Frame.Binary -> wsProxy.send(Frame.Binary(frame.fin, frame.readBytes()))
+                                        is Frame.Close -> {
+                                            val reason = frame.readReason() ?: CloseReason(1000, "")
+                                            wsProxy.send(Frame.Close(reason))
+                                            close(reason)
+                                            break
+                                        }
+                                        else -> {}
+                                    }
                                 }
-                                else -> {}
                             }
+
+                            val tunnelToClient = launchConnectionJob(call.application, "ws-proxy-tunnel-to-client") {
+                                for (frame in wsProxy.incomingFrames) {
+                                    when (frame) {
+                                        is Frame.Text -> send(Frame.Text(frame.readText()))
+                                        is Frame.Binary -> send(Frame.Binary(true, frame.readBytes()))
+                                        is Frame.Close -> {
+                                            close(frame.readReason() ?: CloseReason(1000, ""))
+                                            break
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                            }
+
+                            // When either side ends, tear the other down so the connection actually closes.
+                            clientToTunnel.invokeOnCompletion { tunnelToClient.cancel() }
+                            tunnelToClient.invokeOnCompletion { clientToTunnel.cancel() }
                         }
+                    } finally {
+                        wsProxy.close()
+                        persistTunnelRequest(
+                            db = db,
+                            record = wsProxy.snapshot.value,
+                            projectId = project.id,
+                            explicitServiceId = service?.id,
+                            requestBodyFile = null,
+                            responseBodyFile = null,
+                            frames = wsProxy.framesSnapshot(),
+                        )
                     }
                 })
             } else {
@@ -240,9 +217,10 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     else File(tempDir, "tunnel-req-$requestId")
                 val responseBodyFile = File(tempDir, "tunnel-res-$requestId")
 
-                tunnel.addProxyRequestRecord(
+                val proxyRequest = tunnel.startRequest(
                     TunnelRequestRecord(
                         requestId = requestId,
+                        kind = RequestKind.HTTP,
                         method = call.request.httpMethod.value,
                         uri = call.request.uri,
                         projectId = project.id.value.toHexString(),
@@ -258,71 +236,41 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         completedAt = null,
                         requestBodyPath = requestBodyFile?.path,
                         responseBodyPath = responseBodyFile.path,
-                    )
+                    ),
+                    proxyScope,
                 )
 
                 try {
                     val response = try {
-                        val result = tunnel.request(
-                            method = call.request.httpMethod,
-                            projectName = project.projectKey,
-                            serviceName = service?.serviceKey,
-                            path = call.request.uri,
-                            headers = call.request.headers.toMap(),
+                        proxyRequest.send(
                             body = when (call.request.httpMethod) {
                                 HttpMethod.Get -> null
                                 else -> call.receiveChannel().teeToFile(requestBodyFile!!, proxyScope)
                             },
-                            coroutineScope = proxyScope,
-                            requestId = requestId,
                         )
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(sentToTunnelAt = System.currentTimeMillis())
-                        }
-                        val response = result.await()
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(
-                                responseStartedAt = System.currentTimeMillis(),
-                                statusCode = response.status.value,
-                                responseHeaders = response.headers,
-                            )
-                        }
-                        response
+                        proxyRequest.awaitResponse()
                     } catch (_: TimeoutException) {
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(error = "Request timed out", completedAt = System.currentTimeMillis())
+                        val url = with(call) {
+                            URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout")
+                                .applyProjectContextForErrorPage()
+                                .build()
                         }
-                        val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout").apply {
-                            parameters.append("project_id", project.id.value.toHexString())
-                            parameters.append("owner_id", project.owner.id.value.toHexString())
-                            parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                            parameters.append("owner_username", project.owner.username)
-                        } }.build()
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (_: TunnelClosedException) {
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(error = "Tunnel connection closed", completedAt = System.currentTimeMillis())
+                        val url = with(call) {
+                            URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed")
+                                .applyProjectContextForErrorPage()
+                                .build()
                         }
-                        val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed").apply {
-                            parameters.append("project_id", project.id.value.toHexString())
-                            parameters.append("owner_id", project.owner.id.value.toHexString())
-                            parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                            parameters.append("owner_username", project.owner.username)
-                        } }.build()
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (_: ServerNotRunningException) {
-                        tunnel.updateProxyRequestRecord(requestId) {
-                            it.copy(error = "Service not running", completedAt = System.currentTimeMillis())
+                        val url = with(call) {
+                            URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running")
+                                .applyProjectContextForErrorPage()
+                                .build()
                         }
-                        val url = db.query { URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running").apply {
-                            parameters.append("project_id", project.id.value.toHexString())
-                            parameters.append("owner_id", project.owner.id.value.toHexString())
-                            parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
-                            parameters.append("owner_username", project.owner.username)
-                            parameters.append("service_name", service?.serviceKey ?: "null")
-                        } }.build()
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     }
@@ -349,16 +297,8 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                                         }
                                     }
                                 }
-                                tunnel.updateProxyRequestRecord(requestId) {
-                                    it.copy(completedAt = System.currentTimeMillis())
-                                }
                             } catch (e: Exception) {
-                                tunnel.updateProxyRequestRecord(requestId) {
-                                    it.copy(
-                                        error = it.error ?: (e.message ?: "Response streaming failed"),
-                                        completedAt = System.currentTimeMillis(),
-                                    )
-                                }
+                                proxyRequest.fail(e)
                                 throw e
                             }
                         }
@@ -366,8 +306,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 } finally {
                     persistTunnelRequest(
                         db = db,
-                        tunnel = tunnel,
-                        requestId = requestId,
+                        record = proxyRequest.snapshot.value,
                         projectId = project.id,
                         explicitServiceId = service?.id,
                         requestBodyFile = requestBodyFile,
@@ -432,19 +371,19 @@ private fun ByteReadChannel.teeToFile(file: File, scope: CoroutineScope): ByteRe
 /**
  * Persists the finished proxy request described by the in-memory record into [TunnelRequests].
  * Bodies are streamed from their temp files straight into the blob columns via [ExposedBlob], so
- * they are never fully materialised on the heap. Requests without a resolved service are skipped.
+ * they are never fully materialised on the heap. For WebSocket connections the captured [frames] are
+ * written into [TunnelRequestFrames]. The service may be unresolved (the CLI picks it), so requests
+ * are persisted even without a service.
  */
 private suspend fun persistTunnelRequest(
     db: DatabaseManager,
-    tunnel: TunnelInstance,
-    requestId: Uuid,
+    record: TunnelRequestRecord,
     projectId: EntityID<Uuid>,
     explicitServiceId: EntityID<Uuid>?,
     requestBodyFile: File?,
     responseBodyFile: File?,
+    frames: List<WsFrameRecord> = emptyList(),
 ) {
-    val record = tunnel.proxyRequests.value.firstOrNull { it.requestId == requestId } ?: return
-
     // Bodies are stored exactly as they came over the tunnel, i.e. still compressed. Decode them so
     // the stored copy is the plain body and drop the Content-Encoding header that no longer applies.
     // `decode = false` reproduces the raw behaviour and is used as a fallback if decoding blows up on
@@ -471,10 +410,6 @@ private suspend fun persistTunnelRequest(
                             (Services.project eq projectId) and (Services.serviceKey.lowerCase() eq name.lowercase())
                         }.firstOrNull()
                     }
-                if (serviceEntity == null) {
-                    println("Skipping tunnel request persistence for $requestId: no resolved service")
-                    return@query
-                }
 
                 val statusCode = record.statusCode
                 val error = record.error
@@ -484,8 +419,13 @@ private suspend fun persistTunnelRequest(
                     else -> TunnelRequestResult.Failure("Request did not complete")
                 }
 
-                TunnelRequest.new(requestId) {
+                val entity = TunnelRequest.new(record.requestId) {
                     this.service = serviceEntity
+                    this.project = Project[projectId]
+                    this.kind = when (record.kind) {
+                        RequestKind.HTTP -> "http"
+                        RequestKind.WEBSOCKET -> "websocket"
+                    }
                     this.method = record.method
                     this.uri = record.uri
                     this.requestHeaders =
@@ -499,6 +439,23 @@ private suspend fun persistTunnelRequest(
                     this.responseBody = responseBody?.let { ExposedBlob(it.stream) }
                     this.startedAt = Instant.fromEpochMilliseconds(record.startedAt)
                     this.responseReadyAt = record.responseStartedAt?.let { Instant.fromEpochMilliseconds(it) }
+                    this.wsFramesSent = record.wsFramesSent
+                    this.wsFramesReceived = record.wsFramesReceived
+                }
+
+                if (frames.isNotEmpty()) {
+                    TunnelRequestFrames.batchInsert(frames) { frame ->
+                        this[TunnelRequestFrames.request] = entity.id
+                        this[TunnelRequestFrames.sequence] = frame.sequence
+                        this[TunnelRequestFrames.direction] = frame.direction.name.lowercase()
+                        this[TunnelRequestFrames.opcode] = frame.opcode.name.lowercase()
+                        this[TunnelRequestFrames.text] = frame.text
+                        this[TunnelRequestFrames.binaryBase64] = frame.binaryBase64
+                        this[TunnelRequestFrames.size] = frame.size
+                        this[TunnelRequestFrames.timestamp] = Instant.fromEpochMilliseconds(frame.timestamp)
+                        this[TunnelRequestFrames.closeCode] = frame.closeCode
+                        this[TunnelRequestFrames.closeReason] = frame.closeReason
+                    }
                 }
             }
         } finally {
@@ -510,7 +467,21 @@ private suspend fun persistTunnelRequest(
     try {
         writeRecord(decode = true)
     } catch (e: Exception) {
-        println("Failed to persist decoded bodies for $requestId, storing raw instead: ${e.message}")
+        println("Failed to persist decoded bodies for ${record.requestId}, storing raw instead: ${e.message}")
         writeRecord(decode = false)
     }
+}
+
+context(call: ApplicationCall)
+suspend fun URLBuilder.applyProjectContextForErrorPage(): URLBuilder {
+    val db by call.inject<DatabaseManager>()
+    val project = call.attributes[targetProject]
+    db.query {
+        parameters.append("project_id", project.id.value.toHexString())
+        parameters.append("owner_id", project.owner.id.value.toHexString())
+        parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
+        parameters.append("owner_username", project.owner.username)
+    }
+
+    return this
 }

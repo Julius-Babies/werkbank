@@ -38,6 +38,20 @@ class TunnelViewModel: KoinComponent {
 
     companion object {
         val TUNNEL_RECONNECT_DELAY = 5.seconds
+
+        // WebSocket handshake control headers the ktor client manages itself; forwarding the browser's
+        // copies would conflict. Everything else (incl. Sec-WebSocket-Protocol, e.g. Vite's "vite-hmr")
+        // is passed through to the upstream so the dev server negotiates the handshake correctly.
+        private val NON_FORWARDED_WS_HEADERS = setOf(
+            "host",
+            "connection",
+            "upgrade",
+            "sec-websocket-key",
+            "sec-websocket-version",
+            "sec-websocket-extensions",
+            "sec-websocket-accept",
+            "content-length",
+        )
     }
 
     private val mainConfig by inject<MainConfig>()
@@ -327,31 +341,61 @@ class TunnelViewModel: KoinComponent {
                                                     service = target.service.name,
                                                 ))
 
-//                                                printRequest(
-//                                                    method = "WEBSOCKET",
-//                                                    projectKey = target.project.id,
-//                                                    serviceKey = target.service.name,
-//                                                    path = msg.path,
-//                                                    targetUrl = target.url,
-//                                                )
+                                                _requests.update { it + Request(
+                                                    requestId = msg.requestId,
+                                                    method = "WS/GET",
+                                                    project = target.project.id,
+                                                    service = target.service.name,
+                                                    path = msg.path,
+                                                    targetUrl = target.url,
+                                                    startedAt = Clock.System.now(),
+                                                    headers = msg.headers.map { header ->
+                                                        val (key, value) = header.split(": ")
+                                                        key to value
+                                                    },
+                                                    result = null,
+                                                    ws = Request.WsState(),
+                                                ) }
 
                                                 try {
-                                                    client.webSocket(urlString = target.url) {
+                                                    client.webSocket(
+                                                        urlString = target.url,
+                                                        request = {
+                                                            msg.headers.forEach { header ->
+                                                                val separator = header.indexOf(": ")
+                                                                if (separator <= 0) return@forEach
+                                                                val name = header.substring(0, separator)
+                                                                val value = header.substring(separator + 2)
+                                                                if (name.lowercase() !in NON_FORWARDED_WS_HEADERS) {
+                                                                    headers.append(name, value)
+                                                                }
+                                                            }
+                                                        }
+                                                    ) {
                                                         wsProxyState[msg.requestId] = this
                                                         this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
-                                                            requestId = msg.requestId
+                                                            requestId = msg.requestId,
+                                                            headers = call.response.headers.entries().flatMap { (name, values) ->
+                                                                values.map { "$name: $it" }
+                                                            },
                                                         ))
 
                                                         for (frame in incoming) {
                                                             when (frame) {
-                                                                is Frame.Text -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
-                                                                    requestId = msg.requestId,
-                                                                    text = frame.readText()
-                                                                ))
-                                                                is Frame.Binary -> this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsBinary(
-                                                                    requestId = msg.requestId,
-                                                                    body = Base64.encode(frame.readBytes())
-                                                                ))
+                                                                is Frame.Text -> {
+                                                                    updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
+                                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
+                                                                        requestId = msg.requestId,
+                                                                        text = frame.readText()
+                                                                    ))
+                                                                }
+                                                                is Frame.Binary -> {
+                                                                    updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
+                                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsBinary(
+                                                                        requestId = msg.requestId,
+                                                                        body = Base64.encode(frame.readBytes())
+                                                                    ))
+                                                                }
                                                                 is Frame.Close -> {
                                                                     this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
                                                                         requestId = msg.requestId,
@@ -371,18 +415,22 @@ class TunnelViewModel: KoinComponent {
                                                         reason = e.message ?: "Failed to connect to local WebSocket service"
                                                     ))
                                                 } finally {
+                                                    updateWs(msg.requestId) { it.copy(closed = true) }
                                                     wsProxyState.remove(msg.requestId)
                                                 }
                                             }
                                         }
                                         is ServerMessage.WsText -> {
                                             wsProxyState[msg.requestId]?.send(Frame.Text(msg.text))
+                                            updateWs(msg.requestId) { it.copy(framesSent = it.framesSent + 1) }
                                         }
                                         is ServerMessage.WsBinary -> {
                                             wsProxyState[msg.requestId]?.send(Frame.Binary(msg.fin, Base64.decode(msg.body)))
+                                            updateWs(msg.requestId) { it.copy(framesSent = it.framesSent + 1) }
                                         }
                                         is ServerMessage.WsClose -> {
                                             wsProxyState[msg.requestId]?.close(CloseReason(msg.code.toShort(), msg.reason))
+                                            updateWs(msg.requestId) { it.copy(closed = true) }
                                             wsProxyState.remove(msg.requestId)
                                         }
                                         is ServerMessage.Ping -> {
@@ -401,6 +449,18 @@ class TunnelViewModel: KoinComponent {
                 } catch (e: Exception) {
                     state.update { it.copy(connectionState = TunnelState.ConnectionState.Retrying(Clock.System.now() + TUNNEL_RECONNECT_DELAY, e)) }
                     delay(TUNNEL_RECONNECT_DELAY)
+                }
+            }
+        }
+    }
+
+    private fun updateWs(requestId: Uuid, transform: (Request.WsState) -> Request.WsState) {
+        _requests.update { list ->
+            list.map { request ->
+                if (request.requestId == requestId && request.ws != null) {
+                    request.copy(ws = transform(request.ws))
+                } else {
+                    request
                 }
             }
         }
@@ -477,6 +537,7 @@ data class Request(
     val startedAt: Instant,
     val headers: List<Pair<String, String>>,
     val result: Result?,
+    val ws: WsState? = null,
 ) {
     sealed class Result {
         abstract val finishedAt: Instant
@@ -490,4 +551,15 @@ data class Request(
         data class Timeout(override val finishedAt: Instant): Result()
         data class ServiceNotRunning(override val finishedAt: Instant): Result()
     }
+
+    /**
+     * State of a proxied WebSocket connection. Direction mirrors the cloud tunnel: frames going from
+     * the browser to the local dev service are counted as [framesSent], frames coming back from the
+     * dev service to the browser as [framesReceived].
+     */
+    data class WsState(
+        val framesSent: Int = 0,
+        val framesReceived: Int = 0,
+        val closed: Boolean = false,
+    )
 }

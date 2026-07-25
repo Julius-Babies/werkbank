@@ -1,7 +1,10 @@
-import type {RequestUpdate} from "../../state.ts";
+import type {RequestKind, RequestUpdate, WsFrame} from "../../state.ts";
 
 export interface Request {
     request_id: string;
+    kind: RequestKind;
+    ws_frames_sent: number;
+    ws_frames_received: number;
     project: {
         project_id: string;
         project_name: string;
@@ -24,10 +27,20 @@ export interface Request {
     } | null;
 }
 
-export function fromRequestUpdate(requestUpdate: RequestUpdate): Request | null {
+/**
+ * Builds a {@link Request} from a live {@link RequestUpdate}. Live updates do not carry headers or
+ * body sizes (those only come from {@link getRequest}), so when a `previous` fully-loaded request is
+ * passed its headers are carried over instead of being wiped — otherwise the constant WebSocket
+ * frame-count updates would blank out the header tables on the detail page.
+ */
+export function fromRequestUpdate(requestUpdate: RequestUpdate, previous?: Request): Request | null {
     if (requestUpdate.target === null) return null;
+    const previousResponse = previous?.response;
     return  {
         request_id: requestUpdate.request_id,
+        kind: requestUpdate.kind,
+        ws_frames_sent: requestUpdate.ws_frames_sent,
+        ws_frames_received: requestUpdate.ws_frames_received,
         project: {
             project_id: requestUpdate.target.project_id,
             project_name: requestUpdate.target.project_name
@@ -36,19 +49,26 @@ export function fromRequestUpdate(requestUpdate: RequestUpdate): Request | null 
             service_key: requestUpdate.target.service_name,
         },
         request: {
-            headers: {},
+            headers: previous?.request.headers ?? {},
             method: requestUpdate.method,
             uri: requestUpdate.uri
         },
         response: requestUpdate.status_code ? {
             type: "success",
             status_code: requestUpdate.status_code,
-            headers: {},
+            headers: previousResponse?.type === "success" ? previousResponse.headers : {},
         } : requestUpdate.error ? {
             type: "error",
             error: requestUpdate.error,
         } : null,
     }
+}
+
+export async function getFrames(requestId: string): Promise<WsFrame[]> {
+    const response = await fetch(`/api/webapp/requests/${requestId}/frames`);
+    if (!response.ok) return [];
+    const data = await response.json() as Omit<WsFrame, "request_id">[];
+    return data.map(frame => ({...frame, request_id: requestId}));
 }
 
 export async function getRequest(requestId: string): Promise<{ request: Request, requestBodySize: number, responseBodySize: number } | null> {
@@ -57,13 +77,16 @@ export async function getRequest(requestId: string): Promise<{ request: Request,
 
     const data = await response.json() as {
         request_id: string;
+        kind: RequestKind;
         method: string;
         uri: string;
+        ws_frames_sent: number;
+        ws_frames_received: number;
         target: {
             project_id: string;
             project_name: string;
-            service_id: string;
-            service_name: string;
+            service_id: string | null;
+            service_name: string | null;
         };
         request_headers: Record<string, string[]>;
         response_headers: Record<string, string[]>;
@@ -76,6 +99,9 @@ export async function getRequest(requestId: string): Promise<{ request: Request,
     return {
         request: {
             request_id: data.request_id,
+            kind: data.kind,
+            ws_frames_sent: data.ws_frames_sent,
+            ws_frames_received: data.ws_frames_received,
             project: {
                 project_id: data.target.project_id,
                 project_name: data.target.project_name,
