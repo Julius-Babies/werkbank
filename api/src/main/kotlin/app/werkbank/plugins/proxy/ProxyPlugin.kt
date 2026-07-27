@@ -1,5 +1,7 @@
 package app.werkbank.plugins.proxy
 
+import app.werkbank.app.queue.request.PersistJob
+import app.werkbank.app.queue.request.RequestPersistenceQueue
 import app.werkbank.app.tunnel.*
 import app.werkbank.config.AppConfig
 import app.werkbank.database.*
@@ -21,16 +23,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
-import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.lowerCase
-import org.jetbrains.exposed.v1.core.statements.api.ExposedBlob
-import org.jetbrains.exposed.v1.jdbc.batchInsert
 import org.koin.ktor.ext.inject
 import java.io.File
 import java.util.*
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 val subdomain = AttributeKey<String>("subdomain")
@@ -43,6 +40,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
     val appConfig by application.inject<AppConfig>()
     val db by application.inject<DatabaseManager>()
     val tunnelManager by application.inject<TunnelManager>()
+    val requestPersistenceQueue by application.inject<RequestPersistenceQueue>()
 
     val suffix = appConfig.domainSuffix
     val regex = Regex("(.+\\.){2}${suffix.replace(".", "\\.")}")
@@ -198,14 +196,15 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         }
                     } finally {
                         wsProxy.close()
-                        persistTunnelRequest(
-                            db = db,
-                            record = wsProxy.snapshot.value,
-                            projectId = project.id,
-                            explicitServiceId = service?.id,
-                            requestBodyFile = null,
-                            responseBodyFile = null,
-                            frames = wsProxy.framesSnapshot(),
+                        requestPersistenceQueue.submit(
+                            PersistJob(
+                                record = wsProxy.snapshot.value,
+                                projectId = project.id,
+                                explicitServiceId = service?.id,
+                                requestBodyFile = null,
+                                responseBodyFile = null,
+                                frames = wsProxy.framesSnapshot(),
+                            )
                         )
                     }
                 })
@@ -304,16 +303,18 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         }
                     })
                 } finally {
-                    persistTunnelRequest(
-                        db = db,
-                        record = proxyRequest.snapshot.value,
-                        projectId = project.id,
-                        explicitServiceId = service?.id,
-                        requestBodyFile = requestBodyFile,
-                        responseBodyFile = responseBodyFile,
+                    // Hand the finished capture to the background queue and return immediately; it owns
+                    // the temp body files from here and deletes them once persisted. Persisting inline
+                    // would hold the client connection and a database pool slot on the request hot path.
+                    requestPersistenceQueue.submit(
+                        PersistJob(
+                            record = proxyRequest.snapshot.value,
+                            projectId = project.id,
+                            explicitServiceId = service?.id,
+                            requestBodyFile = requestBodyFile,
+                            responseBodyFile = responseBodyFile,
+                        )
                     )
-                    requestBodyFile?.delete()
-                    responseBodyFile.delete()
                 }
             }
         }
@@ -366,110 +367,6 @@ private fun ByteReadChannel.teeToFile(file: File, scope: CoroutineScope): ByteRe
             throw e
         }
     }.channel
-}
-
-/**
- * Persists the finished proxy request described by the in-memory record into [TunnelRequests].
- * Bodies are streamed from their temp files straight into the blob columns via [ExposedBlob], so
- * they are never fully materialised on the heap. For WebSocket connections the captured [frames] are
- * written into [TunnelRequestFrames]. The service may be unresolved (the CLI picks it), so requests
- * are persisted even without a service.
- */
-private suspend fun persistTunnelRequest(
-    db: DatabaseManager,
-    record: TunnelRequestRecord,
-    projectId: EntityID<Uuid>,
-    explicitServiceId: EntityID<Uuid>?,
-    requestBodyFile: File?,
-    responseBodyFile: File?,
-    frames: List<WsFrameRecord> = emptyList(),
-) {
-    // Bodies are stored exactly as they came over the tunnel, i.e. still compressed. Decode them so
-    // the stored copy is the plain body and drop the Content-Encoding header that no longer applies.
-    // `decode = false` reproduces the raw behaviour and is used as a fallback if decoding blows up on
-    // a mislabelled body (e.g. header claims gzip but the bytes are not) — the transaction rolls back
-    // so we never lose the request record over an unreadable body.
-    suspend fun writeRecord(decode: Boolean) {
-        // The raw file streams are the underlying resource; closing them in the finally releases the
-        // fds even if a decoder constructor throws on a mislabelled body before the db insert runs.
-        val rawRequestBody = requestBodyFile?.takeIf { it.isFile && it.length() > 0 }?.inputStream()
-        val rawResponseBody = responseBodyFile?.takeIf { it.isFile && it.length() > 0 }?.inputStream()
-
-        try {
-            val requestBody = rawRequestBody?.let {
-                if (decode) decodeHttpBody(it, record.requestHeaders.contentEncoding()) else DecodedBody(it, false)
-            }
-            val responseBody = rawResponseBody?.let {
-                if (decode) decodeHttpBody(it, record.responseHeaders?.contentEncoding()) else DecodedBody(it, false)
-            }
-
-            db.query {
-                val serviceEntity = explicitServiceId?.let { Service.findById(it) }
-                    ?: record.serviceName?.let { name ->
-                        Service.find {
-                            (Services.project eq projectId) and (Services.serviceKey.lowerCase() eq name.lowercase())
-                        }.firstOrNull()
-                    }
-
-                val statusCode = record.statusCode
-                val error = record.error
-                val outcome = when {
-                    error != null -> TunnelRequestResult.Failure(error)
-                    statusCode != null -> TunnelRequestResult.Success(statusCode)
-                    else -> TunnelRequestResult.Failure("Request did not complete")
-                }
-
-                val entity = TunnelRequest.new(record.requestId) {
-                    this.service = serviceEntity
-                    this.project = Project[projectId]
-                    this.kind = when (record.kind) {
-                        RequestKind.HTTP -> "http"
-                        RequestKind.WEBSOCKET -> "websocket"
-                    }
-                    this.method = record.method
-                    this.uri = record.uri
-                    this.requestHeaders =
-                        if (requestBody?.decoded == true) record.requestHeaders.withoutBodyEncodingHeaders()
-                        else record.requestHeaders
-                    this.responseHeaders = record.responseHeaders?.let {
-                        if (responseBody?.decoded == true) it.withoutBodyEncodingHeaders() else it
-                    }
-                    this.result = outcome
-                    this.requestBody = requestBody?.let { ExposedBlob(it.stream) }
-                    this.responseBody = responseBody?.let { ExposedBlob(it.stream) }
-                    this.startedAt = Instant.fromEpochMilliseconds(record.startedAt)
-                    this.responseReadyAt = record.responseStartedAt?.let { Instant.fromEpochMilliseconds(it) }
-                    this.wsFramesSent = record.wsFramesSent
-                    this.wsFramesReceived = record.wsFramesReceived
-                }
-
-                if (frames.isNotEmpty()) {
-                    TunnelRequestFrames.batchInsert(frames) { frame ->
-                        this[TunnelRequestFrames.request] = entity.id
-                        this[TunnelRequestFrames.sequence] = frame.sequence
-                        this[TunnelRequestFrames.direction] = frame.direction.name.lowercase()
-                        this[TunnelRequestFrames.opcode] = frame.opcode.name.lowercase()
-                        this[TunnelRequestFrames.text] = frame.text
-                        this[TunnelRequestFrames.binaryBase64] = frame.binaryBase64
-                        this[TunnelRequestFrames.size] = frame.size
-                        this[TunnelRequestFrames.timestamp] = Instant.fromEpochMilliseconds(frame.timestamp)
-                        this[TunnelRequestFrames.closeCode] = frame.closeCode
-                        this[TunnelRequestFrames.closeReason] = frame.closeReason
-                    }
-                }
-            }
-        } finally {
-            rawRequestBody?.close()
-            rawResponseBody?.close()
-        }
-    }
-
-    try {
-        writeRecord(decode = true)
-    } catch (e: Exception) {
-        println("Failed to persist decoded bodies for ${record.requestId}, storing raw instead: ${e.message}")
-        writeRecord(decode = false)
-    }
 }
 
 context(call: ApplicationCall)
