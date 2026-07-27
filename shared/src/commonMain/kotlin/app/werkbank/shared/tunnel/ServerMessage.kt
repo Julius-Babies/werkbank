@@ -19,13 +19,6 @@ sealed class ServerMessage {
     ): ServerMessage()
 
     @Serializable
-    @SerialName("http.body")
-    data class HttpBody(
-        @SerialName("request_id") val requestId: Uuid,
-        @SerialName("body") val body: String,
-    ): ServerMessage()
-
-    @Serializable
     @SerialName("http.end")
     data class HttpEnd(
         @SerialName("request_id") val requestId: Uuid,

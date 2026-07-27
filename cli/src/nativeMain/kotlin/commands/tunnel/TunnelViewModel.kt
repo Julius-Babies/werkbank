@@ -318,11 +318,6 @@ class TunnelViewModel: KoinComponent {
                                                 socket.close()
                                             }
                                         }
-                                        is ServerMessage.HttpBody -> {
-                                            val bodyBytes = Base64.decode(msg.body)
-                                            requestBodies[msg.requestId]?.writeFully(bodyBytes)
-                                            requestBodies[msg.requestId]?.flush()
-                                        }
                                         is ServerMessage.HttpEnd -> {
                                             requestBodies[msg.requestId]?.flushAndClose()
                                             requestBodies.remove(msg.requestId)

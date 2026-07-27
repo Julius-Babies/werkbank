@@ -68,12 +68,10 @@ fun Route.tunnel() {
                             val bytes = frame.readBytes()
                             if (bytes.size < 16) continue
                             val requestId = Uuid.fromByteArray(bytes.copyOfRange(0, 16))
-                            connection.dispatch(
-                                ClientMessage.HttpBody(
-                                    requestId = requestId,
-                                    body = Base64.encode(bytes.copyOfRange(16, bytes.size)),
-                                )
-                            )
+                            // HTTP response body chunks arrive as raw binary frames (16-byte request id
+                            // prefix + body bytes). Route the bytes straight to their sink instead of
+                            // base64-wrapping them into a message just to decode them again downstream.
+                            connection.dispatchBinary(requestId, bytes.copyOfRange(16, bytes.size))
                         }
 
                         is Frame.Text -> {
@@ -104,6 +102,12 @@ fun Route.tunnel() {
  */
 interface MessageSink {
     suspend fun onClientMessage(message: ClientMessage)
+
+    /**
+     * Raw binary body bytes routed to this sink's request id (HTTP response body chunks). Defaulted
+     * to a no-op because only [ProxyRequest] carries a binary body; a [WsBridge] never receives one.
+     */
+    suspend fun onBinaryBody(bytes: ByteArray) {}
 
     /** Invoked when the whole tunnel goes away, so the sink can release everyone waiting on it. */
     fun onClosed(cause: Throwable?)
@@ -151,6 +155,11 @@ class TunnelInstance(
     /** Routes an incoming client message to whatever sink owns its request id. */
     suspend fun dispatch(message: ClientMessage) {
         sinks[message.requestId]?.onClientMessage(message)
+    }
+
+    /** Routes raw binary body bytes (an HTTP response body chunk) to the sink owning [requestId]. */
+    suspend fun dispatchBinary(requestId: RequestId, bytes: ByteArray) {
+        sinks[requestId]?.onBinaryBody(bytes)
     }
 
     internal fun unregister(requestId: RequestId) {
@@ -238,9 +247,16 @@ class ProxyRequest internal constructor(
     /** The observable state of this request; every phase transition emits a new value. */
     override val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
 
-    private val inbox = Channel<ClientMessage>()
+    // Control messages and raw body chunks share one FIFO so the response body stays ordered relative
+    // to the http.response header message and the http.end that closes the stream.
+    private val inbox = Channel<Inbound>()
     private val responseBodyChannel = ByteChannel()
     private val response = CompletableDeferred<TunnelResponse>()
+
+    private sealed interface Inbound {
+        data class Control(val message: ClientMessage) : Inbound
+        class Body(val bytes: ByteArray) : Inbound
+    }
 
     /** Sends the request (headers, body, end) over the tunnel and starts consuming the response. */
     suspend fun send(body: ByteReadChannel?) {
@@ -268,7 +284,11 @@ class ProxyRequest internal constructor(
     suspend fun awaitResponse(): TunnelResponse = response.await()
 
     override suspend fun onClientMessage(message: ClientMessage) {
-        inbox.send(message)
+        inbox.send(Inbound.Control(message))
+    }
+
+    override suspend fun onBinaryBody(bytes: ByteArray) {
+        inbox.send(Inbound.Body(bytes))
     }
 
     override fun onClosed(cause: Throwable?) {
@@ -294,27 +314,29 @@ class ProxyRequest internal constructor(
 
     private suspend fun consume() {
         try {
-            for (message in inbox) {
-                when (message) {
-                    is ClientMessage.RequestResolved ->
-                        _snapshot.update { it.copy(serviceName = message.service) }
-
-                    is ClientMessage.Timeout -> throw TimeoutException()
-                    is ClientMessage.ServerNotRuning -> throw ServerNotRunningException()
-
-                    is ClientMessage.HttpResponse -> onResponse(message)
-
-                    is ClientMessage.HttpBody -> {
-                        responseBodyChannel.writeFully(Base64.decode(message.body))
+            for (inbound in inbox) {
+                when (inbound) {
+                    is Inbound.Body -> {
+                        responseBodyChannel.writeFully(inbound.bytes)
                         responseBodyChannel.flush()
                     }
 
-                    is ClientMessage.HttpEnd -> {
-                        responseBodyChannel.flushAndClose()
-                        finish()
-                    }
+                    is Inbound.Control -> when (val message = inbound.message) {
+                        is ClientMessage.RequestResolved ->
+                            _snapshot.update { it.copy(serviceName = message.service) }
 
-                    else -> {}
+                        is ClientMessage.Timeout -> throw TimeoutException()
+                        is ClientMessage.ServerNotRuning -> throw ServerNotRunningException()
+
+                        is ClientMessage.HttpResponse -> onResponse(message)
+
+                        is ClientMessage.HttpEnd -> {
+                            responseBodyChannel.flushAndClose()
+                            finish()
+                        }
+
+                        else -> {}
+                    }
                 }
             }
         } catch (e: CancellationException) {
