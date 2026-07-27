@@ -323,10 +323,11 @@ class TunnelViewModel: KoinComponent {
                                                                     input.readAvailable(bodyBuffer, 0, toRead)
                                                                 } catch (_: Exception) { break }
                                                                 if (read <= 0) break
-                                                                val frameData = ByteArray(16 + read)
-                                                                msg.requestId.toByteArray().copyInto(frameData)
-                                                                bodyBuffer.copyInto(frameData, 16, 0, read)
-                                                                this@serverSession.send(Frame.Binary(true, frameData))
+                                                                // HTTP body chunk: flags = 0. Must go through TunnelFrame so
+                                                                // the [16 id][1 flags][payload] layout matches what the API
+                                                                // decodes — a hand-rolled 16-byte header shifts the payload
+                                                                // and makes the API read the first body byte as the flags byte.
+                                                                this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, read)))
                                                                 remaining -= read
                                                             }
                                                         }
@@ -336,10 +337,7 @@ class TunnelViewModel: KoinComponent {
                                                                 input.readAvailable(bodyBuffer)
                                                             } catch (_: Exception) { break }
                                                             if (read <= 0) break
-                                                            val frameData = ByteArray(16 + read)
-                                                            msg.requestId.toByteArray().copyInto(frameData)
-                                                            bodyBuffer.copyInto(frameData, 16, 0, read)
-                                                            this@serverSession.send(Frame.Binary(true, frameData))
+                                                            this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, read)))
                                                         }
                                                     }
 
