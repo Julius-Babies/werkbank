@@ -3,6 +3,7 @@ package commands.tunnel
 import app.config.MainConfig
 import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
+import app.werkbank.shared.tunnel.TunnelFrame
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
 import http.httpClientBase
@@ -25,7 +26,6 @@ import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
-import kotlin.io.encoding.Base64
 import kotlin.system.exitProcess
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -135,10 +135,16 @@ class TunnelViewModel: KoinComponent {
                             when (message) {
                                 is Frame.Binary -> {
                                     val bytes = message.readBytes()
-                                    if (bytes.size < 16) continue
-                                    val id = Uuid.fromByteArray(bytes.copyOfRange(0, 16))
-                                    requestBodies[id]?.writeFully(bytes.copyOfRange(16, bytes.size))
-                                    requestBodies[id]?.flush()
+                                    if (bytes.size < TunnelFrame.HEADER_SIZE) continue
+                                    val id = TunnelFrame.requestId(bytes)
+                                    val payload = TunnelFrame.payload(bytes)
+                                    if (TunnelFrame.isWebSocket(bytes)) {
+                                        wsProxyState[id]?.send(Frame.Binary(TunnelFrame.isFin(bytes), payload))
+                                        updateWs(id) { it.copy(framesSent = it.framesSent + 1) }
+                                    } else {
+                                        requestBodies[id]?.writeFully(payload)
+                                        requestBodies[id]?.flush()
+                                    }
                                 }
                                 is Frame.Text -> {
                                     when (val msg = json.decodeFromString<ServerMessage>(message.readText())) {
@@ -386,10 +392,11 @@ class TunnelViewModel: KoinComponent {
                                                                 }
                                                                 is Frame.Binary -> {
                                                                     updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
-                                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsBinary(
-                                                                        requestId = msg.requestId,
-                                                                        body = Base64.encode(frame.readBytes())
-                                                                    ))
+                                                                    this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(
+                                                                        msg.requestId,
+                                                                        TunnelFrame.webSocketFlags(frame.fin),
+                                                                        frame.readBytes(),
+                                                                    )))
                                                                 }
                                                                 is Frame.Close -> {
                                                                     this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
@@ -417,10 +424,6 @@ class TunnelViewModel: KoinComponent {
                                         }
                                         is ServerMessage.WsText -> {
                                             wsProxyState[msg.requestId]?.send(Frame.Text(msg.text))
-                                            updateWs(msg.requestId) { it.copy(framesSent = it.framesSent + 1) }
-                                        }
-                                        is ServerMessage.WsBinary -> {
-                                            wsProxyState[msg.requestId]?.send(Frame.Binary(msg.fin, Base64.decode(msg.body)))
                                             updateWs(msg.requestId) { it.copy(framesSent = it.framesSent + 1) }
                                         }
                                         is ServerMessage.WsClose -> {

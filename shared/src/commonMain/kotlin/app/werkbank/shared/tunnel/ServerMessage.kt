@@ -42,14 +42,6 @@ sealed class ServerMessage {
     ): ServerMessage()
 
     @Serializable
-    @SerialName("ws.binary")
-    data class WsBinary(
-        @SerialName("request_id") val requestId: Uuid,
-        @SerialName("fin") val fin: Boolean,
-        @SerialName("body") val body: String,
-    ): ServerMessage()
-
-    @Serializable
     @SerialName("ws.close")
     data class WsClose(
         @SerialName("request_id") val requestId: Uuid,

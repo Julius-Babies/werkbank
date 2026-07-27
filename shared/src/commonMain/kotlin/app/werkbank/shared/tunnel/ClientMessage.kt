@@ -59,13 +59,6 @@ sealed class ClientMessage {
     ): ClientMessage()
 
     @Serializable
-    @SerialName("ws.binary")
-    data class WsBinary(
-        @SerialName("request_id") override val requestId: Uuid,
-        @SerialName("body") val body: String,
-    ): ClientMessage()
-
-    @Serializable
     @SerialName("ws.close")
     data class WsClose(
         @SerialName("request_id") override val requestId: Uuid,
