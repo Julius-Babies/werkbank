@@ -44,6 +44,7 @@ dependencies {
     implementation(libs.koin.loggerSlf4j)
     implementation(libs.logback.classic)
     implementation(libs.postgresql)
+    implementation(libs.hikaricp)
     implementation(libs.kommand)
     implementation(libs.gson)
     implementation(libs.authentikt)

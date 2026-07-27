@@ -1,5 +1,7 @@
 package app.werkbank.database
 
+import com.zaxxer.hikari.HikariConfig
+import com.zaxxer.hikari.HikariDataSource
 import kotlinx.coroutines.Dispatchers
 import org.jetbrains.exposed.v1.core.Transaction
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -10,7 +12,18 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 class DatabaseManager(
     url: String,
 ) {
-    private val database = Database.connect(url)
+    private val dataSource = HikariDataSource(
+        HikariConfig().apply {
+            jdbcUrl = url
+            driverClassName = "org.postgresql.Driver"
+            maximumPoolSize = 10
+            minimumIdle = 2
+            isAutoCommit = false
+            transactionIsolation = "TRANSACTION_REPEATABLE_READ"
+        }
+    )
+
+    private val database = Database.connect(dataSource)
 
     init {
         transaction {
@@ -21,7 +34,7 @@ class DatabaseManager(
             SchemaUtils.create(AccessPasswords, ProjectPasswords)
             SchemaUtils.create(AccessKeys)
             SchemaUtils.create(KeyValues)
-            SchemaUtils.createMissingTablesAndColumns(TunnelRequests)
+            SchemaUtils.create(TunnelRequests)
             SchemaUtils.create(TunnelRequestFrames)
         }
     }
