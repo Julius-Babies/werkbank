@@ -4,6 +4,7 @@ import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
+import app.werkbank.shared.tunnel.TunnelFrame
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
 import app.werkbank.util.launchConnectionJob
@@ -66,14 +67,17 @@ fun Route.tunnel() {
                     when (frame) {
                         is Frame.Binary -> {
                             val bytes = frame.readBytes()
-                            if (bytes.size < 16) continue
-                            val requestId = Uuid.fromByteArray(bytes.copyOfRange(0, 16))
-                            connection.dispatch(
-                                ClientMessage.HttpBody(
-                                    requestId = requestId,
-                                    body = Base64.encode(bytes.copyOfRange(16, bytes.size)),
-                                )
-                            )
+                            if (bytes.size < TunnelFrame.HEADER_SIZE) continue
+                            // Both HTTP response bodies and WebSocket binary frames arrive as raw binary
+                            // frames (see [TunnelFrame]); the flags byte says which, so we route the
+                            // payload straight to its sink without any base64 round-trip.
+                            val requestId = TunnelFrame.requestId(bytes)
+                            val payload = TunnelFrame.payload(bytes)
+                            if (TunnelFrame.isWebSocket(bytes)) {
+                                connection.dispatchWsBinary(requestId, payload, TunnelFrame.isFin(bytes))
+                            } else {
+                                connection.dispatchBinary(requestId, payload)
+                            }
                         }
 
                         is Frame.Text -> {
@@ -104,6 +108,18 @@ fun Route.tunnel() {
  */
 interface MessageSink {
     suspend fun onClientMessage(message: ClientMessage)
+
+    /**
+     * Raw binary body bytes routed to this sink's request id (HTTP response body chunks). Defaulted
+     * to a no-op because only [ProxyRequest] carries a binary body; a [WsBridge] never receives one.
+     */
+    suspend fun onBinaryBody(bytes: ByteArray) {}
+
+    /**
+     * A raw WebSocket binary frame routed to this sink's request id. Defaulted to a no-op because
+     * only [WsBridge] carries WebSocket frames; a [ProxyRequest] never receives one.
+     */
+    suspend fun onWsBinary(bytes: ByteArray, fin: Boolean) {}
 
     /** Invoked when the whole tunnel goes away, so the sink can release everyone waiting on it. */
     fun onClosed(cause: Throwable?)
@@ -153,6 +169,16 @@ class TunnelInstance(
         sinks[message.requestId]?.onClientMessage(message)
     }
 
+    /** Routes raw binary body bytes (an HTTP response body chunk) to the sink owning [requestId]. */
+    suspend fun dispatchBinary(requestId: RequestId, bytes: ByteArray) {
+        sinks[requestId]?.onBinaryBody(bytes)
+    }
+
+    /** Routes a raw WebSocket binary frame to the sink owning [requestId]. */
+    suspend fun dispatchWsBinary(requestId: RequestId, bytes: ByteArray, fin: Boolean) {
+        sinks[requestId]?.onWsBinary(bytes, fin)
+    }
+
     internal fun unregister(requestId: RequestId) {
         sinks.remove(requestId)
     }
@@ -161,11 +187,8 @@ class TunnelInstance(
         webSocketSession.sendSerialized<ServerMessage>(message)
     }
 
-    suspend fun sendBinary(requestId: RequestId, bytes: ByteArray) {
-        val frameData = ByteArray(16 + bytes.size)
-        requestId.toByteArray().copyInto(frameData)
-        bytes.copyInto(frameData, 16)
-        webSocketSession.send(Frame.Binary(true, frameData))
+    suspend fun sendBinary(requestId: RequestId, bytes: ByteArray, flags: Int = 0) {
+        webSocketSession.send(Frame.Binary(true, TunnelFrame.encode(requestId, flags, bytes)))
     }
 
     /** Registers a WebSocket proxy connection, performs the open handshake and returns its live bridge. */
@@ -238,9 +261,16 @@ class ProxyRequest internal constructor(
     /** The observable state of this request; every phase transition emits a new value. */
     override val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
 
-    private val inbox = Channel<ClientMessage>()
+    // Control messages and raw body chunks share one FIFO so the response body stays ordered relative
+    // to the http.response header message and the http.end that closes the stream.
+    private val inbox = Channel<Inbound>()
     private val responseBodyChannel = ByteChannel()
     private val response = CompletableDeferred<TunnelResponse>()
+
+    private sealed interface Inbound {
+        data class Control(val message: ClientMessage) : Inbound
+        class Body(val bytes: ByteArray) : Inbound
+    }
 
     /** Sends the request (headers, body, end) over the tunnel and starts consuming the response. */
     suspend fun send(body: ByteReadChannel?) {
@@ -268,7 +298,11 @@ class ProxyRequest internal constructor(
     suspend fun awaitResponse(): TunnelResponse = response.await()
 
     override suspend fun onClientMessage(message: ClientMessage) {
-        inbox.send(message)
+        inbox.send(Inbound.Control(message))
+    }
+
+    override suspend fun onBinaryBody(bytes: ByteArray) {
+        inbox.send(Inbound.Body(bytes))
     }
 
     override fun onClosed(cause: Throwable?) {
@@ -294,27 +328,29 @@ class ProxyRequest internal constructor(
 
     private suspend fun consume() {
         try {
-            for (message in inbox) {
-                when (message) {
-                    is ClientMessage.RequestResolved ->
-                        _snapshot.update { it.copy(serviceName = message.service) }
-
-                    is ClientMessage.Timeout -> throw TimeoutException()
-                    is ClientMessage.ServerNotRuning -> throw ServerNotRunningException()
-
-                    is ClientMessage.HttpResponse -> onResponse(message)
-
-                    is ClientMessage.HttpBody -> {
-                        responseBodyChannel.writeFully(Base64.decode(message.body))
+            for (inbound in inbox) {
+                when (inbound) {
+                    is Inbound.Body -> {
+                        responseBodyChannel.writeFully(inbound.bytes)
                         responseBodyChannel.flush()
                     }
 
-                    is ClientMessage.HttpEnd -> {
-                        responseBodyChannel.flushAndClose()
-                        finish()
-                    }
+                    is Inbound.Control -> when (val message = inbound.message) {
+                        is ClientMessage.RequestResolved ->
+                            _snapshot.update { it.copy(serviceName = message.service) }
 
-                    else -> {}
+                        is ClientMessage.Timeout -> throw TimeoutException()
+                        is ClientMessage.ServerNotRuning -> throw ServerNotRunningException()
+
+                        is ClientMessage.HttpResponse -> onResponse(message)
+
+                        is ClientMessage.HttpEnd -> {
+                            responseBodyChannel.flushAndClose()
+                            finish()
+                        }
+
+                        else -> {}
+                    }
                 }
             }
         } catch (e: CancellationException) {
@@ -443,9 +479,10 @@ class WsBridge internal constructor(
 
             is Frame.Binary -> {
                 val bytes = frame.readBytes()
-                val encoded = Base64.encode(bytes)
-                record(WsFrameDirection.CLIENT_TO_SERVER, WsFrameOpcode.BINARY, null, encoded, bytes.size)
-                connection.send(ServerMessage.WsBinary(requestId, frame.fin, encoded))
+                // Base64 here is only for the stored inspector record (its column is text); the frame
+                // itself goes to the tunnel as raw bytes.
+                record(WsFrameDirection.CLIENT_TO_SERVER, WsFrameOpcode.BINARY, null, Base64.encode(bytes), bytes.size)
+                connection.sendBinary(requestId, bytes, TunnelFrame.webSocketFlags(frame.fin))
             }
 
             is Frame.Close -> {
@@ -470,12 +507,6 @@ class WsBridge internal constructor(
                 _incomingFrames.trySend(Frame.Text(message.text))
             }
 
-            is ClientMessage.WsBinary -> {
-                val bytes = Base64.decode(message.body)
-                record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.BINARY, null, message.body, bytes.size)
-                _incomingFrames.trySend(Frame.Binary(true, bytes))
-            }
-
             is ClientMessage.WsClose -> {
                 record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.CLOSE, null, null, 0, message.code, message.reason)
                 // A close before the open handshake completed means the upstream refused the connection;
@@ -491,6 +522,13 @@ class WsBridge internal constructor(
 
             else -> {}
         }
+    }
+
+    /** Dev server → browser: a raw WebSocket binary frame. */
+    override suspend fun onWsBinary(bytes: ByteArray, fin: Boolean) {
+        // Base64 only for the stored inspector record; the frame relays to the browser as raw bytes.
+        record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.BINARY, null, Base64.encode(bytes), bytes.size)
+        _incomingFrames.trySend(Frame.Binary(fin, bytes))
     }
 
     override fun onClosed(cause: Throwable?) {

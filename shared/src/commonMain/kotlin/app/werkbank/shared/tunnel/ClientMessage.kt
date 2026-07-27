@@ -37,13 +37,6 @@ sealed class ClientMessage {
     ): ClientMessage()
 
     @Serializable
-    @SerialName("http.body")
-    data class HttpBody(
-        @SerialName("request_id") override val requestId: Uuid,
-        @SerialName("body") val body: String,
-    ): ClientMessage()
-
-    @Serializable
     @SerialName("http.end")
     data class HttpEnd(
         @SerialName("request_id") override val requestId: Uuid,
@@ -63,13 +56,6 @@ sealed class ClientMessage {
     data class WsText(
         @SerialName("request_id") override val requestId: Uuid,
         @SerialName("text") val text: String,
-    ): ClientMessage()
-
-    @Serializable
-    @SerialName("ws.binary")
-    data class WsBinary(
-        @SerialName("request_id") override val requestId: Uuid,
-        @SerialName("body") val body: String,
     ): ClientMessage()
 
     @Serializable
