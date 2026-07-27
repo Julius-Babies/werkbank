@@ -1,6 +1,7 @@
 package app.werkbank
 
 import app.queue.certificate.CertificateQueue
+import app.werkbank.app.queue.request.RequestPersistenceQueue
 import app.werkbank.plugins.auth.installAuthentikt
 import app.werkbank.plugins.auth.installAuthorization
 import app.werkbank.plugins.proxy.SubdomainHandler
@@ -42,4 +43,7 @@ fun Application.rootModule(
     // application, after which the Koin plugin closes the root scope and every request fails with
     // ClosedScopeException. launchConnectionJob contains and logs failures instead. See [launchConnectionJob].
     launchConnectionJob(this, "certificate-queue") { certificateQueue.start() }
+
+    val requestPersistenceQueue by inject<RequestPersistenceQueue>()
+    launchConnectionJob(this, "request-persistence-queue") { requestPersistenceQueue.start() }
 }

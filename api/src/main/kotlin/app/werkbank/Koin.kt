@@ -4,6 +4,7 @@ import app.certificates.CertificateManager
 import app.certificates.LetsEncryptCertificateManager
 import app.certificates.LocalCertificateManager
 import app.queue.certificate.CertificateQueue
+import app.werkbank.app.queue.request.RequestPersistenceQueue
 import app.werkbank.app.cli.ImportCliBinaries
 import app.werkbank.app.dns.CloudflareDnsManagerImpl
 import app.werkbank.app.dns.DnsManager
@@ -106,6 +107,7 @@ fun Application.configureKoin(
                 }
             }
             single { CertificateQueue() }
+            single { RequestPersistenceQueue() }
 
             single { TunnelManager() }
             singleOf(::CliBinaryRepositoryImpl) bind CliBinaryRepository::class
