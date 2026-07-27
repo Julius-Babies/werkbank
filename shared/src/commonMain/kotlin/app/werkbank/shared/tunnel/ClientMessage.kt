@@ -42,6 +42,20 @@ sealed class ClientMessage {
         @SerialName("request_id") override val requestId: Uuid,
     ): ClientMessage()
 
+    /**
+     * The tunnel host hit an unexpected error while handling the request (e.g. the target could not be
+     * resolved, or the local service closed the connection before responding). Carries a human-readable
+     * [message] and the [checkpoints] the request reached, so the server can render an "unexpected error"
+     * page and persist the failure with its timeline instead of letting the request hang forever.
+     */
+    @Serializable
+    @SerialName("error.unexpected")
+    data class UnexpectedError(
+        @SerialName("request_id") override val requestId: Uuid,
+        @SerialName("message") val message: String,
+        @SerialName("checkpoints") val checkpoints: List<TunnelCheckpoint> = emptyList(),
+    ): ClientMessage()
+
     @Serializable
     @SerialName("ws.opened")
     data class WsOpened(
