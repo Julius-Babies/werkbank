@@ -1,5 +1,6 @@
 package app.werkbank.database
 
+import app.werkbank.shared.tunnel.TunnelCheckpoint
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -84,6 +85,9 @@ sealed class TunnelRequestResult {
     @Serializable
     @SerialName("failure")
     data class Failure(
-        @SerialName("error") val error: String
+        @SerialName("error") val error: String,
+        // Diagnostic timeline from the tunnel host for unexpected failures; null for older rows and for
+        // failures that carry no checkpoints (e.g. plain timeouts).
+        @SerialName("checkpoints") val checkpoints: List<TunnelCheckpoint>? = null,
     ): TunnelRequestResult()
 }

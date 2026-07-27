@@ -1,5 +1,6 @@
 package app.werkbank.app.tunnel
 
+import app.werkbank.shared.tunnel.TunnelCheckpoint
 import kotlin.uuid.Uuid
 
 enum class RequestKind {
@@ -19,6 +20,9 @@ data class TunnelRequestRecord(
     val responseHeaders: Map<String, List<String>>?,
     val statusCode: Int?,
     val error: String?,
+    // Diagnostic timeline reported by the tunnel host when a request failed unexpectedly. Persisted
+    // alongside the error so the request history can show where processing got to before it broke.
+    val checkpoints: List<TunnelCheckpoint>? = null,
     val startedAt: Long,
     val sentToTunnelAt: Long?,
     val responseStartedAt: Long?,

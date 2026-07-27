@@ -128,7 +128,7 @@ class RequestPersistenceQueue : KoinComponent {
                     val statusCode = record.statusCode
                     val error = record.error
                     val outcome = when {
-                        error != null -> TunnelRequestResult.Failure(error)
+                        error != null -> TunnelRequestResult.Failure(error, record.checkpoints)
                         statusCode != null -> TunnelRequestResult.Success(statusCode)
                         else -> TunnelRequestResult.Failure("Request did not complete")
                     }
