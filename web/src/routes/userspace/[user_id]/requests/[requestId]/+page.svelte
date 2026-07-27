@@ -152,9 +152,20 @@
                         {/if}
 
                     {:else if request.response?.type === "error"}
+                        {@const checkpoints = request.response.checkpoints ?? []}
                         <div class="text-red-800">
                             {request.response.error}
                         </div>
+                        {#if checkpoints.length > 0}
+                            <ol class="mt-4 flex flex-col gap-1 font-mono text-sm text-red-900/80">
+                                {#each checkpoints as checkpoint (checkpoint.label + checkpoint.elapsed_ms)}
+                                    <li class="flex flex-row gap-3">
+                                        <span class="text-red-900/50 tabular-nums">+{checkpoint.elapsed_ms}ms</span>
+                                        <span>{checkpoint.label}</span>
+                                    </li>
+                                {/each}
+                            </ol>
+                        {/if}
                     {/if}
                 </div>
             </div>

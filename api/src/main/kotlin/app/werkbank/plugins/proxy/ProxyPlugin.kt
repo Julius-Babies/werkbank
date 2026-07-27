@@ -19,10 +19,14 @@ import io.ktor.server.websocket.*
 import io.ktor.util.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
+import app.werkbank.shared.tunnel.TunnelCheckpoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.lowerCase
 import org.koin.ktor.ext.inject
@@ -247,7 +251,31 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                                 else -> call.receiveChannel().teeToFile(requestBodyFile!!, proxyScope)
                             },
                         )
-                        proxyRequest.awaitResponse()
+                        // Give up if the tunnel host sends no response at all within the timeout. The
+                        // window only covers the wait for the status line: awaitResponse returns the
+                        // moment the response headers arrive, so a slow-streaming body is never cut off.
+                        withTimeout(NO_RESPONSE_TIMEOUT) { proxyRequest.awaitResponse() }
+                    } catch (_: TimeoutCancellationException) {
+                        proxyRequest.fail(Exception("No response from the tunnel host within ${NO_RESPONSE_TIMEOUT.inWholeSeconds}s"))
+                        val url = with(call) {
+                            URLBuilder("${appConfig.localWebRoot}/proxy/error/no-response")
+                                .applyProjectContextForErrorPage()
+                                .build()
+                        }
+                        call.respondWebpage(url, appConfig.appDomain)
+                        return@onCall
+                    } catch (e: UnexpectedTunnelException) {
+                        val url = with(call) {
+                            URLBuilder("${appConfig.localWebRoot}/proxy/error/unexpected-error")
+                                .applyProjectContextForErrorPage()
+                                .build()
+                        }
+                        call.respondWebpage(
+                            url,
+                            appConfig.appDomain,
+                            replacements = mapOf(TUNNEL_DETAILS_PLACEHOLDER to tunnelDetailsHtml(e.message ?: "Unexpected error", e.checkpoints)),
+                        )
+                        return@onCall
                     } catch (_: TimeoutException) {
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout")
@@ -330,19 +358,60 @@ data class ProxyAuthSession(
     val headers: List<String>,
 )
 
-private suspend fun ApplicationCall.respondWebpage(url: Url, appDomain: String) {
+/** How long the proxy waits for the tunnel host to start responding before giving up (no-response page). */
+private val NO_RESPONSE_TIMEOUT = 30.seconds
+
+/**
+ * Token embedded in the unexpected-error Svelte page. The API swaps it for the server-rendered tunnel
+ * details ([tunnelDetailsHtml]) before serving the page. The page disables client-side rendering so
+ * hydration can't overwrite the injected markup with the original placeholder.
+ */
+private const val TUNNEL_DETAILS_PLACEHOLDER = "__WERKBANK_TUNNEL_DETAILS__"
+
+private suspend fun ApplicationCall.respondWebpage(
+    url: Url,
+    appDomain: String,
+    replacements: Map<String, String> = emptyMap(),
+) {
     val client = HttpClient()
     val response = client.get(url)
     val contentType = response.contentType()
     val status = response.status
     val body = response.bodyAsText()
-    val fixedBody = body.replace("\"/_app/", "\"https://$appDomain/_app/")
+    val fixedBody = replacements.entries
+        .fold(body) { acc, (token, value) -> acc.replace(token, value) }
+        .replace("\"/_app/", "\"https://$appDomain/_app/")
 
     respondText(status = status, contentType = contentType) {
         fixedBody
     }
 
     client.close()
+}
+
+private fun String.escapeHtml(): String = this
+    .replace("&", "&amp;")
+    .replace("<", "&lt;")
+    .replace(">", "&gt;")
+    .replace("\"", "&quot;")
+
+/** Renders the tunnel-host error message and its checkpoint timeline as HTML for the error page. */
+private fun tunnelDetailsHtml(message: String, checkpoints: List<TunnelCheckpoint>): String = buildString {
+    append("<div class=\"font-medium text-red-800\">")
+    append(message.escapeHtml())
+    append("</div>")
+    if (checkpoints.isNotEmpty()) {
+        append("<ol class=\"mt-4 flex flex-col gap-1 font-mono text-sm text-gray-700\">")
+        checkpoints.forEach { checkpoint ->
+            append("<li class=\"flex flex-row gap-3\">")
+            append("<span class=\"text-gray-400 tabular-nums\">+")
+            append(checkpoint.elapsedMs.toString())
+            append("ms</span><span>")
+            append(checkpoint.label.escapeHtml())
+            append("</span></li>")
+        }
+        append("</ol>")
+    }
 }
 
 /**

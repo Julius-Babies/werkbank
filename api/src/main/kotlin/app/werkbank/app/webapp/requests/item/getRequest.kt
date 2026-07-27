@@ -6,6 +6,7 @@ import app.werkbank.plugins.auth.UserPrincipal
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
+import app.werkbank.shared.tunnel.TunnelCheckpoint
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.SerialName
@@ -44,6 +45,7 @@ fun Route.getRequest() {
                         .singleOrNull() ?: 0 else 0,
                     responseHeaders = request.responseHeaders.orEmpty(),
                     responseError = (request.result as? TunnelRequestResult.Failure)?.error,
+                    responseCheckpoints = (request.result as? TunnelRequestResult.Failure)?.checkpoints,
                     responseStatusCode = (request.result as? TunnelRequestResult.Success)?.statusCode,
                     responseBodySize = if (request.responseBody != null) TunnelRequests
                         .select(TunnelRequests.responseBody.octetLength())
@@ -97,6 +99,7 @@ data class RequestResponse(
     @SerialName("request_body_size") val requestBodySize: Long,
     @SerialName("response_status_code") val responseStatusCode: Int?,
     @SerialName("response_error") val responseError: String?,
+    @SerialName("response_checkpoints") val responseCheckpoints: List<TunnelCheckpoint>? = null,
     @SerialName("response_headers") val responseHeaders: Map<String, List<String>>,
     @SerialName("response_body_size") val responseBodySize: Long
 ) {

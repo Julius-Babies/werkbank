@@ -154,174 +154,235 @@ class TunnelViewModel: KoinComponent {
                                             }
 
                                             launch {
-                                                val channel = requestBodies[msg.requestId]
-                                                val target = tunnelRequestResolver.getTarget(
-                                                    projectKey = msg.project,
-                                                    serviceKey = msg.service,
-                                                    path = msg.path,
-                                                    isWebsocket = false,
-                                                ) ?: return@launch
-
-                                                sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
-                                                    requestId = msg.requestId,
-                                                    service = target.service.name,
-                                                ))
-
-                                                _requests.update { it + Request(
-                                                    requestId = msg.requestId,
-                                                    method = msg.method,
-                                                    project = target.project.id,
-                                                    service = target.service.name,
-                                                    path = msg.path,
-                                                    targetUrl = target.url,
-                                                    startedAt = Clock.System.now(),
-                                                    headers = msg.headers.map { header ->
-                                                        val (key, value) = header.split(": ")
-                                                        key to value
-                                                    },
-                                                    result = null
-                                                ) }
-
-                                                val targetUrl = URLBuilder(target.url).build()
-                                                val isHttps = targetUrl.protocol.name.equals("https", ignoreCase = true)
-                                                val host = targetUrl.host
-                                                val port = targetUrl.port
-                                                val path = targetUrl.fullPath
-
-                                                val socket = try {
-                                                    val raw = aSocket(selectorManager).tcp().connect(host, port)
-                                                    if (isHttps) raw.tls(coroutineContext = currentCoroutineContext()) else raw
-                                                } catch (e: Exception) {
-                                                    val isTimeout = e.message?.contains("timed out", ignoreCase = true) == true
-                                                    if (isTimeout) {
-                                                        _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.Timeout(Clock.System.now())) else it } }
-                                                        sendSerialized<ClientMessage>(ClientMessage.Timeout(requestId = msg.requestId))
-                                                    } else {
-                                                        _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.ServiceNotRunning(Clock.System.now())) else it } }
-                                                        sendSerialized<ClientMessage>(ClientMessage.ServerNotRuning(msg.requestId))
-                                                    }
-                                                    return@launch
-                                                }
-
-                                                val input = socket.openReadChannel()
-                                                val output = socket.openWriteChannel(autoFlush = true)
-
-                                                val requestLine = "${msg.method} $path HTTP/1.1\r\n"
-                                                output.writeFully(requestLine.encodeToByteArray())
-
-                                                val authority = if (port == targetUrl.protocol.defaultPort) host else "$host:$port"
-                                                output.writeFully("Host: $authority\r\n".encodeToByteArray())
-
-                                                msg.headers.forEach { header ->
-                                                    val (key, _) = header.split(": ", limit = 2)
-                                                    if (key.equals("Host", ignoreCase = true)) return@forEach
-                                                    if (key.equals("Transfer-Encoding", ignoreCase = true)) return@forEach
-                                                    // Keep the original Content-Length: the request body is relayed
-                                                    // verbatim, so it matches exactly. Without it (and without
-                                                    // Transfer-Encoding) HTTP/1.1 treats the request as bodyless and
-                                                    // the target server discards the streamed body bytes.
-                                                    if (key.equals("Connection", ignoreCase = true)) return@forEach
-                                                    output.writeFully("$header\r\n".encodeToByteArray())
-                                                }
-                                                output.writeFully("Connection: close\r\n".encodeToByteArray())
-                                                output.writeFully("\r\n".encodeToByteArray())
-
-                                                if (channel != null) {
-                                                    (channel as ByteReadChannel).rawChunks { rawBytes ->
-                                                        output.writeFully(rawBytes)
-                                                    }
-                                                }
-
-                                                val statusLine = try {
-                                                    input.readLine() ?: return@launch
-                                                } catch (e: Exception) {
-                                                    socket.close()
-                                                    return@launch
-                                                }
-
-                                                val rawHeaders = mutableListOf<String>()
-                                                while (true) {
-                                                    val line = input.readLine() ?: break
-                                                    if (line.isEmpty()) break
-                                                    rawHeaders.add(line)
-                                                }
-
-                                                val statusCode = statusLine.split(" ").getOrNull(1)?.toIntOrNull() ?: 0
-
-                                                val isChunked = rawHeaders.any { it.startsWith("Transfer-Encoding:", ignoreCase = true) && it.substringAfter(":").contains("chunked", ignoreCase = true) }
-
-                                                sendSerialized<ClientMessage>(ClientMessage.HttpResponse(
-                                                    requestId = msg.requestId,
-                                                    statusCode = statusCode,
-                                                    headers = if (isChunked) rawHeaders.filterNot { it.startsWith("Transfer-Encoding:", ignoreCase = true) } else rawHeaders
-                                                ))
-
-                                                val bodyBuffer = ByteArray(64 * 1024)
-
-                                                if (isChunked) {
-                                                    while (true) {
-                                                        val sizeLine = try {
-                                                            input.readLine()
-                                                        } catch (_: Exception) { null } ?: break
-                                                        if (sizeLine.isEmpty()) continue
-                                                        val chunkSize = sizeLine.toIntOrNull(16) ?: break
-                                                        if (chunkSize == 0) {
-                                                            while (true) {
-                                                                val trailerLine = try {
-                                                                    input.readLine()
-                                                                } catch (_: Exception) { null } ?: break
-                                                                if (trailerLine.isEmpty()) break
-                                                            }
-                                                            break
+                                                val checkpoints = RequestCheckpoints()
+                                                checkpoints.mark("Received ${msg.method} request for ${msg.path}")
+                                                // Set once the status line has been forwarded: after that the
+                                                // browser already owns the response, so a later failure must
+                                                // just end the body stream, never trigger the error page.
+                                                var responseSent = false
+                                                try {
+                                                    val channel = requestBodies[msg.requestId]
+                                                    val target = when (val resolution = tunnelRequestResolver.getTarget(
+                                                        projectKey = msg.project,
+                                                        serviceKey = msg.service,
+                                                        path = msg.path,
+                                                        isWebsocket = false,
+                                                    )) {
+                                                        is TunnelRequestResolver.Resolution.Resolved -> resolution.target
+                                                        is TunnelRequestResolver.Resolution.Failed -> {
+                                                            checkpoints.mark("Could not resolve target: ${resolution.reason}")
+                                                            sendSerialized<ClientMessage>(ClientMessage.UnexpectedError(
+                                                                requestId = msg.requestId,
+                                                                message = resolution.reason,
+                                                                checkpoints = checkpoints.toList(),
+                                                            ))
+                                                            return@launch
                                                         }
-                                                        var remaining = chunkSize
-                                                        while (remaining > 0) {
-                                                            val toRead = minOf(remaining, bodyBuffer.size)
+                                                    }
+                                                    checkpoints.mark("Resolved target ${target.url}")
+
+                                                    sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
+                                                        requestId = msg.requestId,
+                                                        service = target.service.name,
+                                                    ))
+
+                                                    _requests.update { it + Request(
+                                                        requestId = msg.requestId,
+                                                        method = msg.method,
+                                                        project = target.project.id,
+                                                        service = target.service.name,
+                                                        path = msg.path,
+                                                        targetUrl = target.url,
+                                                        startedAt = Clock.System.now(),
+                                                        headers = msg.headers.map { header ->
+                                                            val (key, value) = header.split(": ")
+                                                            key to value
+                                                        },
+                                                        result = null
+                                                    ) }
+
+                                                    val targetUrl = URLBuilder(target.url).build()
+                                                    val isHttps = targetUrl.protocol.name.equals("https", ignoreCase = true)
+                                                    val host = targetUrl.host
+                                                    val port = targetUrl.port
+                                                    val path = targetUrl.fullPath
+
+                                                    checkpoints.mark("Connecting to $host:$port")
+                                                    val socket = try {
+                                                        val raw = aSocket(selectorManager).tcp().connect(host, port)
+                                                        if (isHttps) raw.tls(coroutineContext = currentCoroutineContext()) else raw
+                                                    } catch (e: Exception) {
+                                                        val isTimeout = e.message?.contains("timed out", ignoreCase = true) == true
+                                                        if (isTimeout) {
+                                                            checkpoints.mark("Connection to $host:$port timed out")
+                                                            _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.Timeout(Clock.System.now())) else it } }
+                                                            sendSerialized<ClientMessage>(ClientMessage.Timeout(requestId = msg.requestId))
+                                                        } else {
+                                                            checkpoints.mark("Failed to connect to $host:$port: ${e.message}")
+                                                            _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.ServiceNotRunning(Clock.System.now())) else it } }
+                                                            sendSerialized<ClientMessage>(ClientMessage.ServerNotRuning(msg.requestId))
+                                                        }
+                                                        return@launch
+                                                    }
+                                                    checkpoints.mark("Connected to $host:$port")
+
+                                                    val input = socket.openReadChannel()
+                                                    val output = socket.openWriteChannel(autoFlush = true)
+
+                                                    val requestLine = "${msg.method} $path HTTP/1.1\r\n"
+                                                    output.writeFully(requestLine.encodeToByteArray())
+
+                                                    val authority = if (port == targetUrl.protocol.defaultPort) host else "$host:$port"
+                                                    output.writeFully("Host: $authority\r\n".encodeToByteArray())
+
+                                                    msg.headers.forEach { header ->
+                                                        val (key, _) = header.split(": ", limit = 2)
+                                                        if (key.equals("Host", ignoreCase = true)) return@forEach
+                                                        if (key.equals("Transfer-Encoding", ignoreCase = true)) return@forEach
+                                                        // Keep the original Content-Length: the request body is relayed
+                                                        // verbatim, so it matches exactly. Without it (and without
+                                                        // Transfer-Encoding) HTTP/1.1 treats the request as bodyless and
+                                                        // the target server discards the streamed body bytes.
+                                                        if (key.equals("Connection", ignoreCase = true)) return@forEach
+                                                        output.writeFully("$header\r\n".encodeToByteArray())
+                                                    }
+                                                    output.writeFully("Connection: close\r\n".encodeToByteArray())
+                                                    output.writeFully("\r\n".encodeToByteArray())
+
+                                                    if (channel != null) {
+                                                        (channel as ByteReadChannel).rawChunks { rawBytes ->
+                                                            output.writeFully(rawBytes)
+                                                        }
+                                                    }
+                                                    checkpoints.mark("Request forwarded, awaiting response")
+
+                                                    val statusLine = try {
+                                                        input.readLine()
+                                                    } catch (e: Exception) {
+                                                        checkpoints.mark("Error while reading response status line: ${e.message}")
+                                                        socket.close()
+                                                        sendSerialized<ClientMessage>(ClientMessage.UnexpectedError(
+                                                            requestId = msg.requestId,
+                                                            message = "Error while reading the response from ${target.service.name}: ${e.message}",
+                                                            checkpoints = checkpoints.toList(),
+                                                        ))
+                                                        return@launch
+                                                    }
+                                                    if (statusLine == null) {
+                                                        checkpoints.mark("Local service closed the connection before responding")
+                                                        socket.close()
+                                                        sendSerialized<ClientMessage>(ClientMessage.UnexpectedError(
+                                                            requestId = msg.requestId,
+                                                            message = "The service ${target.service.name} closed the connection before sending a response",
+                                                            checkpoints = checkpoints.toList(),
+                                                        ))
+                                                        return@launch
+                                                    }
+
+                                                    val rawHeaders = mutableListOf<String>()
+                                                    while (true) {
+                                                        val line = input.readLine() ?: break
+                                                        if (line.isEmpty()) break
+                                                        rawHeaders.add(line)
+                                                    }
+
+                                                    val statusCode = statusLine.split(" ").getOrNull(1)?.toIntOrNull() ?: 0
+                                                    checkpoints.mark("Received response status $statusCode")
+
+                                                    val isChunked = rawHeaders.any { it.startsWith("Transfer-Encoding:", ignoreCase = true) && it.substringAfter(":").contains("chunked", ignoreCase = true) }
+
+                                                    sendSerialized<ClientMessage>(ClientMessage.HttpResponse(
+                                                        requestId = msg.requestId,
+                                                        statusCode = statusCode,
+                                                        headers = if (isChunked) rawHeaders.filterNot { it.startsWith("Transfer-Encoding:", ignoreCase = true) } else rawHeaders
+                                                    ))
+                                                    responseSent = true
+
+                                                    val bodyBuffer = ByteArray(64 * 1024)
+
+                                                    if (isChunked) {
+                                                        while (true) {
+                                                            val sizeLine = try {
+                                                                input.readLine()
+                                                            } catch (_: Exception) { null } ?: break
+                                                            if (sizeLine.isEmpty()) continue
+                                                            val chunkSize = sizeLine.toIntOrNull(16) ?: break
+                                                            if (chunkSize == 0) {
+                                                                while (true) {
+                                                                    val trailerLine = try {
+                                                                        input.readLine()
+                                                                    } catch (_: Exception) { null } ?: break
+                                                                    if (trailerLine.isEmpty()) break
+                                                                }
+                                                                break
+                                                            }
+                                                            var remaining = chunkSize
+                                                            while (remaining > 0) {
+                                                                val toRead = minOf(remaining, bodyBuffer.size)
+                                                                val read = try {
+                                                                    input.readAvailable(bodyBuffer, 0, toRead)
+                                                                } catch (_: Exception) { break }
+                                                                if (read <= 0) break
+                                                                // HTTP body chunk: flags = 0. Must go through TunnelFrame so
+                                                                // the [16 id][1 flags][payload] layout matches what the API
+                                                                // decodes — a hand-rolled 16-byte header shifts the payload
+                                                                // and makes the API read the first body byte as the flags byte.
+                                                                this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, read)))
+                                                                remaining -= read
+                                                            }
+                                                        }
+                                                    } else {
+                                                        while (!input.isClosedForRead) {
                                                             val read = try {
-                                                                input.readAvailable(bodyBuffer, 0, toRead)
+                                                                input.readAvailable(bodyBuffer)
                                                             } catch (_: Exception) { break }
                                                             if (read <= 0) break
-                                                            val frameData = ByteArray(16 + read)
-                                                            msg.requestId.toByteArray().copyInto(frameData)
-                                                            bodyBuffer.copyInto(frameData, 16, 0, read)
-                                                            this@serverSession.send(Frame.Binary(true, frameData))
-                                                            remaining -= read
+                                                            this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, read)))
                                                         }
                                                     }
-                                                } else {
-                                                    while (!input.isClosedForRead) {
-                                                        val read = try {
-                                                            input.readAvailable(bodyBuffer)
-                                                        } catch (_: Exception) { break }
-                                                        if (read <= 0) break
-                                                        val frameData = ByteArray(16 + read)
-                                                        msg.requestId.toByteArray().copyInto(frameData)
-                                                        bodyBuffer.copyInto(frameData, 16, 0, read)
-                                                        this@serverSession.send(Frame.Binary(true, frameData))
-                                                    }
-                                                }
 
-                                                sendSerialized<ClientMessage>(ClientMessage.HttpEnd(
-                                                    requestId = msg.requestId
-                                                ))
+                                                    sendSerialized<ClientMessage>(ClientMessage.HttpEnd(
+                                                        requestId = msg.requestId
+                                                    ))
 
-                                                _requests.update { list ->
-                                                    list.map { request ->
-                                                        if (request.requestId != msg.requestId) return@map request
-                                                        request.copy(
-                                                            result = Request.Result.Success(
-                                                                finishedAt = Clock.System.now(),
-                                                                statusCode = statusCode,
-                                                                headers = rawHeaders.map { header ->
-                                                                    val (key, value) = header.split(": ", limit = 2)
-                                                                    key to value
-                                                                },
+                                                    _requests.update { list ->
+                                                        list.map { request ->
+                                                            if (request.requestId != msg.requestId) return@map request
+                                                            request.copy(
+                                                                result = Request.Result.Success(
+                                                                    finishedAt = Clock.System.now(),
+                                                                    statusCode = statusCode,
+                                                                    headers = rawHeaders.map { header ->
+                                                                        val (key, value) = header.split(": ", limit = 2)
+                                                                        key to value
+                                                                    },
+                                                                )
                                                             )
-                                                        )
+                                                        }
+                                                    }
+
+                                                    socket.close()
+                                                } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    checkpoints.mark("Unexpected error: ${e.message}")
+                                                    // Once the response headers are out the browser owns the
+                                                    // stream; the best we can do is end it. Only before that
+                                                    // can the server still render the unexpected-error page.
+                                                    try {
+                                                        if (responseSent) {
+                                                            sendSerialized<ClientMessage>(ClientMessage.HttpEnd(requestId = msg.requestId))
+                                                        } else {
+                                                            sendSerialized<ClientMessage>(ClientMessage.UnexpectedError(
+                                                                requestId = msg.requestId,
+                                                                message = e.message ?: "Unexpected error while handling the request",
+                                                                checkpoints = checkpoints.toList(),
+                                                            ))
+                                                        }
+                                                    } catch (_: Exception) {
+                                                        // The tunnel itself is gone; nothing more we can send.
                                                     }
                                                 }
-
-                                                socket.close()
                                             }
                                         }
                                         is ServerMessage.HttpEnd -> {
@@ -330,12 +391,24 @@ class TunnelViewModel: KoinComponent {
                                         }
                                         is ServerMessage.WsOpen -> {
                                             launch {
-                                                val target = tunnelRequestResolver.getTarget(
+                                                val target = when (val resolution = tunnelRequestResolver.getTarget(
                                                     projectKey = msg.project,
                                                     serviceKey = msg.service,
                                                     path = msg.path,
                                                     isWebsocket = true,
-                                                ) ?: return@launch
+                                                )) {
+                                                    is TunnelRequestResolver.Resolution.Resolved -> resolution.target
+                                                    is TunnelRequestResolver.Resolution.Failed -> {
+                                                        // Fail the handshake fast instead of letting the server
+                                                        // wait out its open-timeout on a request that can't resolve.
+                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                            requestId = msg.requestId,
+                                                            code = 1011,
+                                                            reason = resolution.reason,
+                                                        ))
+                                                        return@launch
+                                                    }
+                                                }
 
                                                 this@serverSession.sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
                                                     requestId = msg.requestId,

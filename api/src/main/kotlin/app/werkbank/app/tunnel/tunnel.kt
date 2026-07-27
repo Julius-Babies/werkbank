@@ -4,6 +4,7 @@ import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
+import app.werkbank.shared.tunnel.TunnelCheckpoint
 import app.werkbank.shared.tunnel.TunnelFrame
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
@@ -342,6 +343,16 @@ class ProxyRequest internal constructor(
                         is ClientMessage.Timeout -> throw TimeoutException()
                         is ClientMessage.ServerNotRuning -> throw ServerNotRunningException()
 
+                        is ClientMessage.UnexpectedError -> {
+                            _snapshot.update {
+                                it.copy(
+                                    error = it.error ?: message.message,
+                                    checkpoints = message.checkpoints,
+                                )
+                            }
+                            throw UnexpectedTunnelException(message.message, message.checkpoints)
+                        }
+
                         is ClientMessage.HttpResponse -> onResponse(message)
 
                         is ClientMessage.HttpEnd -> {
@@ -558,6 +569,12 @@ data class TunnelResponse(
 class TimeoutException : Exception("Request timed out")
 class ServerNotRunningException : Exception("Service not running")
 class TunnelClosedException(message: String? = null) : Exception(message ?: "Tunnel connection closed")
+
+/** The tunnel host reported an unexpected error, carrying the checkpoints the request reached. */
+class UnexpectedTunnelException(
+    message: String,
+    val checkpoints: List<TunnelCheckpoint>,
+) : Exception(message)
 
 private fun Map<String, List<String>>.toHeaderLines(): List<String> =
     flatMap { (key, values) -> values.map { "$key: $it" } }
