@@ -1,5 +1,10 @@
 import type {RequestKind, RequestUpdate, WsFrame} from "../../state.ts";
 
+export interface TunnelCheckpoint {
+    label: string;
+    elapsed_ms: number;
+}
+
 export interface Request {
     request_id: string;
     kind: RequestKind;
@@ -24,6 +29,7 @@ export interface Request {
     } | {
         type: "error";
         error: string;
+        checkpoints?: TunnelCheckpoint[];
     } | null;
 }
 
@@ -92,6 +98,7 @@ export async function getRequest(requestId: string): Promise<{ request: Request,
         response_headers: Record<string, string[]>;
         response_status_code: number | null;
         response_error: string | null;
+        response_checkpoints: TunnelCheckpoint[] | null;
         request_body_size: number;
         response_body_size: number;
     };
@@ -121,6 +128,7 @@ export async function getRequest(requestId: string): Promise<{ request: Request,
             } : data.response_error ? {
                 type: "error",
                 error: data.response_error,
+                checkpoints: data.response_checkpoints ?? undefined,
             } : null,
         },
         requestBodySize: data.request_body_size,
