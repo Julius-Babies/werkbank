@@ -19,7 +19,7 @@
         # CORS for the frontend (incl. /_app/* assets) and the API, both of which
         # are accessed cross-subdomain from user spaces.
         # Only allow origins that are the base domain or any subdomain thereof.
-        @subdomain_origin header Origin ~^https?://([^.]+\.)*BASE_DOMAIN_RE$
+        @subdomain_origin header_regexp origin Origin `^https?://([^.]+\.)*BASE_DOMAIN_RE$`
         header @subdomain_origin {
             Access-Control-Allow-Origin "{http.request.header.Origin}"
             Access-Control-Allow-Methods "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
@@ -32,7 +32,7 @@
         # Answer preflights here instead of forwarding them to the backends
         @preflight {
             method OPTIONS
-            header Origin ~^https?://([^.]+\.)*BASE_DOMAIN_RE$
+            header_regexp preflight_origin Origin `^https?://([^.]+\.)*BASE_DOMAIN_RE$`
         }
 
         handle @preflight {
