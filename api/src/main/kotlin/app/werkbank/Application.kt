@@ -4,7 +4,6 @@ import app.queue.certificate.CertificateQueue
 import app.werkbank.app.queue.request.RequestPersistenceQueue
 import app.werkbank.plugins.auth.installAuthentikt
 import app.werkbank.plugins.auth.installAuthorization
-import app.werkbank.plugins.installCors
 import app.werkbank.plugins.proxy.SubdomainHandler
 import app.werkbank.shared.tunnel.json
 import app.werkbank.util.launchConnectionJob
@@ -25,7 +24,6 @@ fun Application.rootModule(
     configureSerialization()
     installAuthentikt()
     installAuthorization()
-    installCors()
     install(SubdomainHandler)
     install(WebSockets) {
         maxFrameSize = Long.MAX_VALUE
