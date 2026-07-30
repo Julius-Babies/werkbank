@@ -103,6 +103,17 @@
             }
           }
         }
+      },
+      "delete_dialog": {
+        "title": {
+          "single": "Delete project?",
+          "multiple": "Delete projects?"
+        },
+        "description": "You can recreate the projects at any time with wb setup. However, you will have to set all settings again.",
+        "footer": {
+          "cancel": "Cancel",
+          "delete": "Delete"
+        }
       }
     },
     "settings": {

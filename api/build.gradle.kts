@@ -13,6 +13,15 @@ application {
     mainClass = "app.werkbank.MainKt"
 }
 
+tasks.named<JavaExec>("run") {
+    // Relative paths like ./data/config.json resolve from the repo root
+    workingDir = rootProject.projectDir
+}
+
+tasks.withType<Test>().configureEach {
+    workingDir = rootProject.projectDir
+}
+
 kotlin {
     jvmToolchain(26)
     compilerOptions {
