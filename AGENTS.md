@@ -64,8 +64,14 @@ cd web && bun run check     # Type-check the web UI
 - Kotlin package root: `app.werkbank`. Official Kotlin code style (`kotlin.code.style=official`).
 - JVM toolchain 26.
 - Web: TypeScript + Svelte 5 runes, Tailwind v4, shadcn-svelte components.
+- Comments: Always english, do not overly comment
+
+### Web
+- API actions shall be in a repository to separate them from the UI.
+- Always use i18n translation. Use clear keys, not english strings, only qualifiers. If working on a feature where strings are not i18n, refactor them only if you are working on that piece.
 
 ## PR & commit guidelines
 
-- Commit messages are prefixed with the issue number, e.g. `#27 Add websockets to requests overview`.
-- Keep changes scoped to a single module where possible.
+- Commit messages follow this rule:
+  (feat|fix|chore|docs|...)((web/|cli/|api/)<component> #<issue_id>): <comment> - e.g. feat(api,web/projects #59): Add delete projects endpoint and delete project dialog
+- If it enhances traceability, then split multiple changes into separate commits
