@@ -1,0 +1,18 @@
+[
+  {
+    "label": "API",
+    "command": "./gradlew :api:run --args=\"--port 7010 --with-local-main-certificate\"",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "webapp",
+    "command": "bun run dev",
+    "cwd": "$ZED_WORKTREE_ROOT/web",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  }
+]

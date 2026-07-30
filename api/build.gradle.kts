@@ -13,6 +13,11 @@ application {
     mainClass = "app.werkbank.MainKt"
 }
 
+tasks.named<JavaExec>("run") {
+    // Relative Pfade (z. B. ./data/config.json) werden vom Repo-Root aus aufgelöst
+    workingDir = rootProject.projectDir
+}
+
 kotlin {
     jvmToolchain(26)
     compilerOptions {
