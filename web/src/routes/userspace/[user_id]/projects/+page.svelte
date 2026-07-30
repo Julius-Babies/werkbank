@@ -10,7 +10,7 @@
     import {columns} from "./columns.ts";
     import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "$lib/components/ui/table";
     import {Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle} from "$lib/components/ui/empty";
-    import {ArrowBendDownRightIcon, FolderSimpleDashedIcon} from "phosphor-svelte";
+    import {ArrowBendDownRightIcon, FolderSimpleDashedIcon, TrashIcon} from "phosphor-svelte";
     import NewProjectPopover from "./NewProjectPopover.svelte";
     import AccessStateDialog from "./access_state/AccessStateDialog.svelte";
     import ContentLoading from "../_lib/appshell/page/ContentLoading.svelte";
@@ -19,6 +19,7 @@
     import PageTitle from "../_lib/appshell/page/PageTitle.svelte";
     import DataTable from "../_lib/appshell/page/DataTable.svelte";
     import PageContent from "../_lib/appshell/page/PageContent.svelte";
+    import { fly, slide } from "svelte/transition";
 
     $effect(() => {
         title.set($_("userspace.projects.title"))
@@ -105,6 +106,30 @@
             </DataTable>
         {/if}
     </PageContent>
+
+
+    <div
+            class="sticky bottom-0 left-0 flex flex-row justify-center w-full overflow-hidden pb-4"
+    >
+        {#if Object.entries(rowSelection).length > 0}
+            {@const selectionCount = Object.entries(rowSelection).length}
+            <div
+                    class="flex flex-row items-center justify-center gap-2 h-12 w-fit rounded-full bg-background drop-shadow-xl border py-4 pl-4 pr-2"
+                    transition:fly={{y: 100}}
+            >
+                <span class="font-sm font-medium tracking-tight text-accent-foreground">
+                    {selectionCount} Projekt{#if selectionCount !== 1}e{/if} ausgewählt
+                </span>
+
+                <div class="w-px h-lh bg-muted rotate-12"></div>
+                <div class="w-px h-lh bg-muted rotate-12"></div>
+
+                <Button variant="destructive" size="icon">
+                    <TrashIcon />
+                </Button>
+            </div>
+        {/if}
+    </div>
 </Page>
 
 {#if accessSettingsForProject}

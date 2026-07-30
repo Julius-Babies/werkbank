@@ -193,7 +193,7 @@
             </Sidebar>
 
             <SidebarInset>
-                <div class="flex flex-col">
+                <div class="flex flex-col h-full">
                     <header
                             class="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)"
                     >
@@ -207,7 +207,7 @@
                         </div>
                     </header>
 
-                    <div class="flex flex-1 flex-col w-gfull h-full overflow-y-auto max-md:p-2 md:p-4">
+                    <div class="flex flex-1 flex-col w-full h-full overflow-y-auto max-md:p-2 md:p-4 pb-0!">
                         {@render children()}
                     </div>
                 </div>
