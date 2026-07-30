@@ -14,7 +14,11 @@ application {
 }
 
 tasks.named<JavaExec>("run") {
-    // Relative Pfade (z. B. ./data/config.json) werden vom Repo-Root aus aufgelöst
+    // Relative paths like ./data/config.json resolve from the repo root
+    workingDir = rootProject.projectDir
+}
+
+tasks.withType<Test>().configureEach {
     workingDir = rootProject.projectDir
 }
 
