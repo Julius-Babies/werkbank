@@ -103,6 +103,17 @@
             }
           }
         }
+      },
+      "delete_dialog": {
+        "title": {
+          "single": "Projekt löschen?",
+          "multiple": "Projekte löschen?"
+        },
+        "description": "Du kannst die Projekte jederzeit mit wb setup wieder erstellen. Alle Einstellungen musst du jedoch neu treffen.",
+        "footer": {
+          "cancel": "Abbrechen",
+          "delete": "Löschen"
+        }
       }
     },
     "settings": {

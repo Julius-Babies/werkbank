@@ -86,4 +86,6 @@ fun Route.projectRoutes() {
         getIcon()
         setIcon()
     }
+
+    deleteProject()
 }

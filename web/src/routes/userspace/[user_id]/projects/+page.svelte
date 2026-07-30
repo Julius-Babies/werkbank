@@ -20,6 +20,7 @@
     import DataTable from "../_lib/appshell/page/DataTable.svelte";
     import PageContent from "../_lib/appshell/page/PageContent.svelte";
     import { fly, slide } from "svelte/transition";
+    import DeleteProjectsDialog from "$lib/pages/userspace/projects/DeleteProjectsDialog.svelte";
 
     $effect(() => {
         title.set($_("userspace.projects.title"))
@@ -62,6 +63,8 @@
                 typeof updater === "function" ? updater(rowSelection) : updater;
         },
     }));
+
+    let showDeleteProjectsDialog = $state(false);
 </script>
 
 <Page>
@@ -124,7 +127,11 @@
                 <div class="w-px h-lh bg-muted rotate-12"></div>
                 <div class="w-px h-lh bg-muted rotate-12"></div>
 
-                <Button variant="destructive" size="icon">
+                <Button
+                        variant="destructive"
+                        size="icon"
+                        onclick={() => showDeleteProjectsDialog = true}
+                >
                     <TrashIcon />
                 </Button>
             </div>
@@ -136,5 +143,18 @@
     <AccessStateDialog
             onClose={(reload) => {accessSettingsForProject = null; if (reload) reloadProjects()}}
             projectId={accessSettingsForProject}
+    />
+{/if}
+
+{#if showDeleteProjectsDialog && projects !== "loading"}
+    <DeleteProjectsDialog
+            projects={projects.filter(p => rowSelection[p.project_id] === true)}
+            onclose={(deletedAnyProject) => {
+                showDeleteProjectsDialog = false;
+                if (deletedAnyProject) {
+                    rowSelection = {};
+                    reloadProjects();
+                }
+            }}
     />
 {/if}
