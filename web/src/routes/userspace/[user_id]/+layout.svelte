@@ -1,4 +1,5 @@
 <script lang="ts">
+    import faviconGreen from "$lib/assets/logo_green.svg"
     import {onMount, type Snippet} from "svelte";
     import {env} from "$env/dynamic/public";
     import {_} from 'svelte-i18n';
@@ -18,7 +19,7 @@
         useSidebar
     } from "$lib/components/ui/sidebar";
     import {page} from "$app/state"
-    import {EllipsisVertical, LogOutIcon, Pickaxe} from "@lucide/svelte";
+    import {EllipsisVertical, LogOutIcon} from "@lucide/svelte";
     import {FolderSimpleIcon, GearIcon, HouseIcon, ListDashesIcon} from "phosphor-svelte";
     import {
         DropdownMenu,
@@ -94,6 +95,7 @@
 
 <svelte:head>
     <title>{tabTitle}</title>
+    <link rel="icon" href={faviconGreen}/>
 </svelte:head>
 
 {#if $user}
@@ -108,7 +110,7 @@
                             <SidebarMenuButton class="data-[slot=sidebar-menu-button]:p-2!">
                                 {#snippet child({props})}
                                     <a href={env.PUBLIC_BASE_URL} {...props}>
-                                        <Pickaxe class="size-5!"/>
+                                        <img src={faviconGreen} alt="Werkbank Cloud" class="size-5!"/>
                                         <span class="text-base font-semibold">Werkbank Cloud</span>
                                     </a>
                                 {/snippet}
