@@ -1,4 +1,5 @@
 <script lang="ts">
+    import faviconGreen from "$lib/assets/logo_green.svg"
     import {onMount, type Snippet} from "svelte";
     import {env} from "$env/dynamic/public";
     import {_} from 'svelte-i18n';
@@ -32,6 +33,7 @@
     import webappSocket from "./webappSocket.ts";
     import SidebarItem from "./_lib/appshell/sidebar/SidebarItem.svelte";
     import TunnelState from "./_lib/appshell/topbar/TunnelState.svelte";
+    import favicon from "$lib/assets/logo_blue.svg";
 
     const sidebar = useSidebar();
 
@@ -94,6 +96,7 @@
 
 <svelte:head>
     <title>{tabTitle}</title>
+    <link rel="icon" href={faviconGreen}/>
 </svelte:head>
 
 {#if $user}
