@@ -19,7 +19,7 @@
         useSidebar
     } from "$lib/components/ui/sidebar";
     import {page} from "$app/state"
-    import {EllipsisVertical, LogOutIcon, Pickaxe} from "@lucide/svelte";
+    import {EllipsisVertical, LogOutIcon} from "@lucide/svelte";
     import {FolderSimpleIcon, GearIcon, HouseIcon, ListDashesIcon} from "phosphor-svelte";
     import {
         DropdownMenu,
@@ -33,7 +33,6 @@
     import webappSocket from "./webappSocket.ts";
     import SidebarItem from "./_lib/appshell/sidebar/SidebarItem.svelte";
     import TunnelState from "./_lib/appshell/topbar/TunnelState.svelte";
-    import favicon from "$lib/assets/logo_blue.svg";
 
     const sidebar = useSidebar();
 
@@ -111,7 +110,7 @@
                             <SidebarMenuButton class="data-[slot=sidebar-menu-button]:p-2!">
                                 {#snippet child({props})}
                                     <a href={env.PUBLIC_BASE_URL} {...props}>
-                                        <Pickaxe class="size-5!"/>
+                                        <img src={faviconGreen} alt="Werkbank Cloud" class="size-5!"/>
                                         <span class="text-base font-semibold">Werkbank Cloud</span>
                                     </a>
                                 {/snippet}
