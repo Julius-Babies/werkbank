@@ -33,9 +33,26 @@ data class WerkbankConfig(
         ) {
             @Serializable
             enum class ServiceState {
+
+                /**
+                 * WB CLI takes care of spinning up the container.
+                 */
                 @SerialName("docker") Docker,
+
+                /**
+                 * The application's dev server is running in a container which is handled by the user.
+                 */
+                @SerialName("docker-dev") DockerDev,
+
+                /**
+                 * The application's dev server runs on localhost.
+                 */
                 @SerialName("local") Local,
-                @SerialName("disabled") Disabled
+
+                /**
+                 * The service is not available.
+                 */
+                @SerialName("disabled") Disabled,
             }
         }
     }

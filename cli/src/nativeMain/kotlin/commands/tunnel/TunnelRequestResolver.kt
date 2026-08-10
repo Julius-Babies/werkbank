@@ -62,6 +62,14 @@ class TunnelRequestResolver: KoinComponent {
 
                 targetUrl = "${dockerClient.containers.inspectContainer(container.getId()!!).networkSettings.networks.values.first().ipAddress}:${dockerConfig.port}${path}"
             }
+            WerkbankConfig.Project.Service.ServiceState.DockerDev -> {
+                val dockerConfig = project.getConfig().services.first { it.name == service.name }.modes.dockerDev
+                    ?: return Resolution.Failed("Service ${service.name} has no docker-dev configuration")
+                val container = dockerClient.containers.getContainers(all = true).firstOrNull { dockerConfig.container in it.names }
+                    ?: return Resolution.Failed("Service ${service.name} has no docker dev container")
+
+                targetUrl = "${dockerClient.containers.inspectContainer(container.id).networkSettings.networks.values.first().ipAddress}:${dockerConfig.port}${path}"
+            }
         }
 
         return Resolution.Resolved(

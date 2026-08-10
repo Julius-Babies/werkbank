@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import kotlin.time.Duration.Companion.milliseconds
 
 class DockerContainer(
     val image: String,
@@ -122,7 +123,7 @@ class DockerContainer(
         val isRunning = getState() == State.Running
         if (!isRunning) start(createIfNotExists = true)
         if (requireHealthy) coroutineScope {
-            withTimeoutOrNull(10000) { while (!isHealthy()) delay(50) }
+            withTimeoutOrNull(10000.milliseconds) { while (!isHealthy()) delay(50.milliseconds) }
         }
 
         block(this)

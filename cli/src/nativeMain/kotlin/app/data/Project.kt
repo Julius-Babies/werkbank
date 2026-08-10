@@ -207,6 +207,12 @@ data class Project(
                 }
                 container?.container?.start(createIfNotExists = true)
             }
+            WerkbankConfig.Project.Service.ServiceState.DockerDev -> {
+                if (getConfig().services.first { it.name == serviceName }.modes.dockerDev == null) {
+                    error("Service $serviceName does not support Docker Dev mode")
+                }
+                container?.container?.stop()
+            }
             WerkbankConfig.Project.Service.ServiceState.Local -> {
                 if (getConfig().services.first { it.name == serviceName }.modes.local == null) {
                     error("Service $serviceName does not support Local mode")

@@ -60,6 +60,10 @@ class ReverseProxyConfigurationResolver : KoinComponent {
                         val containerName = "werkbank${if (isDevMode) "-dev" else ""}-${project.project.id.lowercase()}-${dockerMode.container}"
                         Target.DockerContainer(hostname = containerName, port = dockerMode.port)
                     }
+                    WerkbankConfig.Project.Service.ServiceState.DockerDev -> {
+                        val dockerMode = targetService.modes.dockerDev ?: error("Service $targetServiceName has no docker dev mode")
+                        Target.DockerContainer(hostname = dockerMode.container, port = dockerMode.port)
+                    }
                     WerkbankConfig.Project.Service.ServiceState.Local -> {
                         val localMode = targetService.modes.local ?: error("Service $targetServiceName has no local mode")
                         Target.Host(port = localMode.port)

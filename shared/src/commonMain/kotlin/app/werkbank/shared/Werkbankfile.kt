@@ -44,6 +44,7 @@ data class Werkbankfile(
         @Serializable
         data class Modes(
             @SerialName("local") val local: Local? = null,
+            @SerialName("docker-dev") val dockerDev: DockerDev? = null,
             @SerialName("docker") val docker: Docker? = null,
         ) {
             @Serializable
@@ -53,6 +54,12 @@ data class Werkbankfile(
 
             @Serializable
             data class Docker(
+                @SerialName("container") val container: String,
+                @SerialName("port") val port: Int
+            )
+
+            @Serializable
+            data class DockerDev(
                 @SerialName("container") val container: String,
                 @SerialName("port") val port: Int
             )

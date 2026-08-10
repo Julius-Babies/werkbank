@@ -22,7 +22,7 @@ class StateCommand(
     val targetStateString by argument(
         name = "state",
         help = "The service state",
-        completionCandidates = CompletionCandidates.Fixed("off", "local", "docker")
+        completionCandidates = CompletionCandidates.Fixed("off", "local", "docker", "docker-dev")
     )
 
     override suspend fun run() {
@@ -30,9 +30,10 @@ class StateCommand(
             "off" -> WerkbankConfig.Project.Service.ServiceState.Disabled
             "local" -> WerkbankConfig.Project.Service.ServiceState.Local
             "docker" -> WerkbankConfig.Project.Service.ServiceState.Docker
+            "docker-dev" -> WerkbankConfig.Project.Service.ServiceState.DockerDev
             else -> {
                 println(buildStyledString {
-                    red { +"The state must be one of: off, local, docker - got $targetStateString" }
+                    red { +"The state must be one of: off, local, docker, docker-dev - got $targetStateString" }
                 })
                 exitProcess(1)
             }
@@ -67,6 +68,9 @@ class StateCommand(
             "docker" -> {
                 project.setServiceStateTo(service.name, WerkbankConfig.Project.Service.ServiceState.Docker)
             }
+            "docker-dev" -> {
+                project.setServiceStateTo(service.name, WerkbankConfig.Project.Service.ServiceState.DockerDev)
+            }
         }
     }
 }
@@ -75,4 +79,5 @@ private fun WerkbankConfig.Project.Service.ServiceState.getString() = when (this
     WerkbankConfig.Project.Service.ServiceState.Disabled -> "Off"
     WerkbankConfig.Project.Service.ServiceState.Local -> "Local"
     WerkbankConfig.Project.Service.ServiceState.Docker -> "Docker"
+    WerkbankConfig.Project.Service.ServiceState.DockerDev -> "DockerDev"
 }
