@@ -17,12 +17,12 @@ import commands.exposed.ExposedCommand
 import commands.login.LoginCommand
 import commands.login.LogoutCommand
 import commands.poweroff.PoweroffCommand
+import commands.project.ProjectCommand
 import commands.service.ServiceCommand
 import commands.setup.SetupCommand
 import commands.tunnel.TunnelCommand
 import commands.up.UpCommand
 import commands.update.UpdateCommand
-import io.github.z4kn4fein.semver.Version
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
@@ -81,6 +81,7 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
             TunnelCommand(),
             UpdateCommand(),
             CloudCommand(),
+            ProjectCommand(),
         )
     }
 }
