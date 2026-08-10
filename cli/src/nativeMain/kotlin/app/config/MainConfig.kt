@@ -12,7 +12,11 @@ class MainConfig {
         if (currentConfig != null) return currentConfig!!
         if (!file.exists()) return WerkbankConfig()
         val content = file.readText()
-        return Yaml.default.decodeFromString(WerkbankConfig.serializer(), content)
+        try {
+            return Yaml.default.decodeFromString(WerkbankConfig.serializer(), content)
+        } catch (e: Exception) {
+            error("Failed to parse config file at ${file.absolutePath}. Please check the file for errors.\n${e.stackTraceToString()}")
+        }
     }
 
     fun updateConfig(block: (config: WerkbankConfig) -> WerkbankConfig) {
