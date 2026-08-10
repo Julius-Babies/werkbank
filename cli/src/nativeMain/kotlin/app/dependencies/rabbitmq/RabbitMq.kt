@@ -4,14 +4,14 @@ import app.data.Project
 import app.data.extensions.project.usesRabbit
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
-import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.api.Container
 import es.jvbabi.docker.kt.docker.DockerClient
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -33,7 +33,7 @@ class RabbitMq : AppDependency, KoinComponent {
     val rabbitMqPort = 5672
 
     val rabbitMqHostname = "rabbitmq.werkbank.studio"
-    val rabbitMqContainer = DockerContainer(
+    val rabbitMqContainer = ManagedContainer(
         image = "rabbitmq:4-management-alpine",
         name = buildString {
             append("werkbank-")
@@ -43,8 +43,8 @@ class RabbitMq : AppDependency, KoinComponent {
         ports = listOf(
             Container.PortBinding(rabbitMqPort, 5672, Container.PortBinding.Protocol.TCP),
         ),
-        volumes = mapOf(
-            Container.VolumeBind.Host(rabbitRoot.absolutePath) to "/var/lib/rabbitmq"
+        volumes = listOf(
+            Container.VolumeBind.Host(rabbitRoot.absolutePath, "/var/lib/rabbitmq")
         ),
         healthcheck = Container.Healthcheck(
             test = listOf("CMD-SHELL", "rabbitmqctl status"),
@@ -70,10 +70,10 @@ class RabbitMq : AppDependency, KoinComponent {
     }
 
     override suspend fun provision() {
-        if (rabbitMqContainer.getState() == DockerContainer.State.NotExisting) rabbitMqContainer.create()
+        if (rabbitMqContainer.getState() == ManagedContainer.State.NotExisting) rabbitMqContainer.create()
     }
 
-    override suspend fun managedContainers(): List<DockerContainer> = listOf(rabbitMqContainer)
+    override suspend fun managedContainers(): List<ManagedContainer> = listOf(rabbitMqContainer)
 
     override suspend fun ensureReady() {
         val projects = projectRepository

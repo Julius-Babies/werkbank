@@ -2,7 +2,7 @@ package app.data
 
 import app.config.MainConfig
 import app.config.WerkbankConfig
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.dependencies.openssl.OpensslHandler
@@ -12,7 +12,8 @@ import app.storage.isDevMode
 import app.storage.storageRoot
 import app.werkbank.shared.Werkbankfile
 import com.charleskorn.kaml.Yaml
-import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.api.Container
+import es.jvbabi.docker.kt.docker.DockerClient
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -33,6 +34,7 @@ data class Project(
     private val reverseProxy by inject<ReverseProxy>()
     private val mainConfig by inject<MainConfig>()
     private val dockerNetwork by inject<DockerNetwork>()
+    private val dockerClient by inject<DockerClient>()
 
     val getProjectStorage by lazy {
         storageRoot
@@ -119,25 +121,38 @@ data class Project(
         return config.containers.map { container ->
             ProjectContainer(
                 name = container.name,
-                container = DockerContainer(
+                container = ManagedContainer(
                     image = container.image,
                     name = "werkbank${if (isDevMode) "-dev" else ""}-${this.id}-${container.name}",
                     ports = container.ports.map { Container.PortBinding.from(it) },
                     volumes = container.volumes
-                        .associate {
-                            val bind = Container.VolumeBind.from(it)
-                            val source = bind.first
-                            if (source is Container.VolumeBind.Host) {
-                                val path = source.path
-                                if (isNamedVolumeSource(path)) {
-                                    return@associate Container.VolumeBind.Volume(namedVolumeName(path), source.readOnly) to bind.second
-                                }
-                                if (File.isPathAbsolute(path)) return@associate bind
-                                val absolutePath = File(this.path).resolve(path).absolutePath
-                                Container.VolumeBind.Host(absolutePath, source.readOnly) to bind.second
-                            } else bind
+                        .map { spec ->
+                            val bind = Container.VolumeBind.from(spec)
+                            // The library classifies the source itself, but werkbank's rule for what
+                            // counts as a managed volume is the stricter one, so it decides here.
+                            val source = when (bind) {
+                                is Container.VolumeBind.Host -> bind.path
+                                is Container.VolumeBind.Volume -> bind.name
+                            }
+                            when {
+                                isNamedVolumeSource(source) -> Container.VolumeBind.Volume(
+                                    name = namedVolumeName(source),
+                                    containerPath = bind.containerPath,
+                                    readOnly = bind.readOnly
+                                )
+                                File.isPathAbsolute(source) -> Container.VolumeBind.Host(
+                                    path = source,
+                                    containerPath = bind.containerPath,
+                                    readOnly = bind.readOnly
+                                )
+                                else -> Container.VolumeBind.Host(
+                                    path = File(this.path).resolve(source).absolutePath,
+                                    containerPath = bind.containerPath,
+                                    readOnly = bind.readOnly
+                                )
+                            }
                         }
-                        .plus(Container.VolumeBind.Host(opensslHandler.keyStoreFile.absolutePath, readOnly = true) to "/ssl/keystore.jks"),
+                        .plus(Container.VolumeBind.Host(opensslHandler.keyStoreFile.absolutePath, "/ssl/keystore.jks", readOnly = true)),
                     environment = container.environment
                         .plus("KEYSTORE_PATH" to "/ssl/")
                         .plus("KEYSTORE_PASSWORD" to opensslHandler.keyStorePassword),
@@ -159,12 +174,52 @@ data class Project(
         }
     }
 
+    /**
+     * Attaches the containers of services in `docker-dev` mode to the werkbank network.
+     *
+     * Those containers are not werkbank's - they come out of the project's own compose setup - so the
+     * reverse proxy, which addresses them by name, can only reach them once they share a network with
+     * it. The attachment lives on the container, not on the compose file, so it is gone as soon as
+     * the container is recreated (`docker compose down` and up again). It is therefore re-established
+     * here on every run rather than assumed to still be in place.
+     *
+     * A container that is not up yet is reported and skipped: the project's own stack is started
+     * outside werkbank, so it not being there is a normal state, not a failure.
+     */
+    suspend fun attachDockerDevContainers() {
+        val config = getConfig()
+        val dockerDevServices = getWerkbankConfig().services
+            .filter { it.serviceState == WerkbankConfig.Project.Service.ServiceState.DockerDev }
+        if (dockerDevServices.isEmpty()) return
+
+        dockerNetwork.initialize()
+        dockerDevServices.forEach { service ->
+            val containerName = config.services
+                .firstOrNull { it.name == service.name }
+                ?.modes?.dockerDev?.container
+                ?: return@forEach
+
+            val container = dockerClient.containers.getByName(containerName)
+            if (container == null) {
+                println(buildStyledString { yellow { +"Container $containerName for service ${service.name} is not running, skipping network attachment" } })
+                return@forEach
+            }
+
+            // Docker refuses a second endpoint under the same name, so an attachment that is already
+            // there has to be left alone rather than repeated.
+            if (container.networks.any { it.network.name == dockerNetwork.name }) return@forEach
+
+            container.connectTo(dockerNetwork.network)
+            println(buildStyledString { green { +"Attached $containerName to ${dockerNetwork.name}" } })
+        }
+    }
+
     suspend fun start() {
         val services = getConfig().services
         getContainers().forEach { container ->
             val service = services.firstOrNull { service -> service.modes.docker?.container == container.name }
             if (service == null) {
-                if (container.container.getState() == DockerContainer.State.NotExisting) {
+                if (container.container.getState() == ManagedContainer.State.NotExisting) {
                     println(buildStyledString { green { +"Creating container ${container.name} (${container.container.name})" } })
                     container.container.create()
                 }
@@ -201,8 +256,8 @@ data class Project(
                 }
                 val currentContainerState = container?.container?.getState()
                 when (currentContainerState) {
-                    DockerContainer.State.NotExisting -> container.container.create()
-                    DockerContainer.State.Running -> container.container.stop()
+                    ManagedContainer.State.NotExisting -> container.container.create()
+                    ManagedContainer.State.Running -> container.container.stop()
                     else -> Unit
                 }
                 container?.container?.start(createIfNotExists = true)
@@ -229,12 +284,15 @@ data class Project(
                 }
             )
         }
+        // Reads the state that was just written, so switching a service to docker-dev attaches its
+        // container right away instead of waiting for the next `wb up`.
+        attachDockerDevContainers()
         reverseProxy.configure()
     }
 
     suspend fun stop() {
         getContainers().forEach { container ->
-            if (container.container.getState() == DockerContainer.State.Running) {
+            if (container.container.getState() == ManagedContainer.State.Running) {
                 println(buildStyledString { blue { +"Stopping container ${container.name} (${container.container.name})" } })
                 container.container.stop()
                 container.container.delete()
@@ -246,7 +304,7 @@ data class Project(
 data class ProjectContainer(
     val name: String,
     val type: Type,
-    val container: DockerContainer
+    val container: ManagedContainer
 ) {
     enum class Type {
         Service, Dependency

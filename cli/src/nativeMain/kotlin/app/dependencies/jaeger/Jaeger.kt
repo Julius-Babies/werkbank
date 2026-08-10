@@ -3,13 +3,13 @@ package app.dependencies.jaeger
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.hosts.HostsManager
 import app.storage.isDevMode
 import app.storage.storageRoot
-import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.api.Container
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
@@ -30,8 +30,8 @@ class Jaeger: AppDependency, KoinComponent {
         .resolve("data")
 
     val jaegerHostname = "jaeger.werkbank.studio"
-    fun getContainer(): DockerContainer {
-        return DockerContainer(
+    fun getContainer(): ManagedContainer {
+        return ManagedContainer(
             image = "jaegertracing/all-in-one:1.76.0",
             name = this.name,
             ports = listOf(
@@ -42,8 +42,8 @@ class Jaeger: AppDependency, KoinComponent {
                 Container.PortBinding(14268, 14268, Container.PortBinding.Protocol.TCP),
                 Container.PortBinding(9411, 9411, Container.PortBinding.Protocol.TCP),
             ),
-            volumes = mapOf(
-                Container.VolumeBind.Host(jaegerRoot.absolutePath) to "/badger/data",
+            volumes = listOf(
+                Container.VolumeBind.Host(jaegerRoot.absolutePath, "/badger/data"),
             ),
             environment = mapOf(
                 "COLLECTOR_ZIPKIN_HOST_PORT" to ":9411"
@@ -65,10 +65,10 @@ class Jaeger: AppDependency, KoinComponent {
     }
 
     override suspend fun provision() {
-        if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
+        if (getContainer().getState() == ManagedContainer.State.NotExisting) getContainer().create()
     }
 
-    override suspend fun managedContainers(): List<DockerContainer> = listOf(getContainer())
+    override suspend fun managedContainers(): List<ManagedContainer> = listOf(getContainer())
 
     override suspend fun start() {
         val containerName = getContainer().name

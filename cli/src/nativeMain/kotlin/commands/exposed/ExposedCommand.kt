@@ -1,7 +1,7 @@
 package commands.exposed
 
 import app.dependencies.android_dns.Unbound
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.jaeger.Jaeger
 import app.dependencies.mongodb.MongoDb
 import app.dependencies.postgres.Postgres18
@@ -46,7 +46,7 @@ class ExposedCommand : SuspendingCliktCommand("exposed"), KoinComponent {
         }
 
         run postgres@{
-            if (postgres18.container.getState() != DockerContainer.State.Running) return@postgres
+            if (postgres18.container.getState() != ManagedContainer.State.Running) return@postgres
 
             addPort("Postgres", ExposedPort(
                 name = "Postgres 18",
@@ -57,7 +57,7 @@ class ExposedCommand : SuspendingCliktCommand("exposed"), KoinComponent {
         }
 
         run androidDns@{
-            if (androidDns.getContainer().getState() !== DockerContainer.State.Running) return@androidDns
+            if (androidDns.getContainer().getState() !== ManagedContainer.State.Running) return@androidDns
             addPort("Android DNS", ExposedPort(
                 name = "DNS",
                 port = 53,
@@ -67,7 +67,7 @@ class ExposedCommand : SuspendingCliktCommand("exposed"), KoinComponent {
         }
 
         run jaeger@{
-            if (jaeger.getContainer().getState() != DockerContainer.State.Running) return@jaeger
+            if (jaeger.getContainer().getState() != ManagedContainer.State.Running) return@jaeger
 
             addPort("Jaeger", ExposedPort(
                 port = 4317,
@@ -107,7 +107,7 @@ class ExposedCommand : SuspendingCliktCommand("exposed"), KoinComponent {
         }
 
         run mongoDb@{
-            if (mongoDb.mongoDatabaseContainer.getState() != DockerContainer.State.Running) return@mongoDb
+            if (mongoDb.mongoDatabaseContainer.getState() != ManagedContainer.State.Running) return@mongoDb
 
             addPort("MongoDB", ExposedPort(
                 name = "Database",
@@ -118,7 +118,7 @@ class ExposedCommand : SuspendingCliktCommand("exposed"), KoinComponent {
         }
 
         run mongoExpress@{
-            if (mongoDb.mongoExpressContainer.getState() != DockerContainer.State.Running) return@mongoExpress
+            if (mongoDb.mongoExpressContainer.getState() != ManagedContainer.State.Running) return@mongoExpress
 
             addWeb("MongoDB", ExposedWeb(
                 name = "Mongo Express",
@@ -127,7 +127,7 @@ class ExposedCommand : SuspendingCliktCommand("exposed"), KoinComponent {
         }
 
         run rabbitMq@{
-            if (rabbitMq.rabbitMqContainer.getState() != DockerContainer.State.Running) return@rabbitMq
+            if (rabbitMq.rabbitMqContainer.getState() != ManagedContainer.State.Running) return@rabbitMq
 
             addPort("RabbitMQ", ExposedPort(
                 name = "RabbitMQ Server",

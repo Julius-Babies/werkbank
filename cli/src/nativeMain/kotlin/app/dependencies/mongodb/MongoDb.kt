@@ -4,13 +4,13 @@ import app.data.Project
 import app.data.extensions.project.usesMongo
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.hosts.HostsManager
 import app.storage.isDevMode
 import app.storage.storageRoot
-import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.api.Container
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
@@ -26,7 +26,7 @@ class MongoDb: AppDependency, KoinComponent {
     val mongoDbPort = 27017
 
     val mongoDatabaseHostname = "mongodb.werkbank.studio"
-    val mongoDatabaseContainer = DockerContainer(
+    val mongoDatabaseContainer = ManagedContainer(
         image = "mongo:8-noble",
         name = buildString {
             append("werkbank-")
@@ -36,8 +36,8 @@ class MongoDb: AppDependency, KoinComponent {
         ports = listOf(
             Container.PortBinding(mongoDbPort, 27017, Container.PortBinding.Protocol.TCP)
         ),
-        volumes = mapOf(
-            Container.VolumeBind.Host(mongoRoot.absolutePath) to "/data/db"
+        volumes = listOf(
+            Container.VolumeBind.Host(mongoRoot.absolutePath, "/data/db")
         ),
         environment = mapOf(
             "MONGO_INITDB_ROOT_USERNAME" to "werkbank",
@@ -52,7 +52,7 @@ class MongoDb: AppDependency, KoinComponent {
     )
 
     val mongoExpressDomain = "mongo-express.werkbank.studio"
-    val mongoExpressContainer = DockerContainer(
+    val mongoExpressContainer = ManagedContainer(
         image = "mongo-express:1.0.2-20-alpine3.19",
         name = buildString {
             append("werkbank-")
@@ -67,7 +67,7 @@ class MongoDb: AppDependency, KoinComponent {
             "ME_CONFIG_BASICAUTH" to "false",
             "ME_CONFIG_MONGODB_SERVER" to mongoDatabaseHostname
         ),
-        volumes = emptyMap(),
+        volumes = emptyList(),
         networkConfigs = listOf(
             NetworkConfig(
                 network = dockerNetwork,
@@ -85,11 +85,11 @@ class MongoDb: AppDependency, KoinComponent {
     }
 
     override suspend fun provision() {
-        if (mongoDatabaseContainer.getState() == DockerContainer.State.NotExisting) mongoDatabaseContainer.create()
-        if (mongoExpressContainer.getState() == DockerContainer.State.NotExisting) mongoExpressContainer.create()
+        if (mongoDatabaseContainer.getState() == ManagedContainer.State.NotExisting) mongoDatabaseContainer.create()
+        if (mongoExpressContainer.getState() == ManagedContainer.State.NotExisting) mongoExpressContainer.create()
     }
 
-    override suspend fun managedContainers(): List<DockerContainer> =
+    override suspend fun managedContainers(): List<ManagedContainer> =
         listOf(mongoDatabaseContainer, mongoExpressContainer)
 
     override suspend fun start() {

@@ -1,7 +1,7 @@
 package commands.dependencies.dns
 
 import app.dependencies.android_dns.Unbound
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
@@ -18,12 +18,12 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
         if (currentContext.invokedSubcommand != null) return
 
         if (recreate) {
-            if (unbound.getContainer().getState() == DockerContainer.State.Running) {
+            if (unbound.getContainer().getState() == ManagedContainer.State.Running) {
                 println("Stopping Unbound...")
                 unbound.stop()
             }
 
-            if (unbound.getContainer().getState() == DockerContainer.State.Stopped) {
+            if (unbound.getContainer().getState() == ManagedContainer.State.Stopped) {
                 println("Deleting Unbound container...")
                 unbound.getContainer().delete()
             }
@@ -34,7 +34,7 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
             unbound.provision()
             unbound.start()
         } else {
-            if (unbound.getContainer().getState() == DockerContainer.State.Running) {
+            if (unbound.getContainer().getState() == ManagedContainer.State.Running) {
                 println("Restarting Unbound...")
                 unbound.stop()
                 unbound.writeConfigFile()

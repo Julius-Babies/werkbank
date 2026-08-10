@@ -3,7 +3,7 @@ package app.dependencies.reverse_proxy.traefik
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.dependencies.openssl.OpensslHandler
@@ -18,7 +18,7 @@ import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
 import com.charleskorn.kaml.Yaml
-import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.api.Container
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -50,23 +50,23 @@ class TraefikReverseProxy : ReverseProxy, KoinComponent {
     private val opensslHandler by inject<OpensslHandler>()
     private val resolver by inject<ReverseProxyConfigurationResolver>()
 
-    private var dockerContainer: DockerContainer? = null
-    suspend fun getContainer(): DockerContainer {
+    private var dockerContainer: ManagedContainer? = null
+    suspend fun getContainer(): ManagedContainer {
         dockerNetwork.initialize()
         if (dockerContainer != null) return dockerContainer!!
-        dockerContainer = DockerContainer(
+        dockerContainer = ManagedContainer(
             image = this.traefikImage,
             name = this.name,
             ports = listOf(
                 Container.PortBinding(80, 80, Container.PortBinding.Protocol.TCP),
                 Container.PortBinding(443, 443, Container.PortBinding.Protocol.TCP)
             ),
-            volumes = mapOf(
-                Container.VolumeBind.Host(traefikFileStorage.absolutePath, readOnly = true) to "/etc/traefik",
-                Container.VolumeBind.Host(storageRoot.resolve("projects").absolutePath, readOnly = true) to "/projects",
-                Container.VolumeBind.Host(opensslHandler.internalCertificateDirectory.absolutePath, readOnly = true) to "/ssl/internal",
-                Container.VolumeBind.Host(opensslHandler.externalCertificateDirectory.absolutePath, readOnly = true) to "/ssl/external",
-                Container.VolumeBind.Host("/var/run/docker.sock") to "/var/run/docker.sock"
+            volumes = listOf(
+                Container.VolumeBind.Host(traefikFileStorage.absolutePath, "/etc/traefik", readOnly = true),
+                Container.VolumeBind.Host(storageRoot.resolve("projects").absolutePath, "/projects", readOnly = true),
+                Container.VolumeBind.Host(opensslHandler.internalCertificateDirectory.absolutePath, "/ssl/internal", readOnly = true),
+                Container.VolumeBind.Host(opensslHandler.externalCertificateDirectory.absolutePath, "/ssl/external", readOnly = true),
+                Container.VolumeBind.Host("/var/run/docker.sock", "/var/run/docker.sock")
             ),
             environment = emptyMap(),
             networkConfigs = listOf(
@@ -93,10 +93,10 @@ class TraefikReverseProxy : ReverseProxy, KoinComponent {
     }
 
     override suspend fun provision() {
-        if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
+        if (getContainer().getState() == ManagedContainer.State.NotExisting) getContainer().create()
     }
 
-    override suspend fun managedContainers(): List<DockerContainer> = listOf(getContainer())
+    override suspend fun managedContainers(): List<ManagedContainer> = listOf(getContainer())
 
     override suspend fun start() {
         val containerName = getContainer().name

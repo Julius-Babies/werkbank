@@ -46,6 +46,7 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         // Full infrastructure already covers this project's dependencies.
         if (!startInfrastructure) orchestrator.up(project)
 
+        project.attachDockerDevContainers()
         project.start()
     }
 }

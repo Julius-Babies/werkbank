@@ -1,8 +1,9 @@
 package app.dependencies.docker
 
 import app.storage.isDevMode
-import es.jvbabi.docker.kt.api.network.NetworkDriver
+import es.jvbabi.docker.kt.api.Network
 import es.jvbabi.docker.kt.docker.DockerClient
+import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -10,6 +11,21 @@ class DockerNetwork: KoinComponent {
     private val dockerClient by inject<DockerClient>()
 
     val name = "werkbank" + if (isDevMode) "-dev" else ""
+
+    var network: Network
+        private set
+
+    init {
+        runBlocking {
+            network = dockerClient.networks.getNetworks().firstOrNull { it.name == name } ?: dockerClient.networkBuilder(name) {
+                attachable = true
+                driver = Network.Driver.Bridge
+                labels {
+                    put("compose.project", "werkbank")
+                }
+            }
+        }
+    }
 
     suspend fun initialize() {
         if (getStatus() == Status.Missing) create()
@@ -27,17 +43,6 @@ class DockerNetwork: KoinComponent {
     }
 
     suspend fun create() {
-        dockerClient.networks.createNetwork(
-            name = name,
-            driver = NetworkDriver.Bridge,
-            attachable = true,
-            labels = mapOf("compose.project" to "werkbank")
-        )
-    }
-
-    suspend fun getId(): String? {
-        return dockerClient.networks.getNetworks().firstOrNull { it.name == name }?.id
+        this.network.create()
     }
 }
-
-class NetworkNotFoundException(networkName: String) : Exception("Docker network '$networkName' not found.")

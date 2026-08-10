@@ -5,13 +5,13 @@ import app.data.Project
 import app.data.extensions.project.getAllDomains
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
-import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.api.Container
 import es.jvbabi.docker.kt.docker.DockerClient
 import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
@@ -31,16 +31,16 @@ class Unbound : AppDependency, KoinComponent {
         append("unbound")
     }
 
-    fun getContainer(): DockerContainer {
-        return DockerContainer(
+    fun getContainer(): ManagedContainer {
+        return ManagedContainer(
             image = "ghcr.io/zyrakq/unbound:latest",
             name = this.name,
             ports = listOf(
                 Container.PortBinding(53, 53, Container.PortBinding.Protocol.UDP),
                 Container.PortBinding(53, 53, Container.PortBinding.Protocol.TCP),
             ),
-            volumes = mapOf(
-                Container.VolumeBind.Host(unboundStorageRoot.absolutePath, readOnly = true) to "/etc/unbound/",
+            volumes = listOf(
+                Container.VolumeBind.Host(unboundStorageRoot.absolutePath, "/etc/unbound/", readOnly = true),
             ),
             environment = emptyMap(),
             networkConfigs = listOf(
@@ -87,10 +87,10 @@ class Unbound : AppDependency, KoinComponent {
             val keyInitId = Uuid.random()
             val unboundTmpDir = File.getTempDirectory().resolve("unbound-key-init-$keyInitId").apply { mkdir(true) }
 
-            val keyGenerator = DockerContainer(
+            val keyGenerator = ManagedContainer(
                 image = "ghcr.io/zyrakq/unbound:latest",
-                volumes = mapOf(
-                    Container.VolumeBind.Host(unboundTmpDir.absolutePath, readOnly = false) to "/etc/unbound/",
+                volumes = listOf(
+                    Container.VolumeBind.Host(unboundTmpDir.absolutePath, "/etc/unbound/", readOnly = false),
                 ),
                 entrypoint = "unbound-control-setup",
                 cmd = listOf(""),
@@ -110,12 +110,12 @@ class Unbound : AppDependency, KoinComponent {
             }
         }
 
-        if (getContainer().getState() == DockerContainer.State.NotExisting) {
+        if (getContainer().getState() == ManagedContainer.State.NotExisting) {
             getContainer().create()
         }
     }
 
-    override suspend fun managedContainers(): List<DockerContainer> =
+    override suspend fun managedContainers(): List<ManagedContainer> =
         if (mainConfig.getConfig().androidDns.enabled) listOf(getContainer()) else emptyList()
 
     override suspend fun start() {

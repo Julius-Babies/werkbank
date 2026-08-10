@@ -3,6 +3,7 @@ package commands.tunnel
 import app.config.WerkbankConfig
 import app.data.Project
 import app.repository.ProjectRepository
+import es.jvbabi.docker.kt.api.Container
 import es.jvbabi.docker.kt.docker.DockerClient
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -60,15 +61,17 @@ class TunnelRequestResolver: KoinComponent {
                 val container = project.getContainers().firstOrNull { it.name == dockerConfig.container }?.container
                     ?: return Resolution.Failed("Service ${service.name} has no docker container")
 
-                targetUrl = "${dockerClient.containers.inspectContainer(container.getId()!!).networkSettings.networks.values.first().ipAddress}:${dockerConfig.port}${path}"
+                targetUrl = container.live()?.address()?.let { "$it:${dockerConfig.port}$path" }
+                    ?: return Resolution.Failed("Service ${service.name} is not running")
             }
             WerkbankConfig.Project.Service.ServiceState.DockerDev -> {
                 val dockerConfig = project.getConfig().services.first { it.name == service.name }.modes.dockerDev
                     ?: return Resolution.Failed("Service ${service.name} has no docker-dev configuration")
-                val container = dockerClient.containers.getContainers(all = true).firstOrNull { dockerConfig.container in it.names }
+                val container = dockerClient.containers.getByName(dockerConfig.container)
                     ?: return Resolution.Failed("Service ${service.name} has no docker dev container")
 
-                targetUrl = "${dockerClient.containers.inspectContainer(container.id).networkSettings.networks.values.first().ipAddress}:${dockerConfig.port}${path}"
+                targetUrl = container.address()?.let { "$it:${dockerConfig.port}$path" }
+                    ?: return Resolution.Failed("Service ${service.name} is not running")
             }
         }
 
@@ -83,6 +86,17 @@ class TunnelRequestResolver: KoinComponent {
             )
         )
     }
+
+    /**
+     * The address to reach this container on, as the authority part of a URL.
+     *
+     * Docker only assigns endpoint addresses while a container runs, so this is null for one that is
+     * merely created or was stopped again. IPv4 is preferred; an IPv6 address is bracketed, since it
+     * goes into a URL where the colons would otherwise read as a port separator.
+     */
+    private fun Container.address(): String? =
+        networks.firstNotNullOfOrNull { it.ipv4Address }
+            ?: networks.firstNotNullOfOrNull { it.ipv6Address }?.let { "[$it]" }
 
     private fun getTargetService(
         project: Project,

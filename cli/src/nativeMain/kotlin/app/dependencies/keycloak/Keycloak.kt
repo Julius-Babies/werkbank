@@ -4,14 +4,14 @@ import app.config.MainConfig
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.docker.DockerNetwork
 import app.dependencies.docker.NetworkConfig
 import app.dependencies.postgres.Postgres18
 import app.hosts.HostsManager
 import app.storage.isDevMode
 import app.storage.storageRoot
-import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.api.Container
 import es.jvbabi.docker.kt.docker.DockerClient
 import kotlinx.coroutines.delay
 import org.koin.core.component.KoinComponent
@@ -36,8 +36,8 @@ class Keycloak : AppDependency, KoinComponent {
 
     private fun getImage(): String = mainConfig.getConfig().keycloak.image
 
-    fun getContainer(): DockerContainer {
-        return DockerContainer(
+    fun getContainer(): ManagedContainer {
+        return ManagedContainer(
             image = getImage(),
             name = buildString {
                 append("werkbank-")
@@ -45,8 +45,8 @@ class Keycloak : AppDependency, KoinComponent {
                 append("keycloak")
             },
             ports = emptyList(),
-            volumes = mapOf(
-                Container.VolumeBind.Host(keycloakRoot.absolutePath) to "/opt/keycloak/data"
+            volumes = listOf(
+                Container.VolumeBind.Host(keycloakRoot.absolutePath, "/opt/keycloak/data")
             ),
             healthcheck = Container.Healthcheck(
                 test = listOf("CMD-SHELL", "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user werkbank --password werkbank > /dev/null 2>&1"),
@@ -89,10 +89,10 @@ class Keycloak : AppDependency, KoinComponent {
         // before we get here, so the keycloak database can be created up front — it
         // must exist before the container boots.
         ensureKeycloakDatabase()
-        if (getContainer().getState() == DockerContainer.State.NotExisting) getContainer().create()
+        if (getContainer().getState() == ManagedContainer.State.NotExisting) getContainer().create()
     }
 
-    override suspend fun managedContainers(): List<DockerContainer> = listOf(getContainer())
+    override suspend fun managedContainers(): List<ManagedContainer> = listOf(getContainer())
 
     private suspend fun ensureKeycloakDatabase() {
         val postgresContainer = postgres18.container
@@ -141,7 +141,7 @@ class Keycloak : AppDependency, KoinComponent {
 
     suspend fun waitUntilReady() {
         val container = getContainer()
-        require(container.getState() == DockerContainer.State.Running)
+        require(container.getState() == ManagedContainer.State.Running)
         while (true) {
             val result = dockerClient.containers.runCommand(
                 containerId = container.getId()!!,

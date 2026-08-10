@@ -1,6 +1,6 @@
 package commands.dependencies.reverse_proxy
 
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.reverse_proxy.ReverseProxy
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.parameters.options.flag
@@ -19,13 +19,13 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
         val containers = reverseProxy.managedContainers()
 
         if (recreate) {
-            if (containers.any { it.getState() == DockerContainer.State.Running }) {
+            if (containers.any { it.getState() == ManagedContainer.State.Running }) {
                 println("Stopping reverse proxy...")
                 reverseProxy.stop()
             }
 
             containers
-                .filter { it.getState() == DockerContainer.State.Stopped }
+                .filter { it.getState() == ManagedContainer.State.Stopped }
                 .forEach {
                     println("Deleting reverse proxy container...")
                     it.delete()
@@ -33,7 +33,7 @@ class RebuildCommand: SuspendingCliktCommand("rebuild"), KoinComponent {
 
             println("Recreating reverse proxy container...")
         } else {
-            if (containers.any { it.getState() == DockerContainer.State.Running }) {
+            if (containers.any { it.getState() == ManagedContainer.State.Running }) {
                 println("Restarting reverse proxy...")
                 reverseProxy.stop()
             }

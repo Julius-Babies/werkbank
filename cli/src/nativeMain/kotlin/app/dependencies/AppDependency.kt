@@ -1,7 +1,7 @@
 package app.dependencies
 
 import app.data.Project
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 
 /**
  * Base abstraction for infrastructure dependencies managed by Werkbank.
@@ -62,7 +62,7 @@ interface AppDependency {
      * The containers owned by this dependency. Used by [update] to re-pull images
      * and recreate containers whose image changed.
      */
-    suspend fun managedContainers(): List<DockerContainer> = emptyList()
+    suspend fun managedContainers(): List<ManagedContainer> = emptyList()
 
     /**
      * Refreshes the dependency: regenerates config (new routes, certificates, ...),

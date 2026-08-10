@@ -2,7 +2,7 @@ package app.dependencies.postgres
 
 import app.data.Project
 import app.dependencies.AppDependency
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.docker.DockerNetwork
 import app.hosts.HostsManager
 import app.repository.ProjectRepository
@@ -11,7 +11,7 @@ import app.storage.storageRoot
 import app.data.extensions.project.usesPostgres18
 import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.NetworkConfig
-import es.jvbabi.docker.kt.api.container.Container
+import es.jvbabi.docker.kt.api.Container
 import es.jvbabi.docker.kt.docker.DockerClient
 import kotlinx.coroutines.delay
 import org.koin.core.component.KoinComponent
@@ -34,7 +34,7 @@ class Postgres18: AppDependency, KoinComponent {
 
     val hostname = "postgres18.werkbank.studio"
 
-    val container = DockerContainer(
+    val container = ManagedContainer(
         image = "postgres:18.1-alpine3.22",
         name = buildString {
             append("werkbank-")
@@ -44,8 +44,8 @@ class Postgres18: AppDependency, KoinComponent {
         ports = listOf(
             Container.PortBinding(postgresPort, 5432, Container.PortBinding.Protocol.TCP)
         ),
-        volumes = mapOf(
-            Container.VolumeBind.Host(postgresRoot.absolutePath) to "/var/lib/postgresql",
+        volumes = listOf(
+            Container.VolumeBind.Host(postgresRoot.absolutePath, "/var/lib/postgresql"),
         ),
         environment = mapOf(
             "POSTGRES_PASSWORD" to "werkbank",
@@ -67,10 +67,10 @@ class Postgres18: AppDependency, KoinComponent {
     }
 
     override suspend fun provision() {
-        if (container.getState() == DockerContainer.State.NotExisting) container.create()
+        if (container.getState() == ManagedContainer.State.NotExisting) container.create()
     }
 
-    override suspend fun managedContainers(): List<DockerContainer> = listOf(container)
+    override suspend fun managedContainers(): List<ManagedContainer> = listOf(container)
 
     override suspend fun ensureReady() {
         createProjectDatabases()
@@ -161,7 +161,7 @@ class Postgres18: AppDependency, KoinComponent {
     }
 
     suspend fun waitUntilReady() {
-        require(container.getState() == DockerContainer.State.Running)
+        require(container.getState() == ManagedContainer.State.Running)
         while (true) {
             val result = dockerClient.containers.runCommand(
                 containerId = container.getId()!!,

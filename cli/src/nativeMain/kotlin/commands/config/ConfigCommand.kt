@@ -4,7 +4,7 @@ import app.config.MainConfig
 import app.config.WerkbankConfig
 import app.dependencies.AppDependency
 import app.dependencies.DependencyOrchestrator
-import app.dependencies.docker.DockerContainer
+import app.dependencies.docker.ManagedContainer
 import app.dependencies.keycloak.Keycloak
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.core.subcommands
@@ -25,7 +25,7 @@ class ConfigCommand : SuspendingCliktCommand("config"), KoinComponent {
         val keycloak = dependencies.filterIsInstance<Keycloak>().firstOrNull() ?: return
         // Nothing to do if Keycloak was never set up. Otherwise the generic update
         // path re-pulls the (new) image and recreates the container.
-        if (keycloak.getContainer().getState() == DockerContainer.State.NotExisting) return
+        if (keycloak.getContainer().getState() == ManagedContainer.State.NotExisting) return
         orchestrator.update(listOf(keycloak.key))
     }
 
