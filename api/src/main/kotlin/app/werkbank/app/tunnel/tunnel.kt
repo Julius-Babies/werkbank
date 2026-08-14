@@ -30,7 +30,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import org.koin.ktor.ext.inject
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
@@ -420,6 +422,13 @@ class WsBridge internal constructor(
 
     private val opened = CompletableDeferred<List<String>>()
 
+    /**
+     * Whether the tunnel host already knows this connection is closing, either because the browser's
+     * Close frame was relayed or because the host itself closed it. Guards [relayClientGone] so an
+     * abort never produces a second close.
+     */
+    private val closeRelayed = AtomicBoolean(false)
+
     /** Suspends until the client confirms the upstream socket is open; returns the 101 response header lines. */
     suspend fun awaitOpened(): List<String> = opened.await()
 
@@ -431,6 +440,9 @@ class WsBridge internal constructor(
     val frameEvents: SharedFlow<WsFrameRecord> = _frameEvents
 
     fun framesSnapshot(): List<WsFrameRecord> = synchronized(frameLock) { _frames.toList() }
+
+    /** Buffer for a fragmented binary message from the dev server; see [onWsBinary]. */
+    private var pendingBinary: ByteArrayOutputStream? = null
 
     fun markEstablished(responseHeaderLines: List<String>) {
         val headers = responseHeaderLines
@@ -500,11 +512,30 @@ class WsBridge internal constructor(
                 val reason = frame.readReason()
                 val code = reason?.code?.toInt() ?: 1000
                 val message = reason?.message ?: ""
+                closeRelayed.set(true)
                 record(WsFrameDirection.CLIENT_TO_SERVER, WsFrameOpcode.CLOSE, null, null, 0, code, message)
                 connection.send(ServerMessage.WsClose(requestId, code, message))
             }
 
             else -> {}
+        }
+    }
+
+    /**
+     * Tells the tunnel host that the browser side is gone after a hard abort — a TCP reset, a closed
+     * tab or a ping timeout, i.e. every path where the browser never sends a Close frame.
+     *
+     * A close message is the only signal the host listens for, so without this its upstream WebSocket
+     * to the local dev server would stay open for the rest of the tunnel's lifetime and its frames
+     * would be routed to a request id that no longer has a sink. No-op once a close was relayed.
+     */
+    suspend fun relayClientGone() {
+        if (!closeRelayed.compareAndSet(false, true)) return
+        record(WsFrameDirection.CLIENT_TO_SERVER, WsFrameOpcode.CLOSE, null, null, 0, GOING_AWAY, CLIENT_GONE_REASON)
+        try {
+            connection.send(ServerMessage.WsClose(requestId, GOING_AWAY, CLIENT_GONE_REASON))
+        } catch (_: Exception) {
+            // The tunnel itself is already gone; the host will tear the upstream down on its own.
         }
     }
 
@@ -519,6 +550,8 @@ class WsBridge internal constructor(
             }
 
             is ClientMessage.WsClose -> {
+                // The host closed it itself, so it needs no close back from us.
+                closeRelayed.set(true)
                 record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.CLOSE, null, null, 0, message.code, message.reason)
                 // A close before the open handshake completed means the upstream refused the connection;
                 // surface its reason so the proxy can report why instead of a generic failure.
@@ -535,11 +568,30 @@ class WsBridge internal constructor(
         }
     }
 
-    /** Dev server → browser: a raw WebSocket binary frame. */
+    /**
+     * Dev server → browser: a raw WebSocket binary frame.
+     *
+     * Fragments (`fin = false`) are buffered until the FIN arrives and then relayed as one message.
+     * Forwarding them one by one would be wrong on the wire: ktor writes every [Frame.Binary] with
+     * the BINARY opcode, never a continuation, so the browser would see a second message start
+     * mid-message and fail the connection. Reassembling here also keeps the inspector timeline at one
+     * record per message.
+     */
     override suspend fun onWsBinary(bytes: ByteArray, fin: Boolean) {
+        // Called only from the tunnel's single reader loop, so the buffer needs no synchronization.
+        if (!fin) {
+            pendingBinary = (pendingBinary ?: ByteArrayOutputStream()).apply { write(bytes) }
+            return
+        }
+        val message = pendingBinary?.let { buffer ->
+            buffer.write(bytes)
+            pendingBinary = null
+            buffer.toByteArray()
+        } ?: bytes
+
         // Base64 only for the stored inspector record; the frame relays to the browser as raw bytes.
-        record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.BINARY, null, Base64.encode(bytes), bytes.size)
-        _incomingFrames.trySend(Frame.Binary(fin, bytes))
+        record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.BINARY, null, Base64.encode(message), message.size)
+        _incomingFrames.trySend(Frame.Binary(true, message))
     }
 
     override fun onClosed(cause: Throwable?) {
@@ -557,6 +609,10 @@ class WsBridge internal constructor(
     companion object {
         /** Safety cap on how many frames a single connection retains for the inspector. */
         private const val MAX_FRAMES = 2000
+
+        /** RFC 6455 close code for "the endpoint is going away", used when the browser aborted. */
+        private const val GOING_AWAY = 1001
+        private const val CLIENT_GONE_REASON = "Client disconnected without a close frame"
     }
 }
 

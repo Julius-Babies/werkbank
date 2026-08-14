@@ -116,6 +116,9 @@ class TunnelViewModel: KoinComponent {
 
                 val requestBodies = mutableMapOf<Uuid, ByteWriteChannel>()
                 val wsProxyState = mutableMapOf<Uuid, DefaultClientWebSocketSession>()
+                // Partially received binary messages from the browser, keyed by request id; see the
+                // Frame.Binary branch below.
+                val wsBinaryFragments = mutableMapOf<Uuid, ByteArray>()
 
                 try {
                     client.webSocket(
@@ -153,8 +156,18 @@ class TunnelViewModel: KoinComponent {
                                     val id = TunnelFrame.requestId(bytes)
                                     val payload = TunnelFrame.payload(bytes)
                                     if (TunnelFrame.isWebSocket(bytes)) {
-                                        wsProxyState[id]?.send(Frame.Binary(TunnelFrame.isFin(bytes), payload))
-                                        updateWs(id) { it.copy(framesSent = it.framesSent + 1) }
+                                        // Buffer fragments until the FIN arrives and forward the message
+                                        // as one frame: ktor writes every Frame.Binary with the BINARY
+                                        // opcode, never a continuation, so relaying fragments verbatim
+                                        // would look like a new message starting mid-message and the
+                                        // local service would fail the connection.
+                                        if (!TunnelFrame.isFin(bytes)) {
+                                            wsBinaryFragments[id] = (wsBinaryFragments[id] ?: ByteArray(0)) + payload
+                                        } else {
+                                            val message = wsBinaryFragments.remove(id)?.plus(payload) ?: payload
+                                            wsProxyState[id]?.send(Frame.Binary(true, message))
+                                            updateWs(id) { it.copy(framesSent = it.framesSent + 1) }
+                                        }
                                     } else {
                                         requestBodies[id]?.writeFully(payload)
                                         requestBodies[id]?.flush()
@@ -527,6 +540,7 @@ class TunnelViewModel: KoinComponent {
                                                 } finally {
                                                     updateWs(msg.requestId) { it.copy(closed = true) }
                                                     wsProxyState.remove(msg.requestId)
+                                                    wsBinaryFragments.remove(msg.requestId)
                                                 }
                                             }
                                         }
@@ -538,6 +552,7 @@ class TunnelViewModel: KoinComponent {
                                             wsProxyState[msg.requestId]?.close(CloseReason(msg.code.toShort(), msg.reason))
                                             updateWs(msg.requestId) { it.copy(closed = true) }
                                             wsProxyState.remove(msg.requestId)
+                                            wsBinaryFragments.remove(msg.requestId)
                                         }
                                         is ServerMessage.Ping -> {
                                             sendSerialized<ClientMessage>(ClientMessage.Pong(msg.requestId))
