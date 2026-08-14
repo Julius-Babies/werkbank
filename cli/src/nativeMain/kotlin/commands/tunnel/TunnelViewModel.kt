@@ -52,6 +52,20 @@ class TunnelViewModel: KoinComponent {
             "sec-websocket-accept",
             "content-length",
         )
+
+        /**
+         * The scheme the public entrypoint was reached on. The cloud proxy always terminates
+         * TLS; only the hop from this client to the local service is plain HTTP.
+         */
+        private const val PUBLIC_SCHEME = "https"
+
+        /** Reads a header out of the raw `"Name: value"` lines the server forwards. */
+        private fun List<String>.headerValue(name: String): String? = firstNotNullOfOrNull { header ->
+            val separator = header.indexOf(": ")
+            if (separator <= 0) return@firstNotNullOfOrNull null
+            if (!header.substring(0, separator).equals(name, ignoreCase = true)) return@firstNotNullOfOrNull null
+            header.substring(separator + 2)
+        }
     }
 
     private val mainConfig by inject<MainConfig>()
@@ -232,8 +246,19 @@ class TunnelViewModel: KoinComponent {
                                                     val requestLine = "${msg.method} $path HTTP/1.1\r\n"
                                                     output.writeFully(requestLine.encodeToByteArray())
 
+                                                    // We dial 127.0.0.1, so without the client's Host and the X-Forwarded-*
+                                                    // headers the service only ever sees the loopback authority over plain
+                                                    // HTTP: absolute URLs, redirects, signed-URL checks and host allow-lists
+                                                    // (Vite) all break. traefik does the same on the local route.
                                                     val authority = if (port == targetUrl.protocol.defaultPort) host else "$host:$port"
-                                                    output.writeFully("Host: $authority\r\n".encodeToByteArray())
+                                                    val clientHost = msg.headers.headerValue("Host")
+                                                    output.writeFully("Host: ${clientHost ?: authority}\r\n".encodeToByteArray())
+                                                    if (clientHost != null && msg.headers.headerValue("X-Forwarded-Host") == null) {
+                                                        output.writeFully("X-Forwarded-Host: $clientHost\r\n".encodeToByteArray())
+                                                    }
+                                                    if (msg.headers.headerValue("X-Forwarded-Proto") == null) {
+                                                        output.writeFully("X-Forwarded-Proto: $PUBLIC_SCHEME\r\n".encodeToByteArray())
+                                                    }
 
                                                     msg.headers.forEach { header ->
                                                         val (key, _) = header.split(": ", limit = 2)
@@ -443,6 +468,16 @@ class TunnelViewModel: KoinComponent {
                                                                 if (name.lowercase() !in NON_FORWARDED_WS_HEADERS) {
                                                                     headers.append(name, value)
                                                                 }
+                                                            }
+                                                            // The ktor client owns Host for the handshake, so the public
+                                                            // origin can only travel in X-Forwarded-* here.
+                                                            msg.headers.headerValue("Host")?.let { clientHost ->
+                                                                if (msg.headers.headerValue("X-Forwarded-Host") == null) {
+                                                                    headers.append("X-Forwarded-Host", clientHost)
+                                                                }
+                                                            }
+                                                            if (msg.headers.headerValue("X-Forwarded-Proto") == null) {
+                                                                headers.append("X-Forwarded-Proto", PUBLIC_SCHEME)
                                                             }
                                                         }
                                                     ) {
