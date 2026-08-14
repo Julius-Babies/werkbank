@@ -22,9 +22,11 @@ import io.ktor.websocket.*
 import app.werkbank.shared.tunnel.TunnelCheckpoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.time.Duration.Companion.seconds
 import org.jetbrains.exposed.v1.core.eq
@@ -184,7 +186,10 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                                 for (frame in wsProxy.incomingFrames) {
                                     when (frame) {
                                         is Frame.Text -> send(Frame.Text(frame.readText()))
-                                        is Frame.Binary -> send(Frame.Binary(true, frame.readBytes()))
+                                        // The bridge hands out reassembled messages, so fin is always
+                                        // set here; relay it instead of hardcoding it so a fragment can
+                                        // never silently go out as a complete message.
+                                        is Frame.Binary -> send(Frame.Binary(frame.fin, frame.readBytes()))
                                         is Frame.Close -> {
                                             close(frame.readReason() ?: CloseReason(1000, ""))
                                             break
@@ -199,6 +204,11 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                             tunnelToClient.invokeOnCompletion { clientToTunnel.cancel() }
                         }
                     } finally {
+                        // Both relay loops ended, which also covers the hard aborts: a reset, a closed
+                        // tab or the ping timeout end the client loop without a Close frame ever
+                        // arriving. NonCancellable because the close still has to reach the tunnel host
+                        // when we get here on an already-cancelled call.
+                        withContext(NonCancellable) { wsProxy.relayClientGone() }
                         wsProxy.close()
                         requestPersistenceQueue.submit(
                             PersistJob(
