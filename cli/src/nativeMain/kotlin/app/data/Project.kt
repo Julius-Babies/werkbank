@@ -161,6 +161,10 @@ data class Project(
 
     suspend fun start() {
         val services = getConfig().services
+        val trackedServices = getWerkbankConfig().services
+        val untrackedServices = services.map { it.name }.filterNot { name -> trackedServices.any { it.name == name } }
+        if (untrackedServices.isNotEmpty()) throw ProjectServicesNotConfiguredException(name, untrackedServices)
+
         getContainers().forEach { container ->
             val service = services.firstOrNull { service -> service.modes.docker?.container == container.name }
             if (service == null) {
@@ -173,11 +177,7 @@ data class Project(
                 return@forEach
             }
 
-            val mode = getWerkbankConfig()
-                .services
-                .firstOrNull { it.name == service.name }
-                ?.serviceState
-                ?: service.defaultServiceState()
+            val mode = trackedServices.first { it.name == service.name }.serviceState
             if (mode == WerkbankConfig.Project.Service.ServiceState.Docker || container.type == ProjectContainer.Type.Dependency) {
                 println(buildStyledString { green { +"Starting container ${container.name} (${container.container.name})" } })
                 container.container.start(createIfNotExists = true)

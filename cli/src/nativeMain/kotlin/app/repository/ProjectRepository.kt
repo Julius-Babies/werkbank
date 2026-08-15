@@ -54,23 +54,6 @@ class ProjectRepository : KoinComponent {
     }
 
     /**
-     * Brings the tracked services of an already imported project in line with its Werkbankfile.
-     * Without this a project imported before it had services keeps an empty service list in the
-     * main config.
-     */
-    suspend fun syncServices(project: Project) {
-        val providedServices = project.getConfig().services
-        mainConfig.updateConfig { config ->
-            config.copy(
-                projects = config.projects.orEmpty().map { existingProject ->
-                    if (existingProject.id != project.id) existingProject
-                    else existingProject.copy(services = mergeServices(existingProject.services, providedServices))
-                }
-            )
-        }
-    }
-
-    /**
      * Keeps the states of services that still exist (downgrading them if their mode vanished),
      * drops services that are gone and adds new ones with their default state.
      */
