@@ -1,5 +1,6 @@
 package commands.up
 
+import app.data.ProjectServicesNotConfiguredException
 import app.dependencies.DependencyOrchestrator
 import app.repository.ProjectRepository
 import com.charleskorn.kaml.Yaml
@@ -46,6 +47,10 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         // Full infrastructure already covers this project's dependencies.
         if (!startInfrastructure) orchestrator.up(project)
 
-        project.start()
+        try {
+            project.start()
+        } catch (e: ProjectServicesNotConfiguredException) {
+            println(buildStyledString { red { +"Services ${e.serviceNames.joinToString(", ")} are not configured. Run \"wb setup\" to apply the changes of the Werkbankfile." } })
+        }
     }
 }
