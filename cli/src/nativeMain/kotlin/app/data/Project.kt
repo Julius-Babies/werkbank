@@ -173,12 +173,11 @@ data class Project(
                 return@forEach
             }
 
-            val mode = mainConfig.getConfig()
-                .projects.orEmpty()
-                .first { project -> project.name == this.name }
+            val mode = getWerkbankConfig()
                 .services
-                .first { service -> service.name == service.name }
-                .serviceState
+                .firstOrNull { it.name == service.name }
+                ?.serviceState
+                ?: service.defaultServiceState()
             if (mode == WerkbankConfig.Project.Service.ServiceState.Docker || container.type == ProjectContainer.Type.Dependency) {
                 println(buildStyledString { green { +"Starting container ${container.name} (${container.container.name})" } })
                 container.container.start(createIfNotExists = true)

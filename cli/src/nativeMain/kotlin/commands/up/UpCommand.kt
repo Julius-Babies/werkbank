@@ -43,6 +43,9 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         val projectId = werkbankFile.project.id
         val project = projectRepository.getAllProjects().firstOrNull { it.id == projectId } ?: error("Project with id $projectId not found")
 
+        // The Werkbankfile may have gained or lost services since the project was imported.
+        projectRepository.syncServices(project)
+
         // Full infrastructure already covers this project's dependencies.
         if (!startInfrastructure) orchestrator.up(project)
 

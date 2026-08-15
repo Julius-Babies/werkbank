@@ -3,6 +3,8 @@ package app.repository
 import app.config.MainConfig
 import app.config.WerkbankConfig
 import app.data.Project
+import app.data.defaultServiceState
+import app.werkbank.shared.Werkbankfile
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -30,49 +32,7 @@ class ProjectRepository : KoinComponent {
             val newProject = existingProject?.copy(
                 path = project.path,
                 name = project.name,
-                services = existingProject
-                    .services
-                    .toMutableList()
-                    .let { services ->
-                        val providedServiceNames = project.getConfig().services.map { it.name }
-                        services.removeAll { it.name !in providedServiceNames }
-                        services.forEachIndexed { i, service ->
-                            val providedService = project.getConfig().services.first { it.name == service.name }
-                            val doesProvidedServiceSupportDocker = providedService.modes.docker != null
-                            val doesProvidedServiceSupportLocal = providedService.modes.local != null
-                            val currentServiceState = service.serviceState
-
-                            when (currentServiceState) {
-                                WerkbankConfig.Project.Service.ServiceState.Docker -> {
-                                    if (!doesProvidedServiceSupportDocker) {
-                                        if (doesProvidedServiceSupportLocal) services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Local)
-                                        else services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Disabled)
-                                    }
-                                }
-                                WerkbankConfig.Project.Service.ServiceState.Local -> {
-                                    if (!doesProvidedServiceSupportLocal) services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Disabled)
-                                }
-                                else -> Unit
-                            }
-                        }
-
-                        val existingServiceNames = services.map { it.name }.toSet()
-                        project.getConfig().services.forEach { providedService ->
-                            if (providedService.name !in existingServiceNames) {
-                                services.add(
-                                    WerkbankConfig.Project.Service(
-                                        name = providedService.name,
-                                        serviceState =
-                                            if (providedService.modes.docker != null) WerkbankConfig.Project.Service.ServiceState.Docker
-                                            else if (providedService.modes.local != null) WerkbankConfig.Project.Service.ServiceState.Local
-                                            else WerkbankConfig.Project.Service.ServiceState.Disabled
-                                    )
-                                )
-                            }
-                        }
-
-                        services
-                    }
+                services = mergeServices(existingProject.services, project.getConfig().services)
             )
                 ?: WerkbankConfig.Project(
                     id = project.id,
@@ -80,15 +40,7 @@ class ProjectRepository : KoinComponent {
                     cloudId = null,
                     path = project.path,
                     submodules = emptyList(),
-                    services = project.getConfig().services.map { service ->
-                        WerkbankConfig.Project.Service(
-                            name = service.name,
-                            serviceState =
-                                if (service.modes.docker != null) WerkbankConfig.Project.Service.ServiceState.Docker
-                                else if (service.modes.local != null) WerkbankConfig.Project.Service.ServiceState.Local
-                                else WerkbankConfig.Project.Service.ServiceState.Disabled
-                        )
-                    }
+                    services = mergeServices(emptyList(), project.getConfig().services)
                 )
 
             return@updateConfig config.copy(
@@ -99,5 +51,67 @@ class ProjectRepository : KoinComponent {
         project.updateHosts()
         project.updateCertificates()
         project.setupProxy()
+    }
+
+    /**
+     * Brings the tracked services of an already imported project in line with its Werkbankfile.
+     * Without this a project imported before it had services keeps an empty service list in the
+     * main config.
+     */
+    suspend fun syncServices(project: Project) {
+        val providedServices = project.getConfig().services
+        mainConfig.updateConfig { config ->
+            config.copy(
+                projects = config.projects.orEmpty().map { existingProject ->
+                    if (existingProject.id != project.id) existingProject
+                    else existingProject.copy(services = mergeServices(existingProject.services, providedServices))
+                }
+            )
+        }
+    }
+
+    /**
+     * Keeps the states of services that still exist (downgrading them if their mode vanished),
+     * drops services that are gone and adds new ones with their default state.
+     */
+    private fun mergeServices(
+        existingServices: List<WerkbankConfig.Project.Service>,
+        providedServices: List<Werkbankfile.Service>,
+    ): List<WerkbankConfig.Project.Service> {
+        val providedServiceNames = providedServices.map { it.name }
+        val services = existingServices.filter { it.name in providedServiceNames }.toMutableList()
+
+        services.forEachIndexed { i, service ->
+            val providedService = providedServices.first { it.name == service.name }
+            val doesProvidedServiceSupportDocker = providedService.modes.docker != null
+            val doesProvidedServiceSupportLocal = providedService.modes.local != null
+
+            when (service.serviceState) {
+                WerkbankConfig.Project.Service.ServiceState.Docker -> {
+                    if (!doesProvidedServiceSupportDocker) {
+                        if (doesProvidedServiceSupportLocal) services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Local)
+                        else services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Disabled)
+                    }
+                }
+                WerkbankConfig.Project.Service.ServiceState.Local -> {
+                    if (!doesProvidedServiceSupportLocal) services[i] = service.copy(serviceState = WerkbankConfig.Project.Service.ServiceState.Disabled)
+                }
+                else -> Unit
+            }
+        }
+
+        val existingServiceNames = services.map { it.name }.toSet()
+        providedServices
+            .filterNot { it.name in existingServiceNames }
+            .forEach { providedService ->
+                services.add(
+                    WerkbankConfig.Project.Service(
+                        name = providedService.name,
+                        serviceState = providedService.defaultServiceState()
+                    )
+                )
+            }
+
+        return services
     }
 }
