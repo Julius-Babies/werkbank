@@ -18,14 +18,8 @@
     import {Button} from "$lib/components/ui/button";
     import PageContent from "../_lib/appshell/page/PageContent.svelte";
     import RequestFilterComponent from "./RequestFilter.svelte";
-    import {
-        buildRequestQuery,
-        defaultFilter,
-        filterFromParams,
-        filterToParams,
-        type RequestsFilter,
-        runRequestQuery
-    } from "./filter.ts";
+    import {neutralQuery, queryFromParams, queryToParams, type RequestQuery} from "./filter.ts";
+    import {compileQuery} from "./query.ts";
 
     $effect(() => {
         title.set($_("userspace.requests.title"))
@@ -38,36 +32,24 @@
             .then(() => isLoading = false);
     })
 
-    let currentFilter: RequestsFilter = $state(filterFromParams(page.url.searchParams))
+    let currentQuery: RequestQuery = $state(queryFromParams(page.url.searchParams))
 
-    // The query is the URL representation of the filter, so a shared or reopened link
-    // restores exactly the filter that produced the visible list.
+    // The query is the URL representation of the filter, so a shared or reopened link restores
+    // exactly the filter that produced the visible list.
     $effect(() => {
-        const params = filterToParams(currentFilter).toString()
+        const params = queryToParams(currentQuery).toString()
         untrack(() => {
             replaceState(`?${params}`, {})
         })
     })
 
-    let filteredRequests: RequestUpdate[] = $state([])
-
-    // Filtering always runs through the JSONata query built from the active filter — an inactive
-    // filter is just the neutral query. JSONata evaluates asynchronously, so results are assigned
-    // back into state; a stale run (filter or request list changed meanwhile) is discarded.
-    $effect(() => {
-        const query = buildRequestQuery(currentFilter)
-        const source = $requests
-
-        let outdated = false
-        runRequestQuery(query, source)
-            .then((result) => {
-                if (!outdated) filteredRequests = result
-            })
-        return () => outdated = true
+    let filteredRequests = $derived.by(() => {
+        const matches = compileQuery(currentQuery.query)
+        return $requests.filter(matches)
     })
 
     function clearFilter() {
-        currentFilter = defaultFilter()
+        currentQuery = neutralQuery()
     }
 
     let table = createSvelteTable({
@@ -91,7 +73,7 @@
         {#if isLoading}
             <ContentLoading />
         {:else}
-            <RequestFilterComponent bind:state={currentFilter} />
+            <RequestFilterComponent bind:state={currentQuery} />
             <DataTable
                     {table}
                     cellClass="py-1.5"

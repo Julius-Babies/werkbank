@@ -2,6 +2,12 @@ export const en = {
     userspace: {
         requests: {
             title: "Tunnel Requests",
+            filter: {
+                reset: "Reset filter",
+                query: "Query",
+                neutral: "no filter, showing all requests",
+                advanced: "This query uses filters the buttons cannot represent. Reset the filter to use them again.",
+            },
             table: {
                 project: "PROJECTS",
                 resource: "RESOURCE",
@@ -24,6 +30,12 @@ export const de = {
     userspace: {
         requests: {
             title: "Tunnel-Anfragen",
+            filter: {
+                reset: "Filter zurücksetzen",
+                query: "Query",
+                neutral: "kein Filter, alle Anfragen werden angezeigt",
+                advanced: "Diese Query nutzt Filter, die sich nicht über die Buttons darstellen lassen. Setze den Filter zurück, um sie wieder zu nutzen.",
+            },
             table: {
                 project: "PROJEKTE",
                 resource: "RESSOURCE",
