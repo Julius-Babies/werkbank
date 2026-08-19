@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import kotlin.time.Duration.Companion.milliseconds
 
 class DockerContainer(
     val image: String,
@@ -63,6 +64,7 @@ class DockerContainer(
         if (rebuildIfNotMatching && needsRebuild()) delete()
         val state = getState()
         if (state == State.Running) return
+        assertPortsAreFree()
         if (state == State.NotExisting && createIfNotExists) create()
 
         dockerClient.containers.startContainer(getId()!!)
@@ -72,6 +74,43 @@ class DockerContainer(
             dockerClient.containers.runCommand(
                 containerId = id,
                 command = listOf("sh", "-lc", "if command -v update-ca-certificates >/dev/null 2>&1; then update-ca-certificates; fi")
+            )
+        }
+    }
+
+    /**
+     * Docker reports a taken host port only as an opaque 500 ("port is already allocated"),
+     * so the bindings are checked up front: first against the other running containers,
+     * then against the processes on the host.
+     *
+     * @throws PortAlreadyInUseException if one of the host ports is already taken.
+     */
+    private suspend fun assertPortsAreFree() {
+        if (ports.isEmpty()) return
+        val ownId = getId()
+        val runningContainers = dockerClient.containers.getContainers().filter { it.id != ownId }
+
+        ports.distinctBy { it.hostPort to it.protocol }.forEach { binding ->
+            val blockingContainer = runningContainers.firstOrNull { container ->
+                container.ports.orEmpty().any {
+                    it.publicPort == binding.hostPort && it.type.equals(binding.protocol.name, ignoreCase = true)
+                }
+            }
+            if (blockingContainer != null) throw PortAlreadyInUseException.Docker(
+                port = binding.hostPort,
+                protocol = binding.protocol,
+                requestedBy = name,
+                containerId = blockingContainer.id,
+                containerName = blockingContainer.names.firstOrNull()?.removePrefix("/") ?: blockingContainer.id.take(12),
+            )
+
+            val blockingProcess = findProcessUsingPort(binding.hostPort, binding.protocol) ?: return@forEach
+            throw PortAlreadyInUseException.Process(
+                port = binding.hostPort,
+                protocol = binding.protocol,
+                requestedBy = name,
+                pid = blockingProcess.pid,
+                processName = blockingProcess.name,
             )
         }
     }
@@ -122,7 +161,7 @@ class DockerContainer(
         val isRunning = getState() == State.Running
         if (!isRunning) start(createIfNotExists = true)
         if (requireHealthy) coroutineScope {
-            withTimeoutOrNull(10000) { while (!isHealthy()) delay(50) }
+            withTimeoutOrNull(10000.milliseconds) { while (!isHealthy()) delay(50.milliseconds) }
         }
 
         block(this)
