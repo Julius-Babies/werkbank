@@ -6,6 +6,7 @@
     import RequestRow from "./RequestRow.svelte";
     import {Button} from "$lib/components/ui/button";
     import {_} from "svelte-i18n";
+    import {goto} from "$app/navigation";
 
     let classes = $derived.by(() => {
         switch ($tunnelState?.active) {
@@ -17,9 +18,11 @@
                 return "text-red-400 border-red-300 bg-red-400/10";
         }
     })
+
+    let showPopover = $state(false);
 </script>
 
-<Popover>
+<Popover bind:open={showPopover}>
     <PopoverTrigger>
         <div class="flex flex-row items-center gap-1">
             <span class="text-neutral-500 font-mono text-xs font-bold uppercase">{$_("userspace.tunnel.status.label")}</span>
@@ -64,7 +67,10 @@
                         </div>
                         <Button
                                 class="mx-4 mt-2"
-                                href="/tunnel"
+                                onclick={() => {
+                                    goto("/requests")
+                                        .then(() => showPopover = false)
+                                }}
                                 variant="outline"
                         >
                             <ArrowRight />
