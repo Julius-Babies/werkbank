@@ -388,7 +388,21 @@ function buildMatcher(query: string): RequestMatcher {
 
     try {
         const jexlExpression = engine.compile(expression)
-        return (request) => jexlExpression.evalSync(request) === true
+
+        // Evaluating a query costs about half a microsecond per request, which adds up while live
+        // updates re-run the list every frame. A request object is replaced when it changes, so its
+        // identity is a valid key for the result; entries die with the objects.
+        const evaluated = new WeakMap<RequestUpdate, boolean>()
+
+        return (request) => {
+            let matched = evaluated.get(request)
+            if (matched === undefined) {
+                matched = jexlExpression.evalSync(request) === true
+                evaluated.set(request, matched)
+            }
+
+            return matched
+        }
     } catch (error) {
         // The expression is generated from a parsed query, so this is a bug in the compilers above
         // rather than bad user input. Filter everything out instead of silently ignoring the query.

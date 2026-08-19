@@ -5,6 +5,7 @@
     import {page} from "$app/state";
     import {_} from "svelte-i18n";
     import {fetchRequests, requests} from "./requests.ts";
+    import {loadOlderRequests} from "../webappSocket.ts";
     import Page from "../_lib/appshell/page/Page.svelte";
     import ContentLoading from "../_lib/appshell/page/ContentLoading.svelte";
     import PageHead from "../_lib/appshell/page/PageHead.svelte";
@@ -62,10 +63,46 @@
         })
     })
 
-    let filteredRequests = $derived.by(() => {
-        const matches = compileQuery(currentQuery.query)
-        return $requests.filter(matches)
+    /** Rows added to the table each time the ghost runway is reached. */
+    const ROWS_PER_STEP = 50
+    /** Ghost rows kept behind the rendered ones, so scrolling has a runway to grow into. */
+    const GHOST_ROWS = 200
+
+    // Only a window of the requests is rendered: eight hours of history are a few thousand rows, and
+    // every live update would otherwise re-render all of them.
+    let renderedRows = $state(ROWS_PER_STEP)
+
+    // Another filter means another list, so the window starts over at the top.
+    $effect(() => {
+        currentQuery.query
+        untrack(() => renderedRows = ROWS_PER_STEP)
     })
+
+    // Matching stops as soon as the window and its runway are full instead of filtering the whole
+    // history: everything behind the runway is neither rendered nor counted.
+    let rowWindow = $derived.by(() => {
+        const matches = compileQuery(currentQuery.query)
+
+        const rows: RequestUpdate[] = []
+        let ghosts = 0
+
+        for (const request of $requests) {
+            if (!matches(request)) continue
+
+            if (rows.length < renderedRows) rows.push(request)
+            else if (ghosts < GHOST_ROWS) ghosts++
+            else break
+        }
+
+        return {rows, ghosts}
+    })
+
+    function renderMoreRows() {
+        if (rowWindow.ghosts > 0) renderedRows += ROWS_PER_STEP
+
+        // A runway that is not full means the loaded history is running out: page in the next one.
+        if (rowWindow.ghosts < GHOST_ROWS) loadOlderRequests()
+    }
 
     function clearFilter() {
         currentQuery = neutralQuery()
@@ -73,7 +110,7 @@
 
     let table = createSvelteTable({
         get data() {
-            return filteredRequests
+            return rowWindow.rows
         },
         columns: columns(),
         getCoreRowModel: getCoreRowModel(),
@@ -96,6 +133,8 @@
             <DataTable
                     {table}
                     cellClass="py-1.5"
+                    ghostRows={rowWindow.ghosts}
+                    onGhostsEnter={renderMoreRows}
                     onRowClick={(request: RequestUpdate) => goto(`/requests/${request.request_id}`)}
             >
                 {#snippet empty()}
