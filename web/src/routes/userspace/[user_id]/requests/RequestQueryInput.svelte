@@ -22,8 +22,8 @@
     let input: HTMLInputElement | null = $state(null)
     let overlay: HTMLDivElement | null = $state(null)
 
-    // The draft is what the user types; `requestQuery.query` is its normalized form. They are only synced
-    // while the input is not being edited, so normalization never fights the caret.
+    // The draft is what the user types. It is only taken over from the outside while the input is
+    // not being edited, so pressing a filter button updates it but typing is never overwritten.
     let draft = $state(requestQuery.query)
     let editing = $state(false)
 
@@ -269,7 +269,11 @@
         <span class="whitespace-pre">
             {#each segments as segment, index (index)}
                 <span
-                        class={cn(segment.role === "qualifier" && "text-muted-foreground", valueColor(segment))}
+                        class={cn(
+                            (segment.role === "qualifier" || segment.role === "operator") && "text-muted-foreground",
+                            segment.role === "operator" && "font-semibold",
+                            valueColor(segment),
+                        )}
                 >{segment.text}</span>
             {/each}
         </span>

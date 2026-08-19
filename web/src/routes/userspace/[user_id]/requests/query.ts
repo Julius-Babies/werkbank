@@ -10,20 +10,28 @@ import type {RequestKind, RequestUpdate} from "../state.ts";
  *   project:web         target project
  *   service:api         target service
  *   "user profile"      free text, matched against the request URI
- *   !method:GET         negated term
+ *   !method:GET         negation, also in front of a group
+ *   a b, a AND b        both have to match; whitespace is an implicit AND
+ *   a OR b              either has to match; OR binds weaker than AND
+ *   (a OR b) c          parentheses group terms
  *
- * Terms are separated by whitespace and combined with AND; values may be quoted to include
- * whitespace, commas or colons. A query is compiled into a JEXL expression and evaluated once
- * per request, with the request itself as the evaluation context.
+ * `AND` and `OR` are only operators in upper case, so `or` stays usable as free text. A query is
+ * compiled into a JEXL expression and evaluated once per request, with the request itself as the
+ * evaluation context.
  */
 
 export interface QueryTerm {
     /** Qualifier name, or `null` for a free text term. */
     qualifier: string | null,
     /** Values of the term; the term matches a request if any of them matches. */
-    values: string[],
-    negated: boolean
+    values: string[]
 }
+
+export type QueryNode =
+    | {type: "term", term: QueryTerm}
+    | {type: "and", nodes: QueryNode[]}
+    | {type: "or", nodes: QueryNode[]}
+    | {type: "not", node: QueryNode}
 
 export type RequestMatcher = (request: RequestUpdate) => boolean
 
@@ -70,49 +78,49 @@ function freeText(values: string[]): string {
         .join(" || ")
 }
 
-/** Splits a query into its terms, keeping quoted sections intact. */
-function tokenize(query: string): string[] {
-    const tokens: string[] = []
+const OPERATORS = ["AND", "OR"]
+
+export interface QueryToken {
+    /** The token as written, so the tokens concatenate back into the query. */
+    text: string,
+    kind: "whitespace" | "paren" | "operator" | "term"
+}
+
+/**
+ * Splits a query into tokens. Used by the parser and by the highlighting, so both agree on where
+ * a term starts and ends.
+ */
+export function lex(query: string): QueryToken[] {
+    const tokens: QueryToken[] = []
     let current = ""
     let quoted = false
+
+    function flush() {
+        if (!current) return
+        tokens.push({text: current, kind: OPERATORS.includes(current) ? "operator" : "term"})
+        current = ""
+    }
 
     for (const char of query) {
         if (char === "\"") {
             quoted = !quoted
             current += char
-        } else if (!quoted && /\s/.test(char)) {
-            if (current) tokens.push(current)
-            current = ""
+        } else if (quoted) {
+            current += char
+        } else if (/\s/.test(char)) {
+            flush()
+            const previous = tokens.at(-1)
+            if (previous?.kind === "whitespace") previous.text += char
+            else tokens.push({text: char, kind: "whitespace"})
+        } else if (char === "(" || char === ")") {
+            flush()
+            tokens.push({text: char, kind: "paren"})
         } else {
             current += char
         }
     }
 
-    if (current) tokens.push(current)
-    return tokens
-}
-
-/** Like `tokenize`, but keeps the whitespace between terms as its own token. */
-function splitKeepingWhitespace(query: string): string[] {
-    const tokens: string[] = []
-    let current = ""
-    let quoted = false
-    let whitespace = false
-
-    for (const char of query) {
-        if (char === "\"") quoted = !quoted
-        const isWhitespace = !quoted && /\s/.test(char)
-
-        if (current && isWhitespace !== whitespace) {
-            tokens.push(current)
-            current = ""
-        }
-
-        whitespace = isWhitespace
-        current += char
-    }
-
-    if (current) tokens.push(current)
+    flush()
     return tokens
 }
 
@@ -147,43 +155,130 @@ function unquote(input: string): string {
     return input.replaceAll("\"", "")
 }
 
-export function parseQuery(query: string): QueryTerm[] {
-    return tokenize(query)
-        .map((token) => {
-            const negated = token.startsWith("!")
-            const body = negated ? token.slice(1) : token
-            const colon = indexOfUnquoted(body, ":")
+/** A term token, without its negation. `null` when it carries no values, e.g. a bare `method:`. */
+function parseTerm(token: string): QueryTerm | null {
+    const colon = indexOfUnquoted(token, ":")
 
-            // A leading colon or none at all makes the whole token free text, which is never split
-            // on commas: a comma is a plain character in a search phrase.
-            if (colon <= 0) return {qualifier: null, values: [unquote(body)], negated}
+    // A leading colon or none at all makes the whole token free text, which is never split on
+    // commas: a comma is a plain character in a search phrase.
+    if (colon <= 0) {
+        const text = unquote(token)
+        return text ? {qualifier: null, values: [text]} : null
+    }
 
-            return {
-                qualifier: body.slice(0, colon).toLowerCase(),
-                values: splitValues(body.slice(colon + 1)),
-                negated,
+    const values = splitValues(token.slice(colon + 1))
+    return values.length === 0 ? null : {qualifier: token.slice(0, colon).toLowerCase(), values}
+}
+
+function combine(type: "and" | "or", nodes: QueryNode[]): QueryNode | null {
+    if (nodes.length === 0) return null
+    if (nodes.length === 1) return nodes[0]
+    return {type, nodes}
+}
+
+/**
+ * Parses a query into its tree. Incomplete input is tolerated rather than rejected — queries are
+ * parsed while they are being typed, so a missing closing parenthesis or a trailing operator just
+ * parses to what is there.
+ */
+export function parseQuery(query: string): QueryNode | null {
+    const tokens = lex(query).filter((token) => token.kind !== "whitespace")
+    let index = 0
+
+    function parseOr(): QueryNode | null {
+        const nodes: QueryNode[] = []
+
+        for (const node of [parseAnd()]) if (node) nodes.push(node)
+        while (tokens[index]?.kind === "operator" && tokens[index].text === "OR") {
+            index++
+            const node = parseAnd()
+            if (node) nodes.push(node)
+        }
+
+        return combine("or", nodes)
+    }
+
+    function parseAnd(): QueryNode | null {
+        const nodes: QueryNode[] = []
+
+        while (index < tokens.length) {
+            const token = tokens[index]
+            if (token.text === "OR" && token.kind === "operator") break
+            if (token.text === ")" && token.kind === "paren") break
+
+            // An explicit AND is only a separator, juxtaposition means the same thing.
+            if (token.kind === "operator") {
+                index++
+                continue
             }
-        })
-        .filter((term) => term.values.length > 0)
+
+            const node = parseUnary()
+            if (node) nodes.push(node)
+        }
+
+        return combine("and", nodes)
+    }
+
+    function parseUnary(): QueryNode | null {
+        const token = tokens[index]
+
+        if (token.kind === "paren") {
+            index++
+            const node = parseOr()
+            if (tokens[index]?.text === ")") index++
+            return node
+        }
+
+        index++
+
+        if (token.text === "!") {
+            const node = index < tokens.length ? parseUnary() : null
+            return node ? {type: "not", node} : null
+        }
+
+        const negated = token.text.startsWith("!")
+        const term = parseTerm(negated ? token.text.slice(1) : token.text)
+        if (!term) return null
+
+        return negated ? {type: "not", node: {type: "term", term}} : {type: "term", term}
+    }
+
+    return parseOr()
 }
 
 function quoteValue(value: string): string {
-    return /[\s,:"]/.test(value) ? `"${unquote(value)}"` : value
+    return /[\s,:"()]/.test(value) ? `"${unquote(value)}"` : value
 }
 
-/** Inverse of `parseQuery`; the result parses back into the terms it was built from. */
-export function serializeQuery(terms: QueryTerm[]): string {
-    return terms
-        .map((term) => {
-            const values = term.values.map(quoteValue).join(",")
-            const prefix = term.negated ? "!" : ""
-            return term.qualifier === null ? `${prefix}${values}` : `${prefix}${term.qualifier}:${values}`
-        })
-        .join(" ")
+function serializeTerm(term: QueryTerm): string {
+    const values = term.values.map(quoteValue).join(",")
+    return term.qualifier === null ? values : `${term.qualifier}:${values}`
+}
+
+/** Inverse of `parseQuery`; the result parses back into the tree it was built from. */
+export function serializeQuery(node: QueryNode | null): string {
+    if (node === null) return ""
+
+    switch (node.type) {
+        case "term":
+            return serializeTerm(node.term)
+        case "not":
+            return `!${group(node.node, node.node.type === "and" || node.node.type === "or")}`
+        case "and":
+            // AND binds tighter than OR, so only an OR child needs parentheses.
+            return node.nodes.map((child) => group(child, child.type === "or")).join(" ")
+        case "or":
+            return node.nodes.map((child) => serializeQuery(child)).join(" OR ")
+    }
+}
+
+function group(node: QueryNode, parenthesized: boolean): string {
+    const query = serializeQuery(node)
+    return parenthesized ? `(${query})` : query
 }
 
 /** Matches the term the caret sits in, capturing its qualifier and the values typed so far. */
-const TERM_VALUES = /(?:^|\s)!?([^\s:"]+):([^\s]*)$/
+const TERM_VALUES = /(?:^|[\s(])!?([^\s:"()]+):([^\s()]*)$/
 
 export interface ValueContext {
     qualifier: string,
@@ -198,7 +293,7 @@ export function valuesAtCaret(query: string, caret: number): ValueContext | null
 }
 
 /** Matches a qualifier being typed at the caret: a term that has no colon yet. */
-const QUALIFIER_PREFIX = /(?:^|\s)!?([^\s:"]*)$/
+const QUALIFIER_PREFIX = /(?:^|[\s(])!?([^\s:"()]*)$/
 
 /**
  * The part of a qualifier typed in front of the caret, without a leading `!`, so it can be
@@ -212,7 +307,7 @@ export function qualifierPrefixAtCaret(query: string, caret: number): string | n
 /** A piece of a query, used to highlight it while it is being edited. */
 export interface QuerySegment {
     text: string,
-    role: "qualifier" | "value" | "text",
+    role: "qualifier" | "value" | "text" | "operator",
     /** Qualifier of the term a value belongs to, so the value can be colored by its meaning. */
     qualifier?: string,
     /** The value without its quotes. */
@@ -227,26 +322,33 @@ export interface QuerySegment {
 export function highlightQuery(query: string): QuerySegment[] {
     const segments: QuerySegment[] = []
 
-    for (const token of splitKeepingWhitespace(query)) {
-        if (!token.trim()) {
-            segments.push({text: token, role: "text"})
+    for (const token of lex(query)) {
+        if (token.kind === "whitespace") {
+            segments.push({text: token.text, role: "text"})
             continue
         }
 
-        const body = token.startsWith("!") ? token.slice(1) : token
+        if (token.kind === "operator" || token.kind === "paren" || token.text === "!") {
+            segments.push({text: token.text, role: "operator"})
+            continue
+        }
+
+        const body = token.text.startsWith("!") ? token.text.slice(1) : token.text
         const colon = indexOfUnquoted(body, ":")
         if (colon <= 0) {
-            segments.push({text: token, role: "text"})
+            segments.push({text: token.text, role: "text"})
             continue
         }
 
-        const qualifier = body.slice(0, colon).toLowerCase()
-        segments.push({text: token.slice(0, token.length - body.length) + body.slice(0, colon + 1), role: "qualifier"})
+        if (body !== token.text) segments.push({text: "!", role: "operator"})
+        segments.push({text: body.slice(0, colon + 1), role: "qualifier"})
 
         // Keep the commas as their own segments so the values line up with the original text.
         for (const [index, value] of body.slice(colon + 1).split(",").entries()) {
             if (index > 0) segments.push({text: ",", role: "text"})
             if (!value) continue
+
+            const qualifier = body.slice(0, colon).toLowerCase()
             segments.push({text: value, role: "value", qualifier, value: unquote(value)})
         }
     }
@@ -256,13 +358,23 @@ export function highlightQuery(query: string): QuerySegment[] {
 
 function compileTerm(term: QueryTerm): string {
     const compile = term.qualifier === null ? freeText : QUALIFIERS[term.qualifier]
-    const expression = compile ? compile(term.values) : NEVER
-    return term.negated ? `!(${expression})` : expression
+    return compile ? compile(term.values) : NEVER
 }
 
 /** The JEXL expression a query is evaluated as; exported for debugging and tests. */
-export function toExpression(terms: QueryTerm[]): string {
-    return terms.map(compileTerm).join(" && ")
+export function toExpression(node: QueryNode | null): string {
+    if (node === null) return ""
+
+    switch (node.type) {
+        case "term":
+            return compileTerm(node.term)
+        case "not":
+            return `!(${toExpression(node.node)})`
+        case "and":
+            return `(${node.nodes.map(toExpression).join(" && ")})`
+        case "or":
+            return `(${node.nodes.map(toExpression).join(" || ")})`
+    }
 }
 
 const MATCHES_EVERYTHING: RequestMatcher = () => true
@@ -271,15 +383,14 @@ const MATCHES_NOTHING: RequestMatcher = () => false
 const compiled = new Map<string, RequestMatcher>()
 
 function buildMatcher(query: string): RequestMatcher {
-    const terms = parseQuery(query)
-    if (terms.length === 0) return MATCHES_EVERYTHING
+    const expression = toExpression(parseQuery(query))
+    if (!expression) return MATCHES_EVERYTHING
 
-    const expression = toExpression(terms)
     try {
         const jexlExpression = engine.compile(expression)
         return (request) => jexlExpression.evalSync(request) === true
     } catch (error) {
-        // The expression is generated from parsed terms, so this is a bug in the compilers above
+        // The expression is generated from a parsed query, so this is a bug in the compilers above
         // rather than bad user input. Filter everything out instead of silently ignoring the query.
         console.error(`Could not compile query ${literal(query)} to JEXL expression ${expression}`, error)
         return MATCHES_NOTHING
