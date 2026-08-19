@@ -9,12 +9,15 @@ const WEBSOCKET_KIND: RequestKind = "websocket"
 /** The part of a query the filter buttons can express. */
 export interface RequestsFilter {
     filter_methods: string[],
+    /** Project keys, not ids: the query works with keys. */
+    filter_projects: string[],
     only_websockets: boolean
 }
 
 function defaultFilter(): RequestsFilter {
     return {
         filter_methods: [],
+        filter_projects: [],
         only_websockets: false,
     }
 }
@@ -30,6 +33,10 @@ function filterToTerms(filter: RequestsFilter): QueryTerm[] {
     // an HTTP error is still a WebSocket request and has to stay visible under this filter.
     if (filter.only_websockets) {
         terms.push({qualifier: "is", values: [WEBSOCKET_KIND]})
+    }
+
+    if (filter.filter_projects.length > 0) {
+        terms.push({qualifier: "project", values: filter.filter_projects})
     }
 
     return terms
@@ -90,6 +97,13 @@ export function queryFromString(query: string | null | undefined): RequestQuery 
                 filter.filter_methods = methods
                 continue
             }
+        }
+
+        // Project keys are data, so any value is taken as is: the project list may not even be
+        // loaded when a shared link is opened.
+        if (term.qualifier === "project" && filter.filter_projects.length === 0) {
+            filter.filter_projects = term.values
+            continue
         }
 
         if (term.qualifier === "is" && !filter.only_websockets

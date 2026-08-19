@@ -17,6 +17,10 @@ export const en = {
                     http: "HTTP request",
                     websocket: "WebSocket connection",
                 },
+                projects: {
+                    label: "Projects",
+                    empty: "No projects yet",
+                },
                 advanced: "This query uses filters the buttons cannot represent. Reset the filter to use them again.",
             },
             table: {
@@ -55,6 +59,10 @@ export const de = {
                 values: {
                     http: "HTTP-Anfrage",
                     websocket: "WebSocket-Verbindung",
+                },
+                projects: {
+                    label: "Projekte",
+                    empty: "Noch keine Projekte",
                 },
                 advanced: "Diese Query nutzt Filter, die sich nicht über die Buttons darstellen lassen. Setze den Filter zurück, um sie wieder zu nutzen.",
             },
