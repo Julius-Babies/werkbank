@@ -69,6 +69,7 @@ cd web && bun run check     # Type-check the web UI
 ### Web
 - API actions shall be in a repository to separate them from the UI.
 - Always use i18n translation. Use clear keys, not english strings, only qualifiers. If working on a feature where strings are not i18n, refactor them only if you are working on that piece.
+- Custom components should have a class property used on their top element for styling. Use a property-rename binding to pass the class down to the top element.
 
 ## PR & commit guidelines
 
