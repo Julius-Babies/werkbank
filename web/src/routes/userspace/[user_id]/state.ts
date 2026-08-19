@@ -4,6 +4,7 @@ export const MAX_LATEST_REQUESTS = 5;
 
 export interface RequestTarget {
     project_id: string;
+    project_key: string;
     project_name: string;
     service_name: string | null;
 }

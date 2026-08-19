@@ -2,6 +2,27 @@ export const en = {
     userspace: {
         requests: {
             title: "Tunnel Requests",
+            filter: {
+                reset: "Reset filter",
+                placeholder: "Filter requests, e.g. method:GET is:websocket",
+                suggestions: "Filter suggestions",
+                qualifiers: {
+                    method: "Method",
+                    is: "Kind",
+                    status: "Status code",
+                    project: "Project",
+                    service: "Service",
+                },
+                values: {
+                    http: "HTTP request",
+                    websocket: "WebSocket connection",
+                },
+                projects: {
+                    label: "Projects",
+                    empty: "No projects yet",
+                },
+                advanced: "This query uses filters the buttons cannot represent. Reset the filter to use them again.",
+            },
             table: {
                 project: "PROJECTS",
                 resource: "RESOURCE",
@@ -24,6 +45,27 @@ export const de = {
     userspace: {
         requests: {
             title: "Tunnel-Anfragen",
+            filter: {
+                reset: "Filter zurücksetzen",
+                placeholder: "Anfragen filtern, z.B. method:GET is:websocket",
+                suggestions: "Filter-Vorschläge",
+                qualifiers: {
+                    method: "Methode",
+                    is: "Art",
+                    status: "Statuscode",
+                    project: "Projekt",
+                    service: "Service",
+                },
+                values: {
+                    http: "HTTP-Anfrage",
+                    websocket: "WebSocket-Verbindung",
+                },
+                projects: {
+                    label: "Projekte",
+                    empty: "Noch keine Projekte",
+                },
+                advanced: "Diese Query nutzt Filter, die sich nicht über die Buttons darstellen lassen. Setze den Filter zurück, um sie wieder zu nutzen.",
+            },
             table: {
                 project: "PROJEKTE",
                 resource: "RESSOURCE",

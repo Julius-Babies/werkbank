@@ -33,6 +33,7 @@ fun Route.getRequest() {
                     wsFramesReceived = request.wsFramesReceived,
                     target = RequestResponse.Target(
                         projectId = request.project.id.value,
+                        projectKey = request.project.projectKey,
                         projectName = request.project.name,
                         serviceId = request.service?.id?.value,
                         serviceName = request.service?.serviceKey,
@@ -106,6 +107,7 @@ data class RequestResponse(
     @Serializable
     data class Target(
         @SerialName("project_id") val projectId: Uuid,
+        @SerialName("project_key") val projectKey: String,
         @SerialName("project_name") val projectName: String,
         @SerialName("service_id") val serviceId: Uuid?,
         @SerialName("service_name") val serviceName: String?,

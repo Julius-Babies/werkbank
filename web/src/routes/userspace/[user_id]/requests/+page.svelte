@@ -17,7 +17,9 @@
     import {ArrowBendDownRightIcon, FunnelXIcon, ListDashesIcon} from "phosphor-svelte";
     import {Button} from "$lib/components/ui/button";
     import PageContent from "../_lib/appshell/page/PageContent.svelte";
-    import RequestFilterComponent, { filterFromParams, filterToParams, type RequestsFilter } from "./RequestFilter.svelte";
+    import RequestFilterComponent from "./RequestFilter.svelte";
+    import {neutralQuery, queryFromParams, queryFromString, queryToParams, type RequestQuery} from "./filter.ts";
+    import {compileQuery} from "./query.ts";
 
     $effect(() => {
         title.set($_("userspace.requests.title"))
@@ -30,31 +32,43 @@
             .then(() => isLoading = false);
     })
 
-    let currentFilter: RequestsFilter = $state(filterFromParams(page.url.searchParams))
+    let currentQuery: RequestQuery = $state(queryFromParams(page.url.searchParams))
 
-    // Keep the active filter in the URL so it is restored when navigating back.
+    // The query is the URL representation of the filter, so a shared or reopened link restores
+    // exactly the filter that produced the visible list. Both directions run through the query both
+    // sides last agreed on: whoever changed it writes to the other side, and neither can overwrite
+    // a newer value of the other.
+    let syncedQuery = page.url.searchParams.get("q") ?? ""
+
     $effect(() => {
-        const query = filterToParams(currentFilter).toString()
+        const query = currentQuery.query
         untrack(() => {
-            replaceState(query ? `?${query}` : page.url.pathname, {})
+            if (query === syncedQuery) return
+
+            syncedQuery = query
+            replaceState(`?${queryToParams(currentQuery)}`, {})
         })
     })
 
-    // TODO(websockets): proper WebSocket tracking does not exist yet. Until it
-    // lands we approximate a WebSocket by its HTTP 101 (Switching Protocols)
-    // upgrade handshake. Replace this once requests carry a real WS flag.
-    function isWebsocketRequestWorkaround(request: RequestUpdate): boolean {
-        return request.status_code === 101
-    }
+    // Navigating to this page with another query — a link, back or forward — has to update the
+    // filter: while the page stays mounted, the page state is what changes.
+    $effect(() => {
+        const query = page.url.searchParams.get("q") ?? ""
+        untrack(() => {
+            if (query === syncedQuery) return
 
-    let filteredRequests = $derived($requests.filter((request) => {
-        if (currentFilter.filter_methods.length > 0 && !currentFilter.filter_methods.includes(request.method)) return false
-        if (currentFilter.only_websockets && !isWebsocketRequestWorkaround(request)) return false
-        return true
-    }))
+            syncedQuery = query
+            currentQuery = queryFromString(query)
+        })
+    })
+
+    let filteredRequests = $derived.by(() => {
+        const matches = compileQuery(currentQuery.query)
+        return $requests.filter(matches)
+    })
 
     function clearFilter() {
-        currentFilter = {filter_methods: [], only_websockets: false}
+        currentQuery = neutralQuery()
     }
 
     let table = createSvelteTable({
@@ -78,7 +92,7 @@
         {#if isLoading}
             <ContentLoading />
         {:else}
-            <RequestFilterComponent bind:state={currentFilter} />
+            <RequestFilterComponent bind:requestQuery={currentQuery} class="mb-2" />
             <DataTable
                     {table}
                     cellClass="py-1.5"
