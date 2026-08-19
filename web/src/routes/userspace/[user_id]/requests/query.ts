@@ -64,7 +64,7 @@ const QUALIFIERS: Record<string, (values: string[]) => string> = {
         if (!codes.every(Number.isInteger)) return NEVER
         return `status_code in [${codes.join(", ")}]`
     },
-    project: (values) => membership("target.project_name", values),
+    project: (values) => membership("target.project_key", values),
     service: (values) => membership("target.service_name", values),
 }
 

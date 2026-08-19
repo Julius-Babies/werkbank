@@ -21,7 +21,9 @@ export interface QueryQualifier {
     label?: string,
     icon?: QualifierIcon,
     /** Values offered as completions; qualifiers with free form values have none. */
-    values?: QualifierValue[]
+    values?: QualifierValue[],
+    /** Values that are loaded instead of being known up front. */
+    source?: "projects"
 }
 
 const METHOD_VALUES: QualifierValue[] = FILTER_METHODS.map((method) => ({
@@ -46,7 +48,10 @@ const DISPLAY: Record<string, Omit<QueryQualifier, "query">> = {
         values: KIND_VALUES,
     },
     status: {label: "userspace.requests.filter.qualifiers.status"},
-    project: {label: "userspace.requests.filter.qualifiers.project"},
+    project: {
+        label: "userspace.requests.filter.qualifiers.project",
+        source: "projects",
+    },
     service: {label: "userspace.requests.filter.qualifiers.service"},
 }
 

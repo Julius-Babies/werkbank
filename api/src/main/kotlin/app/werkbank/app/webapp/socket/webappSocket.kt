@@ -6,6 +6,8 @@ import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.app.tunnel.TunnelRequestRecord
 import app.werkbank.app.tunnel.WsBridge
 import app.werkbank.app.tunnel.WsFrameRecord
+import app.werkbank.database.DatabaseManager
+import app.werkbank.database.Project
 import app.werkbank.database.TunnelRequest
 import app.werkbank.database.TunnelRequestResult
 import app.werkbank.plugins.auth.AUTH_USER_JWT
@@ -26,16 +28,34 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.koin.ktor.ext.inject
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.uuid.Uuid
 
 private val webAppJson = Json { ignoreUnknownKeys = true }
 
 fun Route.webappSocket() {
 
     val tunnelManager by inject<TunnelManager>()
+    val db by inject<DatabaseManager>()
 
     authenticate(AUTH_USER_JWT) {
         webSocket {
             val principal = call.principal<UserPrincipal>()!!
+
+            // A live request only carries the project id and the project key the tunnel addresses,
+            // so key and display name are read from the database, once per project and connection.
+            val projects = ConcurrentHashMap<String, ProjectNames>()
+
+            suspend fun projectNames(projectId: String, fallbackKey: String): ProjectNames {
+                projects[projectId]?.let { return it }
+
+                val id = parseProjectId(projectId)
+                val names = id?.let { db.query { Project.findById(it)?.let { ProjectNames(it.projectKey, it.name) } } }
+                    // A deleted project has no names left, the key the tunnel used is the best there is.
+                    ?: ProjectNames(fallbackKey, fallbackKey)
+
+                projects[projectId] = names
+                return names
+            }
 
             var activeTunnelJob: Job? = null
             val frameWatchers = ConcurrentHashMap<String, Job>()
@@ -65,7 +85,11 @@ fun Route.webappSocket() {
                         tunnel.requests.collect { requests ->
                             requests.filter { observed.add(it.requestId) }.forEach { request ->
                                 launch {
-                                    request.snapshot.collect { sendSerialized<WebAppServerMessage>(it.toRequestUpdate()) }
+                                    request.snapshot.collect { record ->
+                                        sendSerialized<WebAppServerMessage>(
+                                            record.toRequestUpdate(projectNames(record.projectId, record.projectName))
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -133,7 +157,16 @@ suspend fun DefaultWebSocketServerSession.sendJson(data: Map<String, Any?>) {
     this.send(gson.toJson(data))
 }
 
-private fun TunnelRequestRecord.toRequestUpdate(): WebAppServerMessage.RequestUpdate =
+/** Key and display name of a project, as stored in the database. */
+private data class ProjectNames(val key: String, val name: String)
+
+/** Live records carry the id in hexadecimal form, the history in the hex-and-dash form. */
+private fun parseProjectId(projectId: String): Uuid? =
+    runCatching { Uuid.parse(projectId) }
+        .recoverCatching { Uuid.parseHex(projectId) }
+        .getOrNull()
+
+private fun TunnelRequestRecord.toRequestUpdate(project: ProjectNames): WebAppServerMessage.RequestUpdate =
     WebAppServerMessage.RequestUpdate(
         requestId = requestId.toString(),
         kind = when (kind) {
@@ -144,7 +177,8 @@ private fun TunnelRequestRecord.toRequestUpdate(): WebAppServerMessage.RequestUp
         uri = uri,
         target = WebAppServerMessage.RequestTarget(
             projectId = projectId,
-            projectName = projectName,
+            projectKey = project.key,
+            projectName = project.name,
             serviceName = serviceName,
         ),
         statusCode = statusCode,
@@ -223,6 +257,7 @@ sealed class WebAppServerMessage {
                 uri = request.uri,
                 target = RequestTarget(
                     projectId = request.project.id.value.toString(),
+                    projectKey = request.project.projectKey,
                     projectName = request.project.name,
                     serviceName = request.service?.serviceKey,
                 ),
@@ -256,6 +291,7 @@ sealed class WebAppServerMessage {
     @Serializable
     data class RequestTarget(
         @SerialName("project_id") val projectId: String,
+        @SerialName("project_key") val projectKey: String,
         @SerialName("project_name") val projectName: String,
         @SerialName("service_name") val serviceName: String?,
     )

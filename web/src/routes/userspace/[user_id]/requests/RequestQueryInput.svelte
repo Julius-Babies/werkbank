@@ -1,5 +1,6 @@
 <script lang="ts">
     import * as InputGroup from "$lib/components/ui/input-group";
+    import {Skeleton} from "$lib/components/ui/skeleton";
     import {MagnifyingGlassIcon} from "phosphor-svelte";
     import {methodColors, statusColor} from "$lib/components/requests/colors";
     import {_} from "svelte-i18n";
@@ -7,9 +8,11 @@
     import {fly} from "svelte/transition";
     import {cubicOut} from "svelte/easing";
     import {cn} from "$lib/utils";
+    import type {Project} from "../projects/getProjects.ts";
     import {queryFromString, type RequestQuery} from "./filter.ts";
     import {highlightQuery, qualifierPrefixAtCaret, type QuerySegment, valuesAtCaret} from "./query.ts";
     import {findQualifier, QUERY_QUALIFIERS, type QualifierIcon} from "./qualifiers.ts";
+    import {loadProjects, projects} from "./projects.ts";
 
     let {
         requestQuery = $bindable(),
@@ -57,66 +60,123 @@
         insert: string,
         /** What the entry shows, i.e. what ends up in the query. */
         query: string,
-        /** i18n key of the label shown next to the query text. */
-        label?: string,
+        /** Already translated text shown next to the query text. */
+        description?: string,
         icon?: QualifierIcon,
+        /** Image shown instead of an icon, e.g. a project icon. */
+        image?: string,
         /** Extra classes for the entry, e.g. the color of a request method. */
         class?: string
     }
 
-    let suggestions: Suggestion[] = $state([])
-    let highlighted = $state(0)
+    /** What the caret is in the middle of, and which part of the draft an accepted entry replaces. */
+    type Completion =
+        | {kind: "qualifier", start: number, end: number, typed: string}
+        | {kind: "values", start: number, end: number, typed: string, previous: string[], qualifier: string}
 
-    // Part of the draft the accepted suggestion replaces. Not reactive, it is only read on accept.
-    let completing: {start: number, end: number} | null = null
+    let completion: Completion | null = $state(null)
+    let highlighted = $state(0)
 
     function commit() {
         requestQuery = queryFromString(draft)
     }
 
     /** Completes the values of the term the caret is in, or the qualifier in front of the caret. */
-    function updateSuggestions() {
+    function updateCompletion() {
         const caret = input?.selectionStart ?? null
         if (caret === null) {
-            suggestions = []
+            completion = null
             return
         }
 
         const term = valuesAtCaret(draft, caret)
-        const values = term === null ? undefined : findQualifier(term.qualifier)?.values
-        const qualifier = term === null ? qualifierPrefixAtCaret(draft, caret) : null
+        const qualifier = term === null ? undefined : findQualifier(term.qualifier)
 
-        if (term !== null && values !== undefined) {
+        if (term !== null && qualifier !== undefined) {
             // Only the value the caret is in gets completed, the ones before it are already set.
-            const typed = term.values.slice(term.values.lastIndexOf(",") + 1).toLowerCase()
-            const previous = term.values.split(",").slice(0, -1).map((value) => value.toLowerCase())
+            const typed = term.values.slice(term.values.lastIndexOf(",") + 1)
 
-            completing = {start: caret - typed.length, end: caret}
-            suggestions = values
-                .filter((value) => value.query.toLowerCase().startsWith(typed) && !previous.includes(value.query.toLowerCase()))
-                .map((value) => ({insert: value.query, query: value.query, label: value.label, class: value.class}))
-        } else if (qualifier !== null) {
-            const typed = qualifier.toLowerCase()
+            completion = {
+                kind: "values",
+                start: caret - typed.length,
+                end: caret,
+                typed,
+                previous: term.values.split(",").slice(0, -1),
+                qualifier: qualifier.query,
+            }
 
-            completing = {start: caret - qualifier.length, end: caret}
-            suggestions = QUERY_QUALIFIERS
-                .filter((entry) => entry.query.startsWith(typed))
-                .map((entry) => ({insert: `${entry.query}:`, query: `${entry.query}:`, label: entry.label, icon: entry.icon}))
+            if (qualifier.source === "projects") loadProjects()
+        } else if (term === null) {
+            const prefix = qualifierPrefixAtCaret(draft, caret)
+            completion = prefix === null
+                ? null
+                : {kind: "qualifier", start: caret - prefix.length, end: caret, typed: prefix}
         } else {
-            suggestions = []
-            return
+            completion = null
         }
 
         highlighted = 0
         measureCaret()
     }
 
-    async function accept(suggestion: Suggestion) {
-        if (!completing) return
+    function projectSuggestions(loaded: Project[]): Suggestion[] {
+        return loaded.map((project) => ({
+            insert: project.project_key,
+            query: project.project_key,
+            description: project.project_name === project.project_key ? undefined : project.project_name,
+            image: `/api/projects/${project.project_id}/icon`,
+        }))
+    }
 
-        const caret = completing.start + suggestion.insert.length
-        draft = draft.slice(0, completing.start) + suggestion.insert + draft.slice(completing.end)
-        suggestions = []
+    function candidates(current: Completion): Suggestion[] {
+        if (current.kind === "qualifier") {
+            return QUERY_QUALIFIERS.map((entry) => ({
+                insert: `${entry.query}:`,
+                query: `${entry.query}:`,
+                description: entry.label ? $_(entry.label) : undefined,
+                icon: entry.icon,
+            }))
+        }
+
+        const qualifier = findQualifier(current.qualifier)
+        if (qualifier?.source === "projects") return projectSuggestions($projects ?? [])
+
+        return (qualifier?.values ?? []).map((value) => ({
+            insert: value.query,
+            query: value.query,
+            description: value.label ? $_(value.label) : undefined,
+            class: value.class,
+        }))
+    }
+
+    let suggestions: Suggestion[] = $derived.by(() => {
+        const current = completion
+        if (current === null) return []
+
+        const typed = current.typed.toLowerCase()
+        const previous = current.kind === "values" ? current.previous.map((value) => value.toLowerCase()) : []
+
+        return candidates(current)
+            .filter((entry) => entry.query.toLowerCase().startsWith(typed) && !previous.includes(entry.query.toLowerCase()))
+    })
+
+    // Values that are fetched are not there on the first keystroke, so the dropdown opens with
+    // placeholders instead of staying empty.
+    let loading = $derived.by(() => {
+        const current = completion
+        if (current === null || current.kind !== "values") return false
+
+        return findQualifier(current.qualifier)?.source === "projects" && $projects === null
+    })
+
+    let open = $derived(suggestions.length > 0 || loading)
+
+    async function accept(suggestion: Suggestion) {
+        if (completion === null) return
+
+        const caret = completion.start + suggestion.insert.length
+        draft = draft.slice(0, completion.start) + suggestion.insert + draft.slice(completion.end)
+        completion = null
         commit()
 
         await tick()
@@ -124,25 +184,28 @@
         input?.setSelectionRange(caret, caret)
 
         // A completed qualifier is followed by its values, so offer them right away.
-        if (suggestion.insert.endsWith(":")) updateSuggestions()
+        if (suggestion.insert.endsWith(":")) updateCompletion()
     }
 
     function onkeydown(event: KeyboardEvent) {
-        if (suggestions.length === 0) return
+        if (!open) return
 
         switch (event.key) {
+            case "Escape":
+                completion = null
+                break
             case "ArrowDown":
+                if (suggestions.length === 0) return
                 highlighted = (highlighted + 1) % suggestions.length
                 break
             case "ArrowUp":
+                if (suggestions.length === 0) return
                 highlighted = (highlighted - 1 + suggestions.length) % suggestions.length
                 break
             case "Enter":
             case "Tab":
+                if (suggestions.length === 0) return
                 accept(suggestions[highlighted])
-                break
-            case "Escape":
-                suggestions = []
                 break
             default:
                 return
@@ -155,7 +218,7 @@
     const CARET_KEYS = ["ArrowLeft", "ArrowRight", "Home", "End"]
 
     function onkeyup(event: KeyboardEvent) {
-        if (CARET_KEYS.includes(event.key)) updateSuggestions()
+        if (CARET_KEYS.includes(event.key)) updateCompletion()
     }
 
     // The input is controlled instead of bound, so that `draft` is guaranteed to be up to date
@@ -163,7 +226,7 @@
     function oninput(event: Event & {currentTarget: HTMLInputElement}) {
         draft = event.currentTarget.value
         commit()
-        updateSuggestions()
+        updateCompletion()
         syncScroll()
     }
 
@@ -241,20 +304,20 @@
             autocomplete="off"
             placeholder={$_("userspace.requests.filter.placeholder")}
             aria-autocomplete="list"
-            aria-expanded={suggestions.length > 0}
+            aria-expanded={open}
             aria-controls="request-query-suggestions"
             {oninput}
             {onkeydown}
             {onkeyup}
             onscroll={syncScroll}
-            onclick={updateSuggestions}
+            onclick={updateCompletion}
             onfocus={() => {
                 editing = true
-                updateSuggestions()
+                updateCompletion()
             }}
             onblur={() => {
                 editing = false
-                suggestions = []
+                completion = null
                 draft = requestQuery.query
             }}
     />
@@ -279,39 +342,51 @@
         </span>
     </div>
 
-    {#if suggestions.length > 0}
+    {#if open}
         <ul
                 bind:this={list}
                 id="request-query-suggestions"
                 role="listbox"
                 aria-label={$_("userspace.requests.filter.suggestions")}
+                aria-busy={loading}
                 class="bg-popover text-popover-foreground absolute top-full z-50 mt-1 min-w-32 overflow-hidden rounded-2xl border p-1 shadow-md"
                 style="left: {listLeft}px"
                 transition:fly={{y: -4, duration: 120, easing: cubicOut}}
         >
-            {#each suggestions as suggestion, index (suggestion.query)}
-                {@const Icon = suggestion.icon}
-                <li
-                        role="option"
-                        aria-selected={index === highlighted}
-                        class={cn("flex cursor-pointer flex-row items-center gap-2 rounded-xl p-2 text-xs",
-                            index === highlighted && "bg-accent text-accent-foreground")}
-                        onmousedown={(event) => {
-                            // Keeps the focus, and with it the caret, inside the input.
-                            event.preventDefault()
-                            accept(suggestion)
-                        }}
-                        onmouseenter={() => highlighted = index}
-                >
-                    {#if Icon}
-                        <Icon class="text-muted-foreground" />
-                    {/if}
-                    <span class={cn("font-mono", suggestion.class)}>{suggestion.query}</span>
-                    {#if suggestion.label}
-                        <span class="text-muted-foreground">{$_(suggestion.label)}</span>
-                    {/if}
-                </li>
-            {/each}
+            {#if loading}
+                {#each [0, 1, 2] as placeholder (placeholder)}
+                    <li aria-hidden="true" class="flex flex-row items-center gap-2 px-2 py-1">
+                        <Skeleton class="size-4 rounded-sm" />
+                        <Skeleton class="h-3 w-20" />
+                    </li>
+                {/each}
+            {:else}
+                {#each suggestions as suggestion, index (suggestion.query)}
+                    {@const Icon = suggestion.icon}
+                    <li
+                            role="option"
+                            aria-selected={index === highlighted}
+                            class={cn("flex cursor-pointer flex-row items-center gap-2 rounded-xl px-2 py-1 text-xs",
+                                index === highlighted && "bg-accent text-accent-foreground")}
+                            onmousedown={(event) => {
+                                // Keeps the focus, and with it the caret, inside the input.
+                                event.preventDefault()
+                                accept(suggestion)
+                            }}
+                            onmouseenter={() => highlighted = index}
+                    >
+                        {#if suggestion.image}
+                            <img src={suggestion.image} alt="" class="size-4 rounded-sm" />
+                        {:else if Icon}
+                            <Icon class="text-muted-foreground" />
+                        {/if}
+                        <span class={cn("font-mono", suggestion.class)}>{suggestion.query}</span>
+                        {#if suggestion.description}
+                            <span class="text-muted-foreground">{suggestion.description}</span>
+                        {/if}
+                    </li>
+                {/each}
+            {/if}
         </ul>
     {/if}
 </InputGroup.Root>
