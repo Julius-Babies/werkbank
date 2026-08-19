@@ -17,7 +17,15 @@
     import {ArrowBendDownRightIcon, FunnelXIcon, ListDashesIcon} from "phosphor-svelte";
     import {Button} from "$lib/components/ui/button";
     import PageContent from "../_lib/appshell/page/PageContent.svelte";
-    import RequestFilterComponent, { filterFromParams, filterToParams, type RequestsFilter } from "./RequestFilter.svelte";
+    import RequestFilterComponent from "./RequestFilter.svelte";
+    import {
+        buildRequestQuery,
+        defaultFilter,
+        filterFromParams,
+        filterToParams,
+        type RequestsFilter,
+        runRequestQuery
+    } from "./filter.ts";
 
     $effect(() => {
         title.set($_("userspace.requests.title"))
@@ -32,29 +40,34 @@
 
     let currentFilter: RequestsFilter = $state(filterFromParams(page.url.searchParams))
 
-    // Keep the active filter in the URL so it is restored when navigating back.
+    // The query is the URL representation of the filter, so a shared or reopened link
+    // restores exactly the filter that produced the visible list.
     $effect(() => {
-        const query = filterToParams(currentFilter).toString()
+        const params = filterToParams(currentFilter).toString()
         untrack(() => {
-            replaceState(query ? `?${query}` : page.url.pathname, {})
+            replaceState(`?${params}`, {})
         })
     })
 
-    // TODO(websockets): proper WebSocket tracking does not exist yet. Until it
-    // lands we approximate a WebSocket by its HTTP 101 (Switching Protocols)
-    // upgrade handshake. Replace this once requests carry a real WS flag.
-    function isWebsocketRequestWorkaround(request: RequestUpdate): boolean {
-        return request.status_code === 101
-    }
+    let filteredRequests: RequestUpdate[] = $state([])
 
-    let filteredRequests = $derived($requests.filter((request) => {
-        if (currentFilter.filter_methods.length > 0 && !currentFilter.filter_methods.includes(request.method)) return false
-        if (currentFilter.only_websockets && !isWebsocketRequestWorkaround(request)) return false
-        return true
-    }))
+    // Filtering always runs through the JSONata query built from the active filter — an inactive
+    // filter is just the neutral query. JSONata evaluates asynchronously, so results are assigned
+    // back into state; a stale run (filter or request list changed meanwhile) is discarded.
+    $effect(() => {
+        const query = buildRequestQuery(currentFilter)
+        const source = $requests
+
+        let outdated = false
+        runRequestQuery(query, source)
+            .then((result) => {
+                if (!outdated) filteredRequests = result
+            })
+        return () => outdated = true
+    })
 
     function clearFilter() {
-        currentFilter = {filter_methods: [], only_websockets: false}
+        currentFilter = defaultFilter()
     }
 
     let table = createSvelteTable({

@@ -42,6 +42,7 @@
 		"@zerodevx/svelte-json-view": "^1.0.11",
 		"date-fns": "^4.4.0",
 		"dotenv": "^17.4.2",
+		"jsonata": "^2.2.2",
 		"svelte-i18n": "^4.0.1"
 	}
 }

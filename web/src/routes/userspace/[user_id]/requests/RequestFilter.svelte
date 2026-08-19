@@ -1,38 +1,8 @@
-<script lang="ts" module>
-    export interface RequestsFilter {
-        filter_methods: string[],
-        only_websockets: boolean
-    }
-
-    export const defaultFilter: RequestsFilter = {
-        filter_methods: [],
-        only_websockets: false,
-    }
-
-    export function isDefaultFilter(filter: RequestsFilter): boolean {
-        return filter.filter_methods.length === 0 && !filter.only_websockets
-    }
-
-    export function filterToParams(filter: RequestsFilter): URLSearchParams {
-        const params = new URLSearchParams()
-        if (filter.filter_methods.length > 0) params.set("methods", filter.filter_methods.join(","))
-        if (filter.only_websockets) params.set("ws", "1")
-        return params
-    }
-
-    export function filterFromParams(params: URLSearchParams): RequestsFilter {
-        const methods = params.get("methods")
-        return {
-            filter_methods: methods ? methods.split(",").filter(Boolean) : [],
-            only_websockets: params.get("ws") === "1",
-        }
-    }
-</script>
-
 <script lang="ts">
     import {methodColors} from "$lib/components/requests/colors";
     import {FunnelIcon, FunnelXIcon} from "phosphor-svelte";
     import {Button} from "$lib/components/ui/button";
+    import {defaultFilter, isDefaultFilter, type RequestsFilter} from "./filter.ts";
 
     const methods = [
         "GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"
@@ -55,7 +25,7 @@
     }
 
     function reset() {
-        state = {filter_methods: [], only_websockets: false}
+        state = defaultFilter()
     }
 
     const pillBase = "rounded-full border text-xs font-mono px-1.5 cursor-pointer transition-colors duration-100"
