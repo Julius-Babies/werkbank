@@ -2,6 +2,7 @@ package commands.up
 
 import app.data.ProjectServicesNotConfiguredException
 import app.dependencies.DependencyOrchestrator
+import app.dependencies.docker.PortAlreadyInUseException
 import app.repository.ProjectRepository
 import com.charleskorn.kaml.Yaml
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
@@ -12,6 +13,7 @@ import es.jvbabi.kfile.File
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import util.buildStyledString
+import kotlin.system.exitProcess
 
 class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
     private val projectRepository by inject<ProjectRepository>()
@@ -45,12 +47,20 @@ class UpCommand: SuspendingCliktCommand("up"), KoinComponent {
         val project = projectRepository.getAllProjects().firstOrNull { it.id == projectId } ?: error("Project with id $projectId not found")
 
         // Full infrastructure already covers this project's dependencies.
-        if (!startInfrastructure) orchestrator.up(project)
+        if (!startInfrastructure) try {
+            orchestrator.up(project)
+        } catch (e: PortAlreadyInUseException) {
+            println(buildStyledString { red { +"Port ${e.port} is already in use by ${e.identifier}. Please stop the service using this port and try again." } })
+            exitProcess(1)
+        }
 
         try {
             project.start()
         } catch (e: ProjectServicesNotConfiguredException) {
             println(buildStyledString { red { +"Services ${e.serviceNames.joinToString(", ")} are not configured. Run \"wb setup\" to apply the changes of the Werkbankfile." } })
+        } catch (e: PortAlreadyInUseException) {
+            println(buildStyledString { red { +"Port ${e.port} is already in use by ${e.identifier}. Please stop the service using this port and try again." } })
+            exitProcess(1)
         }
     }
 }

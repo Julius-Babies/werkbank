@@ -4,6 +4,7 @@ import app.config.MainConfig
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.DependencyOrchestrator
+import app.dependencies.docker.PortAlreadyInUseException
 import app.dependencies.keycloak.Keycloak
 import app.repository.ProjectRepository
 import app.werkbank.shared.Werkbankfile
@@ -20,6 +21,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.qualifier.named
 import util.buildStyledString
+import kotlin.system.exitProcess
 
 class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
 
@@ -68,7 +70,12 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
         if (werkbankFile.dependencies?.keycloak == true) {
             val keycloak = dependencies.filterIsInstance<Keycloak>().firstOrNull()
                 ?: error("Keycloak dependency not found")
-            orchestrator.up(keycloak)
+            try {
+                orchestrator.up(keycloak)
+            } catch (e: PortAlreadyInUseException) {
+                println(buildStyledString { red { +"Failed to boot Keycloak: Port ${e.port} is already in use by ${e.identifier}. Please stop the service using this port and try again." } })
+                exitProcess(1)
+            }
             keycloak.ensureRealm(
                 projectId = werkbankFile.project.id,
                 projectName = werkbankFile.project.name

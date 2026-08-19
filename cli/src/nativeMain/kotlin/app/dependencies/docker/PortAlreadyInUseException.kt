@@ -14,6 +14,8 @@ sealed class PortAlreadyInUseException(
     message: String,
 ) : Exception(message) {
 
+    abstract val identifier: String
+
     /** The port is published by another Docker container. */
     class Docker(
         port: Int,
@@ -27,7 +29,10 @@ sealed class PortAlreadyInUseException(
         requestedBy = requestedBy,
         message = "Cannot start '$requestedBy': port $port/${protocol.name.lowercase()} is already published by " +
                 "Docker container '$containerName' (${containerId.take(12)})."
-    )
+    ) {
+        override val identifier: String
+            get() = "Docker container '$containerName' (${containerId.take(12)})"
+    }
 
     /** The port is held by a process on the host. */
     class Process(
@@ -42,5 +47,8 @@ sealed class PortAlreadyInUseException(
         requestedBy = requestedBy,
         message = "Cannot start '$requestedBy': port $port/${protocol.name.lowercase()} is already used by " +
                 "process '$processName' (pid $pid)."
-    )
+    ) {
+        override val identifier: String
+            get() = "process '$processName' (pid $pid)"
+    }
 }
