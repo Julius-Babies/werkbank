@@ -18,7 +18,7 @@
     import {Button} from "$lib/components/ui/button";
     import PageContent from "../_lib/appshell/page/PageContent.svelte";
     import RequestFilterComponent from "./RequestFilter.svelte";
-    import {neutralQuery, queryFromParams, queryToParams, type RequestQuery} from "./filter.ts";
+    import {neutralQuery, queryFromParams, queryFromString, queryToParams, type RequestQuery} from "./filter.ts";
     import {compileQuery} from "./query.ts";
 
     $effect(() => {
@@ -35,11 +35,30 @@
     let currentQuery: RequestQuery = $state(queryFromParams(page.url.searchParams))
 
     // The query is the URL representation of the filter, so a shared or reopened link restores
-    // exactly the filter that produced the visible list.
+    // exactly the filter that produced the visible list. Both directions run through the query both
+    // sides last agreed on: whoever changed it writes to the other side, and neither can overwrite
+    // a newer value of the other.
+    let syncedQuery = page.url.searchParams.get("q") ?? ""
+
     $effect(() => {
-        const params = queryToParams(currentQuery).toString()
+        const query = currentQuery.query
         untrack(() => {
-            replaceState(`?${params}`, {})
+            if (query === syncedQuery) return
+
+            syncedQuery = query
+            replaceState(`?${queryToParams(currentQuery)}`, {})
+        })
+    })
+
+    // Navigating to this page with another query — a link, back or forward — has to update the
+    // filter: while the page stays mounted, the page state is what changes.
+    $effect(() => {
+        const query = page.url.searchParams.get("q") ?? ""
+        untrack(() => {
+            if (query === syncedQuery) return
+
+            syncedQuery = query
+            currentQuery = queryFromString(query)
         })
     })
 
