@@ -5,19 +5,23 @@
     import {Tooltip, TooltipContent, TooltipTrigger} from "$lib/components/ui/tooltip";
     import {_} from "svelte-i18n";
     import {FILTER_METHODS, isNeutralQuery, neutralQuery, queryFromFilter, type RequestQuery} from "./filter.ts";
+    import RequestQueryInput from "./RequestQueryInput.svelte";
+    import {cn} from "$lib/utils";
 
     let {
-        state = $bindable(),
+        requestQuery = $bindable(),
+        class: className,
     }: {
-        state: RequestQuery
+        requestQuery: RequestQuery,
+        class?: string
     } = $props()
 
-    let isNeutral = $derived(isNeutralQuery(state))
+    let isNeutral = $derived(isNeutralQuery(requestQuery))
 
     function toggleMethod(method: string) {
-        const methods = state.filter.filter_methods
-        state = queryFromFilter({
-            ...state.filter,
+        const methods = requestQuery.filter.filter_methods
+        requestQuery = queryFromFilter({
+            ...requestQuery.filter,
             filter_methods: methods.includes(method)
                 ? methods.filter(m => m !== method)
                 : [...methods, method],
@@ -25,11 +29,11 @@
     }
 
     function toggleWebsockets() {
-        state = queryFromFilter({...state.filter, only_websockets: !state.filter.only_websockets})
+        requestQuery = queryFromFilter({...requestQuery.filter, only_websockets: !requestQuery.filter.only_websockets})
     }
 
     function reset() {
-        state = neutralQuery()
+        requestQuery = neutralQuery()
     }
 
     const pillBase = "rounded-full border text-xs font-mono px-1.5 transition-colors duration-100"
@@ -40,7 +44,7 @@
     const disabledPill = "opacity-50 pointer-events-none"
 </script>
 
-<div class="flex flex-col gap-1 mb-2">
+<div class="flex flex-col gap-2 mb-2">
     <div class="flex flex-row items-center gap-1">
         <Button
                 variant="ghost"
@@ -57,36 +61,36 @@
         </Button>
         <div class="w-px h-lh bg-gray-300 mx-1"></div>
 
-        <Tooltip disabled={!state.advanced}>
+        <Tooltip disabled={!requestQuery.advanced}>
             <TooltipTrigger>
                 {#snippet child({props})}
                     <div
                             {...props}
-                            class="flex flex-row items-center gap-1 {state.advanced ? 'cursor-not-allowed' : ''}"
+                            class={cn("flex flex-row items-center gap-1", requestQuery.advanced && "cursor-not-allowed")}
                     >
                         {#each FILTER_METHODS as method}
-                            {@const active = state.filter.filter_methods.includes(method)}
+                            {@const active = requestQuery.filter.filter_methods.includes(method)}
                             <button
                                     type="button"
-                                    disabled={state.advanced}
+                                    disabled={requestQuery.advanced}
                                     onclick={() => toggleMethod(method)}
-                                    class={[
+                                    class={cn(
                                         pillBase,
-                                        active ? activePill : inactivePill + " " + (methodColors[method as keyof typeof methodColors] ?? "text-gray-600"),
-                                        state.advanced ? disabledPill : "cursor-pointer",
-                                    ]}
+                                        active ? activePill : cn(inactivePill, methodColors[method as keyof typeof methodColors] ?? "text-gray-600"),
+                                        requestQuery.advanced ? disabledPill : "cursor-pointer",
+                                    )}
                             >{method}</button>
                         {/each}
                         <div class="w-px h-lh bg-gray-300 mx-1"></div>
                         <button
                                 type="button"
-                                disabled={state.advanced}
+                                disabled={requestQuery.advanced}
                                 onclick={toggleWebsockets}
-                                class={[
+                                class={cn(
                                     pillBase,
-                                    state.filter.only_websockets ? activePill : inactivePill + " text-blue-700",
-                                    state.advanced ? disabledPill : "cursor-pointer",
-                                ]}
+                                    requestQuery.filter.only_websockets ? activePill : cn(inactivePill, "text-blue-700"),
+                                    requestQuery.advanced ? disabledPill : "cursor-pointer",
+                                )}
                         >WS</button>
                     </div>
                 {/snippet}
@@ -95,12 +99,5 @@
         </Tooltip>
     </div>
 
-    <div class="flex flex-row items-baseline gap-2 text-xs">
-        <span class="text-gray-500">{$_("userspace.requests.filter.query")}</span>
-        {#if state.query}
-            <code class="font-mono break-all select-all">{state.query}</code>
-        {:else}
-            <span class="text-gray-400">{$_("userspace.requests.filter.neutral")}</span>
-        {/if}
-    </div>
+    <RequestQueryInput bind:requestQuery />
 </div>

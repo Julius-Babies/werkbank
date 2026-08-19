@@ -4,8 +4,19 @@ export const en = {
             title: "Tunnel Requests",
             filter: {
                 reset: "Reset filter",
-                query: "Query",
-                neutral: "no filter, showing all requests",
+                placeholder: "Filter requests, e.g. method:GET is:websocket",
+                suggestions: "Filter suggestions",
+                qualifiers: {
+                    method: "Method",
+                    is: "Kind",
+                    status: "Status code",
+                    project: "Project",
+                    service: "Service",
+                },
+                values: {
+                    http: "HTTP request",
+                    websocket: "WebSocket connection",
+                },
                 advanced: "This query uses filters the buttons cannot represent. Reset the filter to use them again.",
             },
             table: {
@@ -32,8 +43,19 @@ export const de = {
             title: "Tunnel-Anfragen",
             filter: {
                 reset: "Filter zurücksetzen",
-                query: "Query",
-                neutral: "kein Filter, alle Anfragen werden angezeigt",
+                placeholder: "Anfragen filtern, z.B. method:GET is:websocket",
+                suggestions: "Filter-Vorschläge",
+                qualifiers: {
+                    method: "Methode",
+                    is: "Art",
+                    status: "Statuscode",
+                    project: "Projekt",
+                    service: "Service",
+                },
+                values: {
+                    http: "HTTP-Anfrage",
+                    websocket: "WebSocket-Verbindung",
+                },
                 advanced: "Diese Query nutzt Filter, die sich nicht über die Buttons darstellen lassen. Setze den Filter zurück, um sie wieder zu nutzen.",
             },
             table: {

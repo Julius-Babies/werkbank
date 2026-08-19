@@ -73,7 +73,7 @@
         {#if isLoading}
             <ContentLoading />
         {:else}
-            <RequestFilterComponent bind:state={currentQuery} />
+            <RequestFilterComponent bind:requestQuery={currentQuery} class="mb-2" />
             <DataTable
                     {table}
                     cellClass="py-1.5"

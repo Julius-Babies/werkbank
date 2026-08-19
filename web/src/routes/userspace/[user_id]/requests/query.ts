@@ -10,7 +10,7 @@ import type {RequestKind, RequestUpdate} from "../state.ts";
  *   project:web         target project
  *   service:api         target service
  *   "user profile"      free text, matched against the request URI
- *   -method:GET         negated term
+ *   !method:GET         negated term
  *
  * Terms are separated by whitespace and combined with AND; values may be quoted to include
  * whitespace, commas or colons. A query is compiled into a JEXL expression and evaluated once
@@ -60,6 +60,9 @@ const QUALIFIERS: Record<string, (values: string[]) => string> = {
     service: (values) => membership("target.service_name", values),
 }
 
+/** The qualifiers the query language understands. */
+export const QUALIFIER_NAMES = Object.keys(QUALIFIERS)
+
 /** Free text is a case insensitive substring match on the request URI. */
 function freeText(values: string[]): string {
     return values
@@ -83,6 +86,30 @@ function tokenize(query: string): string[] {
         } else {
             current += char
         }
+    }
+
+    if (current) tokens.push(current)
+    return tokens
+}
+
+/** Like `tokenize`, but keeps the whitespace between terms as its own token. */
+function splitKeepingWhitespace(query: string): string[] {
+    const tokens: string[] = []
+    let current = ""
+    let quoted = false
+    let whitespace = false
+
+    for (const char of query) {
+        if (char === "\"") quoted = !quoted
+        const isWhitespace = !quoted && /\s/.test(char)
+
+        if (current && isWhitespace !== whitespace) {
+            tokens.push(current)
+            current = ""
+        }
+
+        whitespace = isWhitespace
+        current += char
     }
 
     if (current) tokens.push(current)
@@ -123,7 +150,7 @@ function unquote(input: string): string {
 export function parseQuery(query: string): QueryTerm[] {
     return tokenize(query)
         .map((token) => {
-            const negated = token.startsWith("-")
+            const negated = token.startsWith("!")
             const body = negated ? token.slice(1) : token
             const colon = indexOfUnquoted(body, ":")
 
@@ -149,10 +176,82 @@ export function serializeQuery(terms: QueryTerm[]): string {
     return terms
         .map((term) => {
             const values = term.values.map(quoteValue).join(",")
-            const prefix = term.negated ? "-" : ""
+            const prefix = term.negated ? "!" : ""
             return term.qualifier === null ? `${prefix}${values}` : `${prefix}${term.qualifier}:${values}`
         })
         .join(" ")
+}
+
+/** Matches the term the caret sits in, capturing its qualifier and the values typed so far. */
+const TERM_VALUES = /(?:^|\s)!?([^\s:"]+):([^\s]*)$/
+
+export interface ValueContext {
+    qualifier: string,
+    /** The values of the term that are already typed, so they can be completed. */
+    values: string
+}
+
+/** The term the caret sits in, or `null` when the caret is not behind a `qualifier:`. */
+export function valuesAtCaret(query: string, caret: number): ValueContext | null {
+    const match = TERM_VALUES.exec(query.slice(0, caret))
+    return match ? {qualifier: match[1].toLowerCase(), values: match[2]} : null
+}
+
+/** Matches a qualifier being typed at the caret: a term that has no colon yet. */
+const QUALIFIER_PREFIX = /(?:^|\s)!?([^\s:"]*)$/
+
+/**
+ * The part of a qualifier typed in front of the caret, without a leading `!`, so it can be
+ * completed. `null` when the caret is not in a qualifier, e.g. because the term already has a
+ * colon or is quoted.
+ */
+export function qualifierPrefixAtCaret(query: string, caret: number): string | null {
+    return QUALIFIER_PREFIX.exec(query.slice(0, caret))?.[1] ?? null
+}
+
+/** A piece of a query, used to highlight it while it is being edited. */
+export interface QuerySegment {
+    text: string,
+    role: "qualifier" | "value" | "text",
+    /** Qualifier of the term a value belongs to, so the value can be colored by its meaning. */
+    qualifier?: string,
+    /** The value without its quotes. */
+    value?: string
+}
+
+/**
+ * Splits a query into segments for syntax highlighting. Unlike `parseQuery` this keeps every
+ * character, including whitespace and half written terms, so the segments concatenate back into
+ * the exact input and can be laid over the query input.
+ */
+export function highlightQuery(query: string): QuerySegment[] {
+    const segments: QuerySegment[] = []
+
+    for (const token of splitKeepingWhitespace(query)) {
+        if (!token.trim()) {
+            segments.push({text: token, role: "text"})
+            continue
+        }
+
+        const body = token.startsWith("!") ? token.slice(1) : token
+        const colon = indexOfUnquoted(body, ":")
+        if (colon <= 0) {
+            segments.push({text: token, role: "text"})
+            continue
+        }
+
+        const qualifier = body.slice(0, colon).toLowerCase()
+        segments.push({text: token.slice(0, token.length - body.length) + body.slice(0, colon + 1), role: "qualifier"})
+
+        // Keep the commas as their own segments so the values line up with the original text.
+        for (const [index, value] of body.slice(colon + 1).split(",").entries()) {
+            if (index > 0) segments.push({text: ",", role: "text"})
+            if (!value) continue
+            segments.push({text: value, role: "value", qualifier, value: unquote(value)})
+        }
+    }
+
+    return segments
 }
 
 function compileTerm(term: QueryTerm): string {
