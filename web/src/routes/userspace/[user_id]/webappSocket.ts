@@ -1,6 +1,7 @@
 import {latestRequests, MAX_LATEST_REQUESTS, tunnelState, user, watchedFrames, type RequestUpdate} from "./state.ts";
 import {page} from "$app/state";
-import {requests} from "./requests/requests.ts";
+import {get} from "svelte/store";
+import {appendOlderRequests, historyComplete, REQUEST_PAGE_SIZE, requests} from "./requests/requests.ts";
 
 let webSocket: WebSocket | null = null;
 
@@ -91,6 +92,28 @@ function flushPendingUpdates() {
     }
 }
 
+// Only one page is asked for at a time; the answer arrives as a request.history message.
+let loadingHistory = false;
+
+/**
+ * Asks the server for the requests older than the oldest one loaded. Called while scrolling, so the
+ * list only ever holds what has actually been looked at.
+ */
+export function loadOlderRequests() {
+    if (loadingHistory || get(historyComplete)) return;
+    if (webSocket?.readyState !== WebSocket.OPEN) return;
+
+    const oldest = get(requests).at(-1);
+    if (!oldest) return;
+
+    loadingHistory = true;
+    webSocket.send(JSON.stringify({
+        type: "history",
+        before: oldest.started_at,
+        limit: REQUEST_PAGE_SIZE,
+    }));
+}
+
 export default function () {
     return user.subscribe(user => {
         if (!user) {
@@ -122,6 +145,12 @@ export default function () {
                             return [...list, message];
                         });
                     }
+                } else if (message.type === "request.history") {
+                    loadingHistory = false;
+                    const added = appendOlderRequests(message.requests);
+                    // A short page means the server is out of history; no new ids means the cursor
+                    // cannot move any further, which ends the paging just as well.
+                    if (message.complete || added === 0) historyComplete.set(true);
                 } else if (message.type === "request.update") {
                     // Buffer by id (insertion-ordered) and flush once per frame. Repeated
                     // updates for the same request within a frame collapse to the latest
@@ -132,6 +161,7 @@ export default function () {
             }
 
             webSocket.onclose = (event) => {
+                loadingHistory = false;
                 if (!event.wasClean) {
                     tunnelState.set(null);
                     console.log("WebSocket connection closed unexpectedly");

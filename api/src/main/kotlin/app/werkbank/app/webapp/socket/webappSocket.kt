@@ -6,6 +6,8 @@ import app.werkbank.app.tunnel.TunnelManager
 import app.werkbank.app.tunnel.TunnelRequestRecord
 import app.werkbank.app.tunnel.WsBridge
 import app.werkbank.app.tunnel.WsFrameRecord
+import app.werkbank.app.webapp.requests.REQUEST_PAGE_SIZE
+import app.werkbank.app.webapp.requests.requestHistory
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.Project
 import app.werkbank.database.TunnelRequest
@@ -28,6 +30,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.koin.ktor.ext.inject
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 private val webAppJson = Json { ignoreUnknownKeys = true }
@@ -119,6 +122,21 @@ fun Route.webappSocket() {
                         }
 
                         is WebAppClientMessage.Unwatch -> frameWatchers.remove(message.requestId)?.cancel()
+
+                        is WebAppClientMessage.History -> {
+                            val page = db.requestHistory(
+                                user = principal.user,
+                                before = Instant.fromEpochMilliseconds(message.before),
+                                limit = message.limit,
+                            )
+
+                            sendSerialized<WebAppServerMessage>(
+                                WebAppServerMessage.RequestHistory(
+                                    requests = page,
+                                    complete = page.size < message.limit,
+                                )
+                            )
+                        }
                     }
                 }
             } finally {
@@ -218,6 +236,14 @@ sealed class WebAppClientMessage {
     data class Unwatch(
         @SerialName("request_id") val requestId: String,
     ): WebAppClientMessage()
+
+    /** Asks for the page of requests that started no later than [before]. */
+    @Serializable
+    @SerialName("history")
+    data class History(
+        @SerialName("before") val before: Long,
+        @SerialName("limit") val limit: Int = REQUEST_PAGE_SIZE,
+    ): WebAppClientMessage()
 }
 
 @Serializable
@@ -231,6 +257,15 @@ sealed class WebAppServerMessage {
     @Serializable
     @SerialName("tunnel.inactive")
     data object TunnelInactive: WebAppServerMessage()
+
+    /** A page of older requests, answering a [WebAppClientMessage.History]. */
+    @Serializable
+    @SerialName("request.history")
+    data class RequestHistory(
+        @SerialName("requests") val requests: List<RequestUpdate>,
+        /** No further page follows, the client can stop asking. */
+        @SerialName("complete") val complete: Boolean,
+    ): WebAppServerMessage()
 
     @Serializable
     @SerialName("request.update")
@@ -263,10 +298,10 @@ sealed class WebAppServerMessage {
                 ),
                 statusCode = (request.result as? TunnelRequestResult.Success)?.statusCode,
                 error = (request.result as? TunnelRequestResult.Failure)?.error,
-                startedAt = request.startedAt.epochSeconds,
-                sentToTunnelAt = request.startedAt.epochSeconds,
-                responseStartedAt = request.responseReadyAt?.epochSeconds,
-                completedAt = request.responseReadyAt?.epochSeconds,
+                startedAt = request.startedAt.toEpochMilliseconds(),
+                sentToTunnelAt = request.startedAt.toEpochMilliseconds(),
+                responseStartedAt = request.responseReadyAt?.toEpochMilliseconds(),
+                completedAt = request.responseReadyAt?.toEpochMilliseconds(),
                 wsFramesSent = request.wsFramesSent,
                 wsFramesReceived = request.wsFramesReceived,
             )
