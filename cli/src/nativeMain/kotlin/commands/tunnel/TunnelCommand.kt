@@ -86,7 +86,9 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                 requests = requests,
                             )
                         }
-                        if (state.showRequestDetailsPanel) {
+                        // The list is capped, so the highlighted request may have been evicted.
+                        val highlightedRequest = requests.firstOrNull { it.requestId == state.highlightedRequestId }
+                        if (state.showRequestDetailsPanel && highlightedRequest != null) {
                             Column(
                                 modifier = Modifier
                                     .weight(1f, true)
@@ -110,7 +112,7 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                                     }
                             ) {
                                 RequestDetailsPanel(
-                                    request = requests.first { it.requestId == state.highlightedRequestId },
+                                    request = highlightedRequest,
                                 )
                             }
                         }
@@ -185,7 +187,7 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
             print("\u001b[?1049l")
         }
 
-        when (val s = viewModel.state.value.connectionState) {
+        when (viewModel.state.value.connectionState) {
             is TunnelState.ConnectionState.Connected -> println("Tunnel closed")
             is TunnelState.ConnectionState.Connecting -> println("Tunnel interrupted")
             is TunnelState.ConnectionState.Retrying -> println("Tunnel connection failed")

@@ -4,7 +4,11 @@ import app.werkbank.app.queue.request.PersistJob
 import app.werkbank.app.queue.request.RequestPersistenceQueue
 import app.werkbank.app.tunnel.*
 import app.werkbank.config.AppConfig
-import app.werkbank.database.*
+import app.werkbank.database.DatabaseManager
+import app.werkbank.database.Project
+import app.werkbank.database.Service
+import app.werkbank.database.User
+import app.werkbank.shared.tunnel.TunnelCheckpoint
 import app.werkbank.util.isLikelyBrowser
 import app.werkbank.util.launchConnectionJob
 import io.ktor.client.*
@@ -19,27 +23,19 @@ import io.ktor.server.websocket.*
 import io.ktor.util.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
-import app.werkbank.shared.tunnel.TunnelCheckpoint
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlin.time.Duration.Companion.seconds
-import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.lowerCase
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import org.koin.ktor.ext.inject
 import java.io.File
 import java.util.*
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 val subdomain = AttributeKey<String>("subdomain")
 val requestedDestination = AttributeKey<String>("requested_destination")
 val currentUser = AttributeKey<User>("user")
 val targetProject = AttributeKey<Project>("project")
+val targetProjectOwnerId = AttributeKey<Uuid>("project_owner_id")
 val targetService = AttributeKey<Optional<Service>>("service")
 
 val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
@@ -47,6 +43,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
     val db by application.inject<DatabaseManager>()
     val tunnelManager by application.inject<TunnelManager>()
     val requestPersistenceQueue by application.inject<RequestPersistenceQueue>()
+    val resolutionCache = ProxyResolutionCache(db)
 
     val suffix = appConfig.domainSuffix
     val regex = Regex("(.+\\.){2}${suffix.replace(".", "\\.")}")
@@ -59,27 +56,25 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             call.attributes[subdomain] = domain
 
             val (destination, username) = domain.split(".", limit = 2)
-            val user = db.query { User.find { Users.username.lowerCase() eq username.lowercase() }.firstOrNull() }
             call.attributes[requestedDestination] = destination
 
-            if (user == null) {
+            val resolution = resolutionCache.resolve(domain, username, destination)
+            if (resolution is ProxyResolution.UserNotFound) {
                 call.markRequestAsWerkbankHandled()
                 call.respondText("User not found", status = HttpStatusCode.NotFound)
                 return@onCall
             }
-
-            call.attributes[currentUser] = user
-
-            val destinationResolution = call.getProjectAndServiceFromRequest()
-            if (destinationResolution !is ProjectResolveResult.Success) {
+            if (resolution is ProxyResolution.Failure) {
                 call.markRequestAsWerkbankHandled()
-                destinationResolution as ProjectResolveResult.Failure
-                destinationResolution.respondIn(call, HttpStatusCode.NotFound)
+                resolution.error.respondIn(call, HttpStatusCode.NotFound)
                 return@onCall
             }
 
-            val (project, service) = destinationResolution
+            resolution as ProxyResolution.Success
+            val (user, project, service) = resolution
+            call.attributes[currentUser] = user
             call.attributes[targetProject] = project
+            call.attributes[targetProjectOwnerId] = resolution.ownerId
             call.attributes[targetService] = service?.let { Optional.of(it) } ?: Optional.empty()
 
             val authorizationResult = call.checkRequestAuthorization()
@@ -313,7 +308,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     }
 
                     call.respond(object : OutgoingContent.WriteChannelContent() {
-                        override val status: HttpStatusCode? get() = response.status
+                        override val status: HttpStatusCode get() = response.status
                         override val headers: Headers get() = Headers.build {
                             response.headers.forEach { (key, values) ->
                                 values.forEach { append(key, it) }
@@ -322,17 +317,31 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
 
                         override suspend fun writeTo(channel: ByteWriteChannel) {
                             try {
-                                val body = response.body
-                                if (body != null) {
+                                val body = response.body ?: return
+                                // The capture copy goes to disk on a side channel so a slow disk write
+                                // never stalls the bytes streaming to the browser. Bounded capacity so
+                                // a huge body can't pile up in memory; joined before returning because
+                                // the persistence queue reads the file right after this call completes.
+                                val fileChunks = Channel<ByteArray>(capacity = 64)
+                                val fileWriter = proxyScope.launch(Dispatchers.IO) {
                                     responseBodyFile.outputStream().use { out ->
-                                        val buffer = ByteArray(64 * 1024)
-                                        while (true) {
-                                            val read = body.readAvailable(buffer)
-                                            if (read <= 0) break
-                                            out.write(buffer, 0, read)
-                                            channel.writeFully(buffer, 0, read)
-                                        }
+                                        for (chunk in fileChunks) out.write(chunk)
                                     }
+                                }
+                                try {
+                                    val buffer = ByteArray(64 * 1024)
+                                    while (true) {
+                                        val read = body.readAvailable(buffer)
+                                        if (read <= 0) break
+                                        fileChunks.send(buffer.copyOf(read))
+                                        channel.writeFully(buffer, 0, read)
+                                    }
+                                    fileChunks.close()
+                                    fileWriter.join()
+                                } catch (e: Exception) {
+                                    fileChunks.close(e)
+                                    fileWriter.cancel()
+                                    throw e
                                 }
                             } catch (e: Exception) {
                                 proxyRequest.fail(e)

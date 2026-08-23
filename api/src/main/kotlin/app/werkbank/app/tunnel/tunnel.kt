@@ -265,8 +265,9 @@ class ProxyRequest internal constructor(
     override val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
 
     // Control messages and raw body chunks share one FIFO so the response body stays ordered relative
-    // to the http.response header message and the http.end that closes the stream.
-    private val inbox = Channel<Inbound>()
+    // to the http.response header message and the http.end that closes the stream. Buffered so the
+    // tunnel's reader loop isn't forced into a suspend handoff with the consumer on every body chunk.
+    private val inbox = Channel<Inbound>(capacity = 64)
     private val responseBodyChannel = ByteChannel()
     private val response = CompletableDeferred<TunnelResponse>()
 
@@ -289,9 +290,12 @@ class ProxyRequest internal constructor(
             )
         )
 
-        body?.rawChunks { connection.sendBinary(requestId, it) }
-
-        connection.send(ServerMessage.HttpEnd(requestId))
+        // Bodyless requests skip the http.end frame: the host only uses it to close the request-body
+        // channel, which it never creates for bodyless methods — one JSON frame saved per GET.
+        if (body != null) {
+            body.rawChunks { connection.sendBinary(requestId, it) }
+            connection.send(ServerMessage.HttpEnd(requestId))
+        }
         _snapshot.update { it.copy(sentToTunnelAt = System.currentTimeMillis()) }
 
         scope.launch { consume() }

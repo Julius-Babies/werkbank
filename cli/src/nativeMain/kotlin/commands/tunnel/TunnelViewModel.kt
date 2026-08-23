@@ -1,19 +1,13 @@
 package commands.tunnel
 
 import app.config.MainConfig
-import app.werkbank.shared.tunnel.ClientMessage
-import app.werkbank.shared.tunnel.ServerMessage
-import app.werkbank.shared.tunnel.TunnelFrame
-import app.werkbank.shared.tunnel.json
-import app.werkbank.shared.tunnel.rawChunks
+import app.werkbank.shared.tunnel.*
 import http.httpClientBase
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.network.selector.*
-import io.ktor.network.sockets.*
-import io.ktor.network.tls.*
 import io.ktor.serialization.kotlinx.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
@@ -29,7 +23,6 @@ import util.buildStyledString
 import kotlin.system.exitProcess
 import kotlin.time.Clock
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -38,6 +31,9 @@ class TunnelViewModel: KoinComponent {
 
     companion object {
         val TUNNEL_RECONNECT_DELAY = 5.seconds
+
+        /** How many requests the TUI keeps; older entries are dropped from the front. */
+        private const val MAX_TRACKED_REQUESTS = 500
 
         // WebSocket handshake control headers the ktor client manages itself; forwarding the browser's
         // copies would conflict. Everything else (incl. Sec-WebSocket-Protocol, e.g. Vite's "vite-hmr")
@@ -93,6 +89,7 @@ class TunnelViewModel: KoinComponent {
     val requests: StateFlow<List<Request>> = _requests
 
     private val selectorManager = SelectorManager(Dispatchers.Default)
+    private val connectionPool = LocalConnectionPool(selectorManager)
 
     private val viewModelScope = CoroutineScope(Dispatchers.Default)
 
@@ -143,7 +140,9 @@ class TunnelViewModel: KoinComponent {
                                 if (ok) {
                                     state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = Clock.System.now() - lastPingStart)) }
                                 }
-                                delay(500.milliseconds)
+                                // Every ping updates the state and re-renders the TUI, and its frames
+                                // compete with request traffic on the tunnel socket — keep it rare.
+                                delay(2.seconds)
                             }
                         }
                         state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = null)) }
@@ -213,7 +212,9 @@ class TunnelViewModel: KoinComponent {
                                                         service = target.service.name,
                                                     ))
 
-                                                    _requests.update { it + Request(
+                                                    // Capped so a long tunnel session can't grow the list unboundedly:
+                                                    // every update copies it, and each finished request maps over it.
+                                                    _requests.update { it.takeLast(MAX_TRACKED_REQUESTS - 1) + Request(
                                                         requestId = msg.requestId,
                                                         method = msg.method,
                                                         project = target.project.id,
@@ -233,11 +234,61 @@ class TunnelViewModel: KoinComponent {
                                                     val host = targetUrl.host
                                                     val port = targetUrl.port
                                                     val path = targetUrl.fullPath
+                                                    val hasRequestBody = channel != null
+
+                                                    // The whole request head is built once and written as a single
+                                                    // buffer: line-by-line writes on an autoflushing channel cost one
+                                                    // syscall (and one TCP segment) per header.
+                                                    //
+                                                    // We dial 127.0.0.1, so without the client's Host and the X-Forwarded-*
+                                                    // headers the service only ever sees the loopback authority over plain
+                                                    // HTTP: absolute URLs, redirects, signed-URL checks and host allow-lists
+                                                    // (Vite) all break. traefik does the same on the local route.
+                                                    val authority = if (port == targetUrl.protocol.defaultPort) host else "$host:$port"
+                                                    val clientHost = msg.headers.headerValue("Host")
+                                                    val head = buildString {
+                                                        append(msg.method).append(' ').append(path).append(" HTTP/1.1\r\n")
+                                                        append("Host: ").append(clientHost ?: authority).append("\r\n")
+                                                        if (clientHost != null && msg.headers.headerValue("X-Forwarded-Host") == null) {
+                                                            append("X-Forwarded-Host: ").append(clientHost).append("\r\n")
+                                                        }
+                                                        if (msg.headers.headerValue("X-Forwarded-Proto") == null) {
+                                                            append("X-Forwarded-Proto: ").append(PUBLIC_SCHEME).append("\r\n")
+                                                        }
+                                                        msg.headers.forEach { header ->
+                                                            val (key, _) = header.split(": ", limit = 2)
+                                                            if (key.equals("Host", ignoreCase = true)) return@forEach
+                                                            if (key.equals("Transfer-Encoding", ignoreCase = true)) return@forEach
+                                                            // Keep the original Content-Length: the request body is relayed
+                                                            // verbatim, so it matches exactly. Without it (and without
+                                                            // Transfer-Encoding) HTTP/1.1 treats the request as bodyless and
+                                                            // the target server discards the streamed body bytes.
+                                                            if (key.equals("Connection", ignoreCase = true)) return@forEach
+                                                            append(header).append("\r\n")
+                                                        }
+                                                        // Bodyless requests ride pooled keep-alive connections; a request
+                                                        // with a body uses a one-shot connection because its streamed body
+                                                        // is consumed and could not be replayed on a stale-reuse retry.
+                                                        if (hasRequestBody) append("Connection: close\r\n")
+                                                        append("\r\n")
+                                                    }.encodeToByteArray()
+
+                                                    suspend fun sendRequest(lease: LocalConnectionPool.Lease): String? {
+                                                        lease.output.writeFully(head)
+                                                        lease.output.flush()
+                                                        if (channel != null) {
+                                                            (channel as ByteReadChannel).rawChunks { rawBytes ->
+                                                                lease.output.writeFully(rawBytes)
+                                                                lease.output.flush()
+                                                            }
+                                                        }
+                                                        checkpoints.mark("Request forwarded, awaiting response")
+                                                        return lease.input.readLine()
+                                                    }
 
                                                     checkpoints.mark("Connecting to $host:$port")
-                                                    val socket = try {
-                                                        val raw = aSocket(selectorManager).tcp().connect(host, port)
-                                                        if (isHttps) raw.tls(coroutineContext = currentCoroutineContext()) else raw
+                                                    var lease = try {
+                                                        connectionPool.acquire(host, port, isHttps, currentCoroutineContext(), poolable = !hasRequestBody)
                                                     } catch (e: Exception) {
                                                         val isTimeout = e.message?.contains("timed out", ignoreCase = true) == true
                                                         if (isTimeout) {
@@ -251,64 +302,54 @@ class TunnelViewModel: KoinComponent {
                                                         }
                                                         return@launch
                                                     }
-                                                    checkpoints.mark("Connected to $host:$port")
+                                                    checkpoints.mark(if (lease.reused) "Reusing connection to $host:$port" else "Connected to $host:$port")
 
-                                                    val input = socket.openReadChannel()
-                                                    val output = socket.openWriteChannel(autoFlush = true)
-
-                                                    val requestLine = "${msg.method} $path HTTP/1.1\r\n"
-                                                    output.writeFully(requestLine.encodeToByteArray())
-
-                                                    // We dial 127.0.0.1, so without the client's Host and the X-Forwarded-*
-                                                    // headers the service only ever sees the loopback authority over plain
-                                                    // HTTP: absolute URLs, redirects, signed-URL checks and host allow-lists
-                                                    // (Vite) all break. traefik does the same on the local route.
-                                                    val authority = if (port == targetUrl.protocol.defaultPort) host else "$host:$port"
-                                                    val clientHost = msg.headers.headerValue("Host")
-                                                    output.writeFully("Host: ${clientHost ?: authority}\r\n".encodeToByteArray())
-                                                    if (clientHost != null && msg.headers.headerValue("X-Forwarded-Host") == null) {
-                                                        output.writeFully("X-Forwarded-Host: $clientHost\r\n".encodeToByteArray())
-                                                    }
-                                                    if (msg.headers.headerValue("X-Forwarded-Proto") == null) {
-                                                        output.writeFully("X-Forwarded-Proto: $PUBLIC_SCHEME\r\n".encodeToByteArray())
-                                                    }
-
-                                                    msg.headers.forEach { header ->
-                                                        val (key, _) = header.split(": ", limit = 2)
-                                                        if (key.equals("Host", ignoreCase = true)) return@forEach
-                                                        if (key.equals("Transfer-Encoding", ignoreCase = true)) return@forEach
-                                                        // Keep the original Content-Length: the request body is relayed
-                                                        // verbatim, so it matches exactly. Without it (and without
-                                                        // Transfer-Encoding) HTTP/1.1 treats the request as bodyless and
-                                                        // the target server discards the streamed body bytes.
-                                                        if (key.equals("Connection", ignoreCase = true)) return@forEach
-                                                        output.writeFully("$header\r\n".encodeToByteArray())
-                                                    }
-                                                    output.writeFully("Connection: close\r\n".encodeToByteArray())
-                                                    output.writeFully("\r\n".encodeToByteArray())
-
-                                                    if (channel != null) {
-                                                        (channel as ByteReadChannel).rawChunks { rawBytes ->
-                                                            output.writeFully(rawBytes)
+                                                    // A pooled connection may have been closed by the server while it sat
+                                                    // idle, surfacing as a write error or an immediate EOF. Retried once on
+                                                    // a fresh connection — safe because pooled leases never carry a body.
+                                                    var statusLine = if (lease.reused) {
+                                                        try { sendRequest(lease) } catch (_: Exception) { null }
+                                                    } else {
+                                                        try {
+                                                            sendRequest(lease)
+                                                        } catch (e: Exception) {
+                                                            checkpoints.mark("Error while reading response status line: ${e.message}")
+                                                            lease.close()
+                                                            sendSerialized<ClientMessage>(ClientMessage.UnexpectedError(
+                                                                requestId = msg.requestId,
+                                                                message = "Error while reading the response from ${target.service.name}: ${e.message}",
+                                                                checkpoints = checkpoints.toList(),
+                                                            ))
+                                                            return@launch
                                                         }
                                                     }
-                                                    checkpoints.mark("Request forwarded, awaiting response")
-
-                                                    val statusLine = try {
-                                                        input.readLine()
-                                                    } catch (e: Exception) {
-                                                        checkpoints.mark("Error while reading response status line: ${e.message}")
-                                                        socket.close()
-                                                        sendSerialized<ClientMessage>(ClientMessage.UnexpectedError(
-                                                            requestId = msg.requestId,
-                                                            message = "Error while reading the response from ${target.service.name}: ${e.message}",
-                                                            checkpoints = checkpoints.toList(),
-                                                        ))
-                                                        return@launch
+                                                    if (statusLine == null && lease.reused) {
+                                                        checkpoints.mark("Pooled connection was stale, retrying on a fresh one")
+                                                        lease.close()
+                                                        lease = try {
+                                                            connectionPool.acquire(host, port, isHttps, currentCoroutineContext(), poolable = true, forceFresh = true)
+                                                        } catch (e: Exception) {
+                                                            checkpoints.mark("Failed to connect to $host:$port: ${e.message}")
+                                                            _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.ServiceNotRunning(Clock.System.now())) else it } }
+                                                            sendSerialized<ClientMessage>(ClientMessage.ServerNotRuning(msg.requestId))
+                                                            return@launch
+                                                        }
+                                                        statusLine = try {
+                                                            sendRequest(lease)
+                                                        } catch (e: Exception) {
+                                                            checkpoints.mark("Error while reading response status line: ${e.message}")
+                                                            lease.close()
+                                                            sendSerialized<ClientMessage>(ClientMessage.UnexpectedError(
+                                                                requestId = msg.requestId,
+                                                                message = "Error while reading the response from ${target.service.name}: ${e.message}",
+                                                                checkpoints = checkpoints.toList(),
+                                                            ))
+                                                            return@launch
+                                                        }
                                                     }
                                                     if (statusLine == null) {
                                                         checkpoints.mark("Local service closed the connection before responding")
-                                                        socket.close()
+                                                        lease.close()
                                                         sendSerialized<ClientMessage>(ClientMessage.UnexpectedError(
                                                             requestId = msg.requestId,
                                                             message = "The service ${target.service.name} closed the connection before sending a response",
@@ -317,6 +358,7 @@ class TunnelViewModel: KoinComponent {
                                                         return@launch
                                                     }
 
+                                                    val input = lease.input
                                                     val rawHeaders = mutableListOf<String>()
                                                     while (true) {
                                                         val line = input.readLine() ?: break
@@ -328,6 +370,10 @@ class TunnelViewModel: KoinComponent {
                                                     checkpoints.mark("Received response status $statusCode")
 
                                                     val isChunked = rawHeaders.any { it.startsWith("Transfer-Encoding:", ignoreCase = true) && it.substringAfter(":").contains("chunked", ignoreCase = true) }
+                                                    val contentLength = rawHeaders.firstOrNull { it.startsWith("Content-Length:", ignoreCase = true) }
+                                                        ?.substringAfter(":")?.trim()?.toLongOrNull()
+                                                    val isBodyless = msg.method.equals("HEAD", ignoreCase = true) ||
+                                                        statusCode == 204 || statusCode == 304 || statusCode < 200
 
                                                     sendSerialized<ClientMessage>(ClientMessage.HttpResponse(
                                                         requestId = msg.requestId,
@@ -338,7 +384,13 @@ class TunnelViewModel: KoinComponent {
 
                                                     val bodyBuffer = ByteArray(64 * 1024)
 
-                                                    if (isChunked) {
+                                                    // Whether the body ended exactly where its framing said it would; only
+                                                    // then is the connection in a known state and safe to pool.
+                                                    var framedCleanly = false
+
+                                                    if (isBodyless) {
+                                                        framedCleanly = true
+                                                    } else if (isChunked) {
                                                         while (true) {
                                                             val sizeLine = try {
                                                                 input.readLine()
@@ -350,7 +402,10 @@ class TunnelViewModel: KoinComponent {
                                                                     val trailerLine = try {
                                                                         input.readLine()
                                                                     } catch (_: Exception) { null } ?: break
-                                                                    if (trailerLine.isEmpty()) break
+                                                                    if (trailerLine.isEmpty()) {
+                                                                        framedCleanly = true
+                                                                        break
+                                                                    }
                                                                 }
                                                                 break
                                                             }
@@ -369,7 +424,21 @@ class TunnelViewModel: KoinComponent {
                                                                 remaining -= read
                                                             }
                                                         }
+                                                    } else if (contentLength != null) {
+                                                        var remaining = contentLength
+                                                        while (remaining > 0) {
+                                                            val toRead = minOf(remaining, bodyBuffer.size.toLong()).toInt()
+                                                            val read = try {
+                                                                input.readAvailable(bodyBuffer, 0, toRead)
+                                                            } catch (_: Exception) { break }
+                                                            if (read <= 0) break
+                                                            this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, read)))
+                                                            remaining -= read
+                                                        }
+                                                        framedCleanly = remaining == 0L
                                                     } else {
+                                                        // Neither chunked nor Content-Length: the body is delimited by the
+                                                        // connection closing, which also rules out reuse.
                                                         while (!input.isClosedForRead) {
                                                             val read = try {
                                                                 input.readAvailable(bodyBuffer)
@@ -399,7 +468,12 @@ class TunnelViewModel: KoinComponent {
                                                         }
                                                     }
 
-                                                    socket.close()
+                                                    val upstreamClosing = rawHeaders.any { it.startsWith("Connection:", ignoreCase = true) && it.substringAfter(":").contains("close", ignoreCase = true) }
+                                                    if (lease.poolable && framedCleanly && !upstreamClosing) {
+                                                        connectionPool.release(lease)
+                                                    } else {
+                                                        lease.close()
+                                                    }
                                                 } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                                                     throw e
                                                 } catch (e: Exception) {
@@ -453,7 +527,7 @@ class TunnelViewModel: KoinComponent {
                                                     service = target.service.name,
                                                 ))
 
-                                                _requests.update { it + Request(
+                                                _requests.update { it.takeLast(MAX_TRACKED_REQUESTS - 1) + Request(
                                                     requestId = msg.requestId,
                                                     method = "WS/GET",
                                                     project = target.project.id,
@@ -594,7 +668,7 @@ class TunnelViewModel: KoinComponent {
     fun onSelectPrevious() {
         state.update { state ->
             val requests = requests.value
-            val currentSelectedIndex = (state.highlightedRequestId?.let { requests.indexOf(requests.first { it.requestId == state.highlightedRequestId }) } ?: -1).takeIf { it != -1 } ?: (requests.size - 1)
+            val currentSelectedIndex = requests.indexOfFirst { it.requestId == state.highlightedRequestId }.takeIf { it != -1 } ?: (requests.size - 1)
             val targetIndex = (currentSelectedIndex - 1).coerceAtLeast(0)
             val highlightedRequestId = requests.getOrNull(targetIndex)?.requestId
             state.copy(highlightedRequestId = highlightedRequestId)
@@ -604,7 +678,7 @@ class TunnelViewModel: KoinComponent {
     fun onSelectNext() {
         state.update { state ->
             val requests = requests.value
-            val currentSelectedIndex = (state.highlightedRequestId?.let { requests.indexOf(requests.first { it.requestId == state.highlightedRequestId }) } ?: -1).takeIf { it != -1 } ?: -1
+            val currentSelectedIndex = requests.indexOfFirst { it.requestId == state.highlightedRequestId }
             val targetIndex = (currentSelectedIndex + 1).coerceAtMost(requests.size - 1)
             val highlightedRequestId = requests.getOrNull(targetIndex)?.requestId
             state.copy(highlightedRequestId = highlightedRequestId)
