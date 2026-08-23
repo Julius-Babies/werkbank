@@ -1,8 +1,6 @@
 <script lang="ts">
     import './layout.css';
     import faviconBlue from '$lib/assets/logo_blue.svg';
-    import "$lib/localization/i18n";
-
 
     let {children} = $props();
 
