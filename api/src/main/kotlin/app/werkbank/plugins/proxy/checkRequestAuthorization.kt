@@ -36,22 +36,25 @@ suspend fun ApplicationCall.checkRequestAuthorization(): AuthorizationResult {
     try {
         val jwt = jwtVerifier.verify(accessToken)
 
+        // Preloaded by the SubdomainHandler, so the ownership checks below need no database queries.
+        val ownerId = attributes[targetProjectOwnerId]
+
         if (jwt.audience.first() == "werkbank-projects") {
-            val accessKey = db.query { AccessKey.find { AccessKeys.key eq accessToken.sha256() }.firstOrNull() }
-                ?: return AuthorizationResult.Failure.InvalidAccessToken
-            val user = db.query { accessKey.createdBy }
-            val isOwner = db.query { project.owner.id.value == user.id.value }
-            return if (isOwner) AuthorizationResult.Success
+            val creatorId = db.query {
+                AccessKey.find { AccessKeys.key eq accessToken.sha256() }.firstOrNull()?.createdBy?.id?.value
+            } ?: return AuthorizationResult.Failure.InvalidAccessToken
+            return if (creatorId == ownerId) AuthorizationResult.Success
             else AuthorizationResult.Failure.InvalidAccessToken
         }
 
         if (jwt.audience.first() != "werkbank-project-${project.id.value.toHexString()}") return AuthorizationResult.Failure.InvalidAccessToken
         when (jwt.getClaim("source").asString()) {
             "user" -> {
-                val user = db.query { User.findById(Uuid.parse(jwt.getClaim("user_id").asString())) }
-                if (user == null) return AuthorizationResult.Failure.InvalidAccessToken
-                val isOwner = db.query { project.owner.id.value == user.id.value }
-                return if (isOwner) AuthorizationResult.Success
+                // The user id claim is trusted because the JWT signature was just verified; matching
+                // it against the preloaded owner id replaces the user + owner lookups.
+                val userId = runCatching { Uuid.parse(jwt.getClaim("user_id").asString()) }.getOrNull()
+                    ?: return AuthorizationResult.Failure.InvalidAccessToken
+                return if (userId == ownerId) AuthorizationResult.Success
                 else AuthorizationResult.Failure.InvalidAccessToken
             }
             "password" -> {

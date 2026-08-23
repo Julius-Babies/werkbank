@@ -4,34 +4,81 @@ import app.werkbank.database.*
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
 import io.ktor.server.response.respond
-import io.ktor.websocket.SimpleFrameCollector
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.lowerCase
-import org.koin.ktor.ext.inject
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.uuid.Uuid
 
-suspend fun ApplicationCall.getProjectAndServiceFromRequest(): ProjectResolveResult {
-    val db by inject<DatabaseManager>()
-    val user = attributes[currentUser]
-    val destination = attributes[requestedDestination]
+/**
+ * Outcome of resolving a proxied request's `<destination>.<username>` subdomain to its user, project
+ * and (optionally) service. Resolved in a single database transaction because this runs on the hot
+ * path of every proxied request.
+ */
+sealed class ProxyResolution {
+    data class Success(
+        val user: User,
+        val project: Project,
+        val service: Service?,
+        /** The project owner's id, preloaded so the auth check needs no extra database round trip. */
+        val ownerId: Uuid,
+    ) : ProxyResolution()
 
+    data object UserNotFound : ProxyResolution()
+
+    data class Failure(val error: ProjectResolveResult.Failure) : ProxyResolution()
+}
+
+suspend fun resolveProxyTarget(db: DatabaseManager, username: String, destination: String): ProxyResolution {
     val (serviceKey, projectKey) = if ('-' in destination) destination.split('-', limit = 2).let { Pair(it[0], it[1]) }
     else null to destination
 
-    val project = db.query {
-        Project.find { (Projects.projectKey.lowerCase() eq projectKey.lowercase()) and (Projects.owner eq user.id) }
-            .firstOrNull()
-    }
-        ?: return ProjectResolveResult.Failure.ProjectNotFound
+    return db.query {
+        val user = User.find { Users.username.lowerCase() eq username.lowercase() }.firstOrNull()
+            ?: return@query ProxyResolution.UserNotFound
 
-    val service = serviceKey?.let { serviceKey ->
-        db.query {
-            Service.find { Services.project eq project.id and (Services.serviceKey.lowerCase() eq serviceKey.lowercase()) }
-                .firstOrNull()
-        } ?: return ProjectResolveResult.Failure.ServiceNotFound
+        val project = Project.find {
+            (Projects.projectKey.lowerCase() eq projectKey.lowercase()) and (Projects.owner eq user.id)
+        }.firstOrNull() ?: return@query ProxyResolution.Failure(ProjectResolveResult.Failure.ProjectNotFound)
+
+        val service = serviceKey?.let { key ->
+            Service.find { Services.project eq project.id and (Services.serviceKey.lowerCase() eq key.lowercase()) }
+                .firstOrNull() ?: return@query ProxyResolution.Failure(ProjectResolveResult.Failure.ServiceNotFound)
+        }
+
+        ProxyResolution.Success(user = user, project = project, service = service, ownerId = user.id.value)
+    }
+}
+
+/**
+ * Short-lived cache for [resolveProxyTarget], keyed by the full request subdomain. The lookup runs on
+ * every proxied request and its result changes rarely (renames, access-state toggles), so a few
+ * seconds of staleness buy a saved database transaction per request. Failures are cached too so an
+ * unknown subdomain can't force a query per request.
+ */
+class ProxyResolutionCache(private val db: DatabaseManager) {
+    private class Entry(val expiresAt: Long, val resolution: ProxyResolution)
+
+    private val entries = ConcurrentHashMap<String, Entry>()
+
+    suspend fun resolve(domain: String, username: String, destination: String): ProxyResolution {
+        val now = System.currentTimeMillis()
+        entries[domain]?.let { entry ->
+            if (entry.expiresAt > now) return entry.resolution
+            entries.remove(domain)
+        }
+        val resolution = resolveProxyTarget(db, username, destination)
+        if (entries.size >= MAX_ENTRIES) entries.clear()
+        entries[domain] = Entry(now + TTL_MS, resolution)
+        return resolution
     }
 
-    return ProjectResolveResult.Success(project, service)
+    companion object {
+        private const val TTL_MS = 3_000L
+
+        /** Hard cap so unknown-subdomain floods can't grow the cache unboundedly. */
+        private const val MAX_ENTRIES = 10_000
+    }
 }
 
 sealed class ProjectResolveResult {

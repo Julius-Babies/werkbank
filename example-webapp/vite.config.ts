@@ -21,7 +21,8 @@ export default defineConfig({
 		// see TunnelRequestResolver). Vite's default host `localhost` may bind to IPv6
 		// (::1) only, which makes that IPv4 connect fail with "connection refused".
 		// Bind explicitly so the proxy can always reach the dev server.
-		host: '127.0.0.1',
+		allowedHosts: true,
+		host: '0.0.0.0',
 		port: 5173,
 		strictPort: true,
 		hmr: {
