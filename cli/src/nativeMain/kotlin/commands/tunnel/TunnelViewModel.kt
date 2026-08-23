@@ -534,7 +534,7 @@ class TunnelViewModel: KoinComponent {
                                             requestBodies.remove(msg.requestId)
                                         }
                                         is ServerMessage.WsOpen -> {
-                                            launch {
+                                            launch wsRelay@{
                                                 val target = when (val resolution = tunnelRequestResolver.getTarget(
                                                     projectKey = msg.project,
                                                     serviceKey = msg.service,
@@ -550,7 +550,7 @@ class TunnelViewModel: KoinComponent {
                                                             code = 1011,
                                                             reason = resolution.reason,
                                                         ))
-                                                        return@launch
+                                                        return@wsRelay
                                                     }
                                                 }
 
@@ -638,10 +638,20 @@ class TunnelViewModel: KoinComponent {
                                                         }
                                                     }
                                                 } catch (e: Exception) {
+                                                    // Our own shutdown is not a failure of this connection.
+                                                    if (e is kotlin.coroutines.cancellation.CancellationException && !this@wsRelay.isActive) throw e
+                                                    // The Darwin engine ends a finished WebSocket task by cancelling
+                                                    // the session job instead of delivering a close frame, so a
+                                                    // cancellation with this coroutine still alive means the local
+                                                    // service hung up — a normal close, not an internal error.
+                                                    val upstreamClosed = e is kotlin.coroutines.cancellation.CancellationException
                                                     this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
                                                         requestId = msg.requestId,
-                                                        code = 1011,
-                                                        reason = e.message ?: "Failed to connect to local WebSocket service"
+                                                        code = if (upstreamClosed) 1001 else 1011,
+                                                        reason = when {
+                                                            upstreamClosed -> "The service ${target.service.name} closed the WebSocket"
+                                                            else -> e.message ?: "Failed to connect to local WebSocket service"
+                                                        },
                                                     ))
                                                 } finally {
                                                     updateWs(msg.requestId) { it.copy(closed = true) }
