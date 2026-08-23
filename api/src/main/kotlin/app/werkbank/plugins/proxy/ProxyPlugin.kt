@@ -172,6 +172,9 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                                             close(reason)
                                             break
                                         }
+                                        // A raw session has no ponger of its own, and a peer that
+                                        // pings without ever getting an answer hangs up eventually.
+                                        is Frame.Ping -> send(Frame.Pong(frame.data))
                                         else -> {}
                                     }
                                 }
@@ -194,9 +197,34 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                                 }
                             }
 
+                            // WebSocketUpgrade hands out a *raw* session, so this connection gets
+                            // none of the ping/pong the WebSockets plugin gives the routed tunnel
+                            // socket. An idle Vite HMR connection then sends nothing for minutes and
+                            // every proxy, load balancer and NAT on the way to the browser drops it
+                            // once its idle timeout hits — which is why this only ever bites in
+                            // production and never against a local dev stack.
+                            val keepAlive = launchConnectionJob(call.application, "ws-proxy-keepalive") {
+                                while (true) {
+                                    delay(WS_PROXY_PING_INTERVAL)
+                                    send(Frame.Ping(ByteArray(0)))
+                                }
+                            }
+
                             // When either side ends, tear the other down so the connection actually closes.
-                            clientToTunnel.invokeOnCompletion { tunnelToClient.cancel() }
-                            tunnelToClient.invokeOnCompletion { clientToTunnel.cancel() }
+                            clientToTunnel.invokeOnCompletion {
+                                tunnelToClient.cancel()
+                                keepAlive.cancel()
+                            }
+                            tunnelToClient.invokeOnCompletion {
+                                clientToTunnel.cancel()
+                                keepAlive.cancel()
+                            }
+                            // The ping loop only ends on its own when the write failed, which means
+                            // the browser is gone even though no close ever arrived.
+                            keepAlive.invokeOnCompletion {
+                                clientToTunnel.cancel()
+                                tunnelToClient.cancel()
+                            }
                         }
                     } finally {
                         // Both relay loops ended, which also covers the hard aborts: a reset, a closed
@@ -379,6 +407,12 @@ data class ProxyAuthSession(
 
 /** How long the proxy waits for the tunnel host to start responding before giving up (no-response page). */
 private val NO_RESPONSE_TIMEOUT = 30.seconds
+
+/**
+ * How often a proxied WebSocket is pinged to keep it out of the idle timeouts of whatever sits
+ * between the browser and here. Well below the 60s that load balancers commonly default to.
+ */
+private val WS_PROXY_PING_INTERVAL = 20.seconds
 
 /**
  * Token embedded in the unexpected-error Svelte page. The API swaps it for the server-rendered tunnel
