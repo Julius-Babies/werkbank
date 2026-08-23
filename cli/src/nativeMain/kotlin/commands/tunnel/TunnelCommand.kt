@@ -2,6 +2,8 @@ package commands.tunnel
 
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.process.currentProcessId
+import app.storage.TunnelPidFile
 import app.storage.isDevMode
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.jakewharton.mosaic.LocalTerminalState
@@ -23,6 +25,7 @@ import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
 
@@ -46,6 +49,8 @@ class TunnelCommand : SuspendingCliktCommand("tunnel"), KoinComponent {
                 exitWatcher.cancel()
             }
         } finally {
+            // The connect loop clears this itself, but not when it is cancelled from under us.
+            TunnelPidFile.clear(currentProcessId())
             print("\u001b[?1049l")
         }
 
@@ -226,12 +231,29 @@ private fun TunnelScreen(viewModel: TunnelViewModel) {
         }
 
         if (rejected != null) {
+            val localTunnel = rejected.localTunnel
             Dialog(
                 title = "Tunnel already running",
-                description = rejected.reason + ".\n\nOnly one tunnel can be connected per account at a " +
-                    "time. Stop the other one and retry, or exit.",
+                description = buildString {
+                    append(rejected.reason)
+                    append(".\n\n")
+                    if (localTunnel == null) {
+                        append("Only one tunnel can be connected per account at a time. Stop the other one ")
+                        append("and retry, or exit.")
+                    } else {
+                        append("It is running on this machine:\n\n")
+                        append("PID ${localTunnel.pid}\n")
+                        append("${localTunnel.command}\n")
+                        localTunnel.uptime?.let { append("running for ${it.inWholeSeconds.seconds}\n") }
+                        append("\nStopping it frees the slot for this tunnel.")
+                    }
+                },
                 buttons = listOf(
-                    DialogButton("Retry") { viewModel.onRetryRejectedTunnel() },
+                    if (localTunnel == null) {
+                        DialogButton("Retry") { viewModel.onRetryRejectedTunnel() }
+                    } else {
+                        DialogButton("Stop it and retry") { viewModel.onStopLocalTunnelAndRetry() }
+                    },
                     DialogButton("Exit") { viewModel.onExit() },
                 ),
                 onDismiss = { viewModel.onExit() },
