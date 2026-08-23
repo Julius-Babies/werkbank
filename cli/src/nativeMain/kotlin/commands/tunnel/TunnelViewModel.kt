@@ -13,6 +13,7 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -92,6 +93,14 @@ class TunnelViewModel: KoinComponent {
     private val connectionPool = LocalConnectionPool(selectorManager)
 
     private val viewModelScope = CoroutineScope(Dispatchers.Default)
+
+    /** Retry presses from the "tunnel already running" dialog; see the connect loop below. */
+    private val retryRequests = Channel<Unit>(Channel.CONFLATED)
+
+    private val exit = CompletableDeferred<Unit>()
+
+    /** Completes once the user chose to quit; the command tears the UI down when it does. */
+    suspend fun awaitExit() = exit.await()
 
     init {
         val authTokenValue = mainConfig.getConfig().auth?.bearer
@@ -654,13 +663,15 @@ class TunnelViewModel: KoinComponent {
                     delay(TUNNEL_RECONNECT_DELAY)
                 }
 
-                // A rejection ends the socket cleanly, so without a delay here the loop would
-                // hammer the server. Keep retrying though: the tunnel holding the slot may end.
+                // A rejection ends the socket cleanly, so reconnecting right away would only hammer
+                // the server. Ask the user instead: only they know whether the other tunnel should
+                // keep the slot.
                 val rejection = rejected
                 if (rejection != null) {
-                    val cause = TunnelRejectedException(rejection)
-                    state.update { it.copy(connectionState = TunnelState.ConnectionState.Retrying(Clock.System.now() + TUNNEL_RECONNECT_DELAY, cause)) }
-                    delay(TUNNEL_RECONNECT_DELAY)
+                    // Drop anything sent while no dialog was up, so a stale request cannot skip this one.
+                    do { val stale = retryRequests.tryReceive() } while (stale.isSuccess)
+                    state.update { it.copy(connectionState = TunnelState.ConnectionState.Rejected(rejection)) }
+                    retryRequests.receive()
                 }
             }
         }
@@ -680,6 +691,17 @@ class TunnelViewModel: KoinComponent {
 
     fun onCancel() {
         viewModelScope.cancel()
+    }
+
+    /** Reconnect after the server refused the tunnel because another one holds the account slot. */
+    fun onRetryRejectedTunnel() {
+        retryRequests.trySend(Unit)
+    }
+
+    /** Give up on a refused tunnel and quit. */
+    fun onExit() {
+        exit.complete(Unit)
+        onCancel()
     }
 
     fun onSelectPrevious() {
@@ -727,9 +749,6 @@ class TunnelViewModel: KoinComponent {
     }
 }
 
-/** The server refused this tunnel because another live tunnel already holds the account's slot. */
-class TunnelRejectedException(message: String) : Exception(message)
-
 data class TunnelState(
     val connectionState: ConnectionState = ConnectionState.Connecting,
     val highlightedRequestId: Uuid? = null,
@@ -739,6 +758,9 @@ data class TunnelState(
         data class Connected(val currentPing: Duration?): ConnectionState()
         data object Connecting: ConnectionState()
         data class Retrying(val waitUntil: Instant, val throwable: Throwable): ConnectionState()
+
+        /** The server refused the tunnel because another one is already connected for this account. */
+        data class Rejected(val reason: String): ConnectionState()
     }
 }
 
