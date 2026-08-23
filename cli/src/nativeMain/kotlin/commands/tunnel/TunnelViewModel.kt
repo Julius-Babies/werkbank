@@ -1,6 +1,12 @@
 package commands.tunnel
 
 import app.config.MainConfig
+import app.process.ProcessInfo
+import app.process.currentProcessId
+import app.process.isProcessRunning
+import app.process.processInfo
+import app.process.stopProcess
+import app.storage.TunnelPidFile
 import app.werkbank.shared.tunnel.*
 import http.httpClientBase
 import io.ktor.client.plugins.contentnegotiation.*
@@ -13,6 +19,7 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -23,6 +30,7 @@ import util.buildStyledString
 import kotlin.system.exitProcess
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -31,6 +39,9 @@ class TunnelViewModel: KoinComponent {
 
     companion object {
         val TUNNEL_RECONNECT_DELAY = 5.seconds
+
+        /** How long a tunnel gets to shut down after the dialog asked it to, before reconnecting anyway. */
+        private val STOP_TUNNEL_TIMEOUT = 5.seconds
 
         /** How many requests the TUI keeps; older entries are dropped from the front. */
         private const val MAX_TRACKED_REQUESTS = 500
@@ -93,6 +104,14 @@ class TunnelViewModel: KoinComponent {
 
     private val viewModelScope = CoroutineScope(Dispatchers.Default)
 
+    /** Retry presses from the "tunnel already running" dialog; see the connect loop below. */
+    private val retryRequests = Channel<Unit>(Channel.CONFLATED)
+
+    private val exit = CompletableDeferred<Unit>()
+
+    /** Completes once the user chose to quit; the command tears the UI down when it does. */
+    suspend fun awaitExit() = exit.await()
+
     init {
         val authTokenValue = mainConfig.getConfig().auth?.bearer
         if (authTokenValue == null) {
@@ -116,6 +135,13 @@ class TunnelViewModel: KoinComponent {
                 // Partially received binary messages from the browser, keyed by request id; see the
                 // Frame.Binary branch below.
                 val wsBinaryFragments = mutableMapOf<Uuid, ByteArray>()
+
+                // Set when the server refused this tunnel because another one is already connected;
+                // the socket then closes right away, without any exception to catch below.
+                var rejected: String? = null
+
+                /** Whether this connection made it past the server's one-tunnel-per-account check. */
+                var owner = false
 
                 try {
                     client.webSocket(
@@ -148,6 +174,12 @@ class TunnelViewModel: KoinComponent {
                         state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = null)) }
 
                         for (message in incoming) {
+                            if (!owner) {
+                                // A refused tunnel is closed before the server sends anything, so the
+                                // first frame proves that this process, and no other, owns the slot.
+                                owner = true
+                                TunnelPidFile.write(currentProcessId())
+                            }
                             when (message) {
                                 is Frame.Binary -> {
                                     val bytes = message.readBytes()
@@ -640,10 +672,31 @@ class TunnelViewModel: KoinComponent {
                                 else -> {}
                             }
                         }
+
+                        rejected = closeReason.await()
+                            ?.takeIf { it.knownReason == CloseReason.Codes.VIOLATED_POLICY }
+                            ?.message
                     }
                 } catch (e: Exception) {
+                    // Released here as well as below because the retry delay may never return.
+                    if (owner) TunnelPidFile.clear(currentProcessId())
                     state.update { it.copy(connectionState = TunnelState.ConnectionState.Retrying(Clock.System.now() + TUNNEL_RECONNECT_DELAY, e)) }
                     delay(TUNNEL_RECONNECT_DELAY)
+                }
+                // The slot is gone with the socket, so another tunnel may take the pid file over.
+                if (owner) TunnelPidFile.clear(currentProcessId())
+
+                // A rejection ends the socket cleanly, so reconnecting right away would only hammer
+                // the server. Ask the user instead: only they know whether the other tunnel should
+                // keep the slot.
+                val rejection = rejected
+                if (rejection != null) {
+                    // Drop anything sent while no dialog was up, so a stale request cannot skip this one.
+                    do { val stale = retryRequests.tryReceive() } while (stale.isSuccess)
+                    state.update {
+                        it.copy(connectionState = TunnelState.ConnectionState.Rejected(rejection, localTunnel()))
+                    }
+                    retryRequests.receive()
                 }
             }
         }
@@ -663,6 +716,47 @@ class TunnelViewModel: KoinComponent {
 
     fun onCancel() {
         viewModelScope.cancel()
+    }
+
+    /**
+     * The tunnel process of this machine that is holding the account slot, if there is one.
+     *
+     * A pid file left behind by a crashed tunnel is ignored, and so is a pid that has meanwhile been
+     * reused by an unrelated program — otherwise the dialog would offer to kill a stranger.
+     */
+    private fun localTunnel(): ProcessInfo? {
+        val pid = TunnelPidFile.read()?.takeIf { it != currentProcessId() && isProcessRunning(it) } ?: return null
+        val info = processInfo(pid) ?: return null
+        val own = processInfo(currentProcessId())?.executableName
+        if (own != null && info.executableName != own) return null
+        return info
+    }
+
+    /** Reconnect after the server refused the tunnel because another one holds the account slot. */
+    fun onRetryRejectedTunnel() {
+        retryRequests.trySend(Unit)
+    }
+
+    /** Shut the local tunnel from the dialog down and reconnect as soon as it released the slot. */
+    fun onStopLocalTunnelAndRetry() {
+        val other = (state.value.connectionState as? TunnelState.ConnectionState.Rejected)?.localTunnel ?: return
+        viewModelScope.launch {
+            stopProcess(other.pid)
+            // The server frees the slot the moment that process' socket dies, which is why this waits
+            // for the process itself rather than reconnecting straight away.
+            withTimeoutOrNull(STOP_TUNNEL_TIMEOUT) {
+                while (isProcessRunning(other.pid)) delay(100.milliseconds)
+            }
+            // A tunnel killed by a signal never gets to clean up after itself.
+            if (!isProcessRunning(other.pid)) TunnelPidFile.clear(other.pid)
+            retryRequests.trySend(Unit)
+        }
+    }
+
+    /** Give up on a refused tunnel and quit. */
+    fun onExit() {
+        exit.complete(Unit)
+        onCancel()
     }
 
     fun onSelectPrevious() {
@@ -719,6 +813,12 @@ data class TunnelState(
         data class Connected(val currentPing: Duration?): ConnectionState()
         data object Connecting: ConnectionState()
         data class Retrying(val waitUntil: Instant, val throwable: Throwable): ConnectionState()
+
+        /**
+         * The server refused the tunnel because another one is already connected for this account.
+         * [localTunnel] is set when that other tunnel turns out to be a process on this machine.
+         */
+        data class Rejected(val reason: String, val localTunnel: ProcessInfo?): ConnectionState()
     }
 }
 

@@ -5,6 +5,7 @@ import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
 import app.werkbank.shared.tunnel.TunnelCheckpoint
+import app.werkbank.shared.tunnel.TUNNEL_ALREADY_RUNNING_REASON
 import app.werkbank.shared.tunnel.TunnelFrame
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
@@ -17,6 +18,7 @@ import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.cancellation.CancellationException
@@ -46,9 +49,16 @@ fun Route.tunnel() {
         webSocket {
             val user = call.principal<UserPrincipal>()!!
             val connection = TunnelInstance(this)
-            tunnelManager.onNewIncomingTunnel(user.user, connection)
+
+            // One tunnel per account: a second one would make it ambiguous which client a proxied
+            // request belongs to. Only a live tunnel blocks; a stale one is replaced by tryRegister.
+            if (!tunnelManager.tryRegister(user.user, connection)) {
+                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, TUNNEL_ALREADY_RUNNING_REASON))
+                return@webSocket
+            }
 
             launchConnectionJob(call.application, "tunnel-ping") {
+                var missedPongs = 0
                 while (true) {
                     val pingId = Uuid.random()
                     val startTime = System.currentTimeMillis()
@@ -59,7 +69,16 @@ fun Route.tunnel() {
                         true
                     } ?: false
                     if (ok) {
+                        missedPongs = 0
                         connection.updatePingMs(System.currentTimeMillis() - startTime)
+                    } else if (++missedPongs >= TunnelInstance.MAX_MISSED_PONGS) {
+                        // Don't leave a dead tunnel sitting on the account's slot until the OS
+                        // notices the socket is gone: drop it, so the client can reconnect.
+                        call.application.environment.log.info(
+                            "Tunnel of user {} missed {} pongs, closing it", user.user.id.value, missedPongs
+                        )
+                        connection.terminate()
+                        break
                     }
                     delay(3.seconds)
                 }
@@ -98,7 +117,7 @@ fun Route.tunnel() {
             } catch (e: Exception) {
                 println("Tunnel connection closed: ${e.message}")
             } finally {
-                tunnelManager.onTunnelClosed(user.user)
+                tunnelManager.onTunnelClosed(user.user, connection)
             }
         }
     }
@@ -155,9 +174,20 @@ class TunnelInstance(
     private val _pingMs = MutableStateFlow<Long?>(null)
     val pingMs: StateFlow<Long?> = _pingMs
 
+    @Volatile
+    private var lastPongAt: Long = System.currentTimeMillis()
+
     fun updatePingMs(value: Long) {
         _pingMs.value = value
     }
+
+    /**
+     * Whether this tunnel is still usable. False once the socket's scope is gone, or once the client
+     * stopped answering pings for [STALE_AFTER_MS] — a half-open TCP connection stays `isActive` for
+     * as long as the OS keeps it around, so the pong timestamp is the only reliable liveness signal.
+     */
+    val isAlive: Boolean
+        get() = webSocketSession.isActive && System.currentTimeMillis() - lastPongAt < STALE_AFTER_MS
 
     /** Registers a new outgoing HTTP request and returns its live handle. Call [ProxyRequest.send] to fire it. */
     fun startRequest(record: TunnelRequestRecord, scope: CoroutineScope): ProxyRequest {
@@ -235,6 +265,7 @@ class TunnelInstance(
     fun onPongReceived(requestId: Uuid) {
         synchronized(pingLock) {
             if (requestId == pendingPingId) {
+                lastPongAt = System.currentTimeMillis()
                 pendingPingLatch?.complete(Unit)
             }
         }
@@ -243,6 +274,24 @@ class TunnelInstance(
     fun close() {
         sinks.values.forEach { it.onClosed(TunnelClosedException()) }
         sinks.clear()
+    }
+
+    /**
+     * Hard-kills the socket and everything riding on it. Used for a tunnel that no longer answers,
+     * where a graceful [DefaultWebSocketServerSession.close] would just block on the dead connection.
+     * Cancelling the session ends its reader loop, which unregisters the tunnel on its way out.
+     */
+    fun terminate() {
+        close()
+        webSocketSession.cancel()
+    }
+
+    companion object {
+        /** No pong for this long means the client is gone, whatever the socket still claims. */
+        private const val STALE_AFTER_MS = 15_000L
+
+        /** Consecutive unanswered pings before the server tears the tunnel down itself. */
+        const val MAX_MISSED_PONGS = 3
     }
 }
 

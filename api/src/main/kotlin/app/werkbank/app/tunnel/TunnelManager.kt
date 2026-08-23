@@ -3,7 +3,6 @@ package app.werkbank.app.tunnel
 import app.werkbank.database.User
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.getAndUpdate
 import java.util.concurrent.ConcurrentHashMap
 
 class TunnelManager {
@@ -18,11 +17,36 @@ class TunnelManager {
     /** Observe tunnel connect/disconnect for [user]. Emits the current value immediately. */
     fun tunnelFlow(user: User): StateFlow<TunnelInstance?> = flowFor(user.id.value)
 
-    fun onNewIncomingTunnel(user: User, tunnelInstance: TunnelInstance) {
-        flowFor(user.id.value).getAndUpdate { tunnelInstance }?.close()
+    /**
+     * Claims the single tunnel slot of [user] for [tunnelInstance].
+     *
+     * Returns `false` when a live tunnel already holds the slot — the caller must then reject its
+     * WebSocket, because two tunnels for one account would make request routing ambiguous.
+     *
+     * A stale predecessor never blocks: a session whose socket is already dead or that stopped
+     * answering pings (see [TunnelInstance.isAlive]) is torn down and replaced. Without that, a
+     * half-open TCP connection — laptop suspended, network dropped — would lock the account out
+     * until the OS gets around to failing the socket.
+     */
+    fun tryRegister(user: User, tunnelInstance: TunnelInstance): Boolean {
+        val flow = flowFor(user.id.value)
+        while (true) {
+            val current = flow.value
+            if (current != null && current.isAlive) return false
+            if (flow.compareAndSet(current, tunnelInstance)) {
+                current?.terminate()
+                return true
+            }
+        }
     }
 
-    fun onTunnelClosed(user: User) {
-        flowFor(user.id.value).getAndUpdate { null }?.close()
+    /**
+     * Releases the slot when [tunnelInstance]'s socket ended. Only clears the slot if it still holds
+     * this very instance, so a tunnel that was already replaced as stale cannot wipe its successor
+     * on its way out.
+     */
+    fun onTunnelClosed(user: User, tunnelInstance: TunnelInstance) {
+        flowFor(user.id.value).compareAndSet(tunnelInstance, null)
+        tunnelInstance.close()
     }
 }
