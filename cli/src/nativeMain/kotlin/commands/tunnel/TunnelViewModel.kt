@@ -117,6 +117,10 @@ class TunnelViewModel: KoinComponent {
                 // Frame.Binary branch below.
                 val wsBinaryFragments = mutableMapOf<Uuid, ByteArray>()
 
+                // Set when the server refused this tunnel because another one is already connected;
+                // the socket then closes right away, without any exception to catch below.
+                var rejected: String? = null
+
                 try {
                     client.webSocket(
                         urlString = "wss://${mainConfig.getConfig().werkbankCloudDomain}/api/tunnel",
@@ -640,9 +644,22 @@ class TunnelViewModel: KoinComponent {
                                 else -> {}
                             }
                         }
+
+                        rejected = closeReason.await()
+                            ?.takeIf { it.knownReason == CloseReason.Codes.VIOLATED_POLICY }
+                            ?.message
                     }
                 } catch (e: Exception) {
                     state.update { it.copy(connectionState = TunnelState.ConnectionState.Retrying(Clock.System.now() + TUNNEL_RECONNECT_DELAY, e)) }
+                    delay(TUNNEL_RECONNECT_DELAY)
+                }
+
+                // A rejection ends the socket cleanly, so without a delay here the loop would
+                // hammer the server. Keep retrying though: the tunnel holding the slot may end.
+                val rejection = rejected
+                if (rejection != null) {
+                    val cause = TunnelRejectedException(rejection)
+                    state.update { it.copy(connectionState = TunnelState.ConnectionState.Retrying(Clock.System.now() + TUNNEL_RECONNECT_DELAY, cause)) }
                     delay(TUNNEL_RECONNECT_DELAY)
                 }
             }
@@ -709,6 +726,9 @@ class TunnelViewModel: KoinComponent {
         }
     }
 }
+
+/** The server refused this tunnel because another live tunnel already holds the account's slot. */
+class TunnelRejectedException(message: String) : Exception(message)
 
 data class TunnelState(
     val connectionState: ConnectionState = ConnectionState.Connecting,
