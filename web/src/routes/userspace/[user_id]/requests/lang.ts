@@ -2,6 +2,7 @@ export const en = {
     userspace: {
         requests: {
             title: "Tunnel Requests",
+            search_further: "Search further back",
             filter: {
                 reset: "Reset filter",
                 placeholder: "Filter requests, e.g. method:GET is:websocket",
@@ -26,6 +27,7 @@ export const en = {
             table: {
                 project: "PROJECTS",
                 resource: "RESOURCE",
+                result: "RESULT",
             },
             empty: {
                 title: "No requests yet",
@@ -45,6 +47,7 @@ export const de = {
     userspace: {
         requests: {
             title: "Tunnel-Anfragen",
+            search_further: "Weiter zurück suchen",
             filter: {
                 reset: "Filter zurücksetzen",
                 placeholder: "Anfragen filtern, z.B. method:GET is:websocket",
@@ -69,6 +72,7 @@ export const de = {
             table: {
                 project: "PROJEKTE",
                 resource: "RESSOURCE",
+                result: "ERGEBNIS",
             },
             empty: {
                 title: "Noch keine Anfragen",

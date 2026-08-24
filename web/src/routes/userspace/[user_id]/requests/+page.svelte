@@ -1,36 +1,24 @@
 <script lang="ts">
-    import {type RequestUpdate, title} from "../state.ts";
-    import {onMount, untrack} from "svelte";
+    import {title} from "../state.ts";
+    import {untrack} from "svelte";
     import {goto} from "$app/navigation";
     import {page} from "$app/state";
     import {_} from "svelte-i18n";
-    import {fetchRequests, requests} from "./requests.ts";
-    import {loadOlderRequests} from "../webappSocket.ts";
+    import {loadOlderRequests, requestList, searchFurtherBack, setRequestQuery} from "./requests.svelte.ts";
     import Page from "../_lib/appshell/page/Page.svelte";
     import ContentLoading from "../_lib/appshell/page/ContentLoading.svelte";
     import PageHead from "../_lib/appshell/page/PageHead.svelte";
     import PageTitle from "../_lib/appshell/page/PageTitle.svelte";
-    import {createSvelteTable} from "$lib/components/ui/data-table";
-    import {columns} from "./columns.ts";
-    import {getCoreRowModel} from "@tanstack/table-core";
-    import DataTable from "../_lib/appshell/page/DataTable.svelte";
     import {Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle} from "$lib/components/ui/empty";
-    import {ArrowBendDownRightIcon, FunnelXIcon, ListDashesIcon} from "phosphor-svelte";
+    import {ArrowBendDownRightIcon, FunnelXIcon, ListDashesIcon, MagnifyingGlassIcon} from "phosphor-svelte";
     import {Button} from "$lib/components/ui/button";
     import PageContent from "../_lib/appshell/page/PageContent.svelte";
     import RequestFilterComponent from "./RequestFilter.svelte";
     import {neutralQuery, queryFromParams, queryFromString, queryToParams, type RequestQuery} from "./filter.ts";
-    import {compileQuery} from "./query.ts";
+    import RequestList from "./RequestList.svelte";
 
     $effect(() => {
         title.set($_("userspace.requests.title"))
-    })
-
-    let isLoading = $state(true)
-
-    onMount(() => {
-        fetchRequests()
-            .then(() => isLoading = false);
     })
 
     let currentQuery: RequestQuery = $state(queryFromParams(page.url.searchParams))
@@ -69,124 +57,101 @@
         })
     })
 
-    /** Rows added to the table each time the ghost runway is reached. */
-    const ROWS_PER_STEP = 50
-    /** Ghost rows kept behind the rendered ones, so scrolling has a runway to grow into. */
-    const GHOST_ROWS = 200
-
-    // Only a window of the requests is rendered: eight hours of history are a few thousand rows, and
-    // every live update would otherwise re-render all of them.
-    let renderedRows = $state(ROWS_PER_STEP)
-
-    // Another filter means another list, so the window starts over at the top.
+    // The list matches the query itself, so a keystroke re-matches the loaded requests once instead
+    // of filtering them again for every live update that follows.
     $effect(() => {
-        currentQuery.query
-        untrack(() => renderedRows = ROWS_PER_STEP)
+        setRequestQuery(currentQuery.query)
     })
 
-    // Matching stops as soon as the window and its runway are full instead of filtering the whole
-    // history: everything behind the runway is neither rendered nor counted.
-    let rowWindow = $derived.by(() => {
-        const matches = compileQuery(currentQuery.query)
-
-        const rows: RequestUpdate[] = []
-        let ghosts = 0
-
-        for (const request of $requests) {
-            if (!matches(request)) continue
-
-            if (rows.length < renderedRows) rows.push(request)
-            else if (ghosts < GHOST_ROWS) ghosts++
-            else break
+    // Nothing matching does not mean there is nothing to match: the query runs on what is loaded, so
+    // the list keeps paging. The store stops it once a run of pages turns up nothing, which is what
+    // keeps a query that matches nothing from walking the whole history.
+    $effect(() => {
+        if (requestList.ready && requestList.rows.length === 0 && !requestList.loading
+            && !requestList.complete && !requestList.exhausted) {
+            void loadOlderRequests()
         }
-
-        return {rows, ghosts}
     })
-
-    function renderMoreRows() {
-        if (rowWindow.ghosts > 0) renderedRows += ROWS_PER_STEP
-
-        // A runway that is not full means the loaded history is running out: page in the next one.
-        if (rowWindow.ghosts < GHOST_ROWS) loadOlderRequests()
-    }
 
     function clearFilter() {
         currentQuery = neutralQuery()
     }
-
-    let table = createSvelteTable({
-        get data() {
-            return rowWindow.rows
-        },
-        columns: columns(),
-        getCoreRowModel: getCoreRowModel(),
-        getRowId: (row: RequestUpdate) => row.request_id,
-        enableRowSelection: false,
-
-    })
 </script>
 
-<Page>
+<!-- Title, filter and table header stay put; only the rows scroll, inside the list itself. -->
+<Page class="overflow-hidden">
     <PageHead>
         <PageTitle>{$_("userspace.requests.title")}</PageTitle>
     </PageHead>
 
-    <PageContent>
-        <RequestFilterComponent bind:requestQuery={currentQuery} class="mb-2" />
-        {#if isLoading}
+    <PageContent class="min-h-0 overflow-hidden">
+        <RequestFilterComponent bind:requestQuery={currentQuery} class="mb-2 shrink-0" />
+
+        {#if requestList.rows.length > 0}
+            <RequestList
+                    class="flex-1"
+                    rows={requestList.rows}
+                    onEndReached={loadOlderRequests}
+                    onRowClick={(request) => goto(`/requests/${request.request_id}`)}
+            />
+
+            {#if requestList.exhausted && !requestList.complete}
+                <div class="flex shrink-0 justify-center pt-2">
+                    <Button variant="outline" size="sm" onclick={searchFurtherBack}>
+                        <MagnifyingGlassIcon />
+                        {$_("userspace.requests.search_further")}
+                    </Button>
+                </div>
+            {/if}
+        {:else if !requestList.ready || requestList.loading}
             <ContentLoading />
+        {:else if requestList.loaded === 0}
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                        <ListDashesIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>{$_("userspace.requests.empty.title")}</EmptyTitle>
+                    <EmptyDescription>{$_("userspace.requests.empty.description")}</EmptyDescription>
+                </EmptyHeader>
+
+                <EmptyContent>
+                    <div class="flex flex-row gap-2">
+                        <Button href="/">
+                            <ArrowBendDownRightIcon />
+                            {$_("userspace.requests.empty.install")}
+                        </Button>
+                    </div>
+                </EmptyContent>
+            </Empty>
         {:else}
-            <DataTable
-                    {table}
-                    cellClass="py-1.5"
-                    ghostRows={rowWindow.ghosts}
-                    onGhostsEnter={renderMoreRows}
-                    onRowClick={(request: RequestUpdate) => goto(`/requests/${request.request_id}`)}
-            >
-                {#snippet empty()}
-                    {#if $requests.length === 0}
-                        <Empty>
-                            <EmptyHeader>
-                                <EmptyMedia variant="icon">
-                                    <ListDashesIcon />
-                                </EmptyMedia>
-                                <EmptyTitle>{$_("userspace.requests.empty.title")}</EmptyTitle>
-                                <EmptyDescription>{$_("userspace.requests.empty.description")}</EmptyDescription>
-                            </EmptyHeader>
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                        <FunnelXIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>{$_("userspace.requests.empty.filtered.title")}</EmptyTitle>
+                    <EmptyDescription>
+                        {$_("userspace.requests.empty.filtered.description", {values: {count: requestList.loaded}})}
+                    </EmptyDescription>
+                </EmptyHeader>
 
-                            <EmptyContent>
-                                <div class="flex flex-row gap-2">
-                                    <Button href="/">
-                                        <ArrowBendDownRightIcon />
-                                        {$_("userspace.requests.empty.install")}
-                                    </Button>
-                                </div>
-                            </EmptyContent>
-                        </Empty>
-                    {:else}
-                        <Empty>
-                            <EmptyHeader>
-                                <EmptyMedia variant="icon">
-                                    <FunnelXIcon />
-                                </EmptyMedia>
-                                <EmptyTitle>{$_("userspace.requests.empty.filtered.title")}</EmptyTitle>
-                                <EmptyDescription>
-                                    {$_("userspace.requests.empty.filtered.description", {values: {count: $requests.length}})}
-                                </EmptyDescription>
-                            </EmptyHeader>
+                <EmptyContent>
+                    <div class="flex flex-row gap-2">
+                        <Button variant="outline" onclick={clearFilter}>
+                            <FunnelXIcon />
+                            {$_("userspace.requests.empty.filtered.clear")}
+                        </Button>
 
-                            <EmptyContent>
-                                <div class="flex flex-row gap-2">
-                                    <Button variant="outline" onclick={clearFilter}>
-                                        <FunnelXIcon />
-                                        {$_("userspace.requests.empty.filtered.clear")}
-                                    </Button>
-                                </div>
-                            </EmptyContent>
-                        </Empty>
-                    {/if}
-                {/snippet}
-            </DataTable>
+                        {#if !requestList.complete}
+                            <Button variant="outline" onclick={searchFurtherBack}>
+                                <MagnifyingGlassIcon />
+                                {$_("userspace.requests.search_further")}
+                            </Button>
+                        {/if}
+                    </div>
+                </EmptyContent>
+            </Empty>
         {/if}
     </PageContent>
 </Page>

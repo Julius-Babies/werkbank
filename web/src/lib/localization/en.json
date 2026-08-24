@@ -118,6 +118,18 @@
     },
     "settings": {
       "title": "Settings",
+      "data": {
+        "title": "Data",
+        "description": "Data this browser keeps about your account."
+      },
+      "request_cache": {
+        "title": "Request cache",
+        "description": "The most recent hours of the request list are kept in this browser so it opens without waiting. Older requests are still there, they are loaded from the server as you scroll.",
+        "counting": "Reading the cache…",
+        "count": "{count, plural, =0 {Nothing cached} one {# request cached} other {# requests cached}}",
+        "clear": "Clear cache",
+        "clearing": "Clearing…"
+      },
       "access": {
         "title": "Access",
         "description": "Manage your account access and permissions."

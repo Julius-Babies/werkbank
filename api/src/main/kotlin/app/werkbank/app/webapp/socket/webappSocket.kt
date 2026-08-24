@@ -1,13 +1,9 @@
 package app.werkbank.app.webapp.socket
 
-import app.werkbank.app.tunnel.RequestId
-import app.werkbank.app.tunnel.RequestKind
-import app.werkbank.app.tunnel.TunnelManager
-import app.werkbank.app.tunnel.TunnelRequestRecord
-import app.werkbank.app.tunnel.WsBridge
-import app.werkbank.app.tunnel.WsFrameRecord
+import app.werkbank.app.tunnel.*
 import app.werkbank.app.webapp.requests.REQUEST_PAGE_SIZE
 import app.werkbank.app.webapp.requests.requestHistory
+import app.werkbank.app.webapp.requests.requestsByIds
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.Project
 import app.werkbank.database.TunnelRequest
@@ -15,7 +11,6 @@ import app.werkbank.database.TunnelRequestResult
 import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.util.launchConnectionJob
-import com.google.gson.Gson
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
@@ -23,7 +18,6 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -63,7 +57,14 @@ fun Route.webappSocket() {
             var activeTunnelJob: Job? = null
             val frameWatchers = ConcurrentHashMap<String, Job>()
 
-            launchConnectionJob(call.application, "webapp-tunnel-updates") {
+            // Every coroutine here names the scope it belongs to. The session, the connection job and
+            // the per-tunnel job are all CoroutineScopes in scope at once, and picking one up
+            // implicitly from inside a `collect` would be a coin flip over which one outlives the work.
+            val session = this
+
+            session.launchConnectionJob(call.application, "webapp-tunnel-updates") {
+                val connection = this
+
                 tunnelManager.tunnelFlow(principal.user).collect { tunnel ->
                     activeTunnelJob?.cancel()
                     activeTunnelJob = null
@@ -73,9 +74,11 @@ fun Route.webappSocket() {
                         return@collect
                     }
 
-                    activeTunnelJob = launchConnectionJob(call.application, "webapp-tunnel-active") {
+                    activeTunnelJob = connection.launchConnectionJob(call.application, "webapp-tunnel-active") {
+                        val active = this
+
                         // StateFlow emits the current ping immediately, so this also signals TunnelActive.
-                        launch {
+                        active.launch {
                             tunnel.pingMs.collect { pingMs ->
                                 sendSerialized<WebAppServerMessage>(WebAppServerMessage.TunnelActive(pingMs = pingMs))
                             }
@@ -87,7 +90,7 @@ fun Route.webappSocket() {
                         val observed = mutableSetOf<RequestId>()
                         tunnel.requests.collect { requests ->
                             requests.filter { observed.add(it.requestId) }.forEach { request ->
-                                launch {
+                                active.launch {
                                     request.snapshot.collect { record ->
                                         sendSerialized<WebAppServerMessage>(
                                             record.toRequestUpdate(projectNames(record.projectId, record.projectName))
@@ -116,9 +119,10 @@ fun Route.webappSocket() {
                                 ?.requests?.value
                                 ?.firstOrNull { it.requestId.toString() == message.requestId } as? WsBridge
                                 ?: continue
-                            frameWatchers[message.requestId] = launchConnectionJob(call.application, "webapp-ws-frames") {
-                                streamFrames(message.requestId, bridge)
-                            }
+                            frameWatchers[message.requestId] =
+                                session.launchConnectionJob(call.application, "webapp-ws-frames") {
+                                    streamFrames(message.requestId, bridge)
+                                }
                         }
 
                         is WebAppClientMessage.Unwatch -> frameWatchers.remove(message.requestId)?.cancel()
@@ -126,14 +130,45 @@ fun Route.webappSocket() {
                         is WebAppClientMessage.History -> {
                             val page = db.requestHistory(
                                 user = principal.user,
-                                before = Instant.fromEpochMilliseconds(message.before),
+                                before = message.before?.let { Instant.fromEpochMilliseconds(it) },
                                 limit = message.limit,
                             )
 
                             sendSerialized<WebAppServerMessage>(
                                 WebAppServerMessage.RequestHistory(
                                     requests = page,
+                                    before = message.before,
                                     complete = page.size < message.limit,
+                                )
+                            )
+                        }
+
+                        is WebAppClientMessage.Sync -> {
+                            val ids = message.requestIds.distinct().take(MAX_SYNC_IDS)
+
+                            // A request the client cached while it was still running may since have
+                            // finished (and be in the database), still be running (and only exist in
+                            // the tunnel), or never have been persisted at all. The live tunnel is
+                            // asked first so a still-running request is not reported as gone.
+                            val live = tunnelManager.getTunnel(principal.user)?.requests?.value
+                                ?.associateBy { it.requestId.toString() }
+                                .orEmpty()
+
+                            val fromTunnel = ids.mapNotNull { live[it]?.snapshot?.value }
+                                .map { it.toRequestUpdate(projectNames(it.projectId, it.projectName)) }
+
+                            val fromDatabase = db.requestsByIds(
+                                user = principal.user,
+                                ids = ids.filter { it !in live }.mapNotNull { parseRequestId(it) },
+                            )
+
+                            val known = fromTunnel + fromDatabase
+                            val knownIds = known.mapTo(mutableSetOf()) { it.requestId }
+
+                            sendSerialized<WebAppServerMessage>(
+                                WebAppServerMessage.RequestSync(
+                                    requests = known,
+                                    missing = ids.filter { it !in knownIds },
                                 )
                             )
                         }
@@ -153,8 +188,10 @@ fun Route.webappSocket() {
  */
 private suspend fun DefaultWebSocketServerSession.streamFrames(requestId: String, bridge: WsBridge) {
     coroutineScope {
+        val frames = this
         val buffer = Channel<WsFrameRecord>(Channel.UNLIMITED)
-        launch { bridge.frameEvents.collect { buffer.send(it) } }
+        // The session is a CoroutineScope too; this collector must die with the watch, not with it.
+        frames.launch { bridge.frameEvents.collect { buffer.send(it) } }
 
         var nextSequence = 0
         bridge.framesSnapshot().forEach {
@@ -170,13 +207,13 @@ private suspend fun DefaultWebSocketServerSession.streamFrames(requestId: String
     }
 }
 
-private val gson = Gson()
-suspend fun DefaultWebSocketServerSession.sendJson(data: Map<String, Any?>) {
-    this.send(gson.toJson(data))
-}
-
 /** Key and display name of a project, as stored in the database. */
 private data class ProjectNames(val key: String, val name: String)
+
+/** Upper bound on a single sync, so a broken client cannot ask for an unbounded query. */
+private const val MAX_SYNC_IDS = 500
+
+private fun parseRequestId(requestId: String): Uuid? = runCatching { Uuid.parse(requestId) }.getOrNull()
 
 /** Live records carry the id in hexadecimal form, the history in the hex-and-dash form. */
 private fun parseProjectId(projectId: String): Uuid? =
@@ -237,12 +274,22 @@ sealed class WebAppClientMessage {
         @SerialName("request_id") val requestId: String,
     ): WebAppClientMessage()
 
-    /** Asks for the page of requests that started no later than [before]. */
+    /**
+     * Asks for the page of requests that started no later than [before], or for the newest page if
+     * [before] is null.
+     */
     @Serializable
     @SerialName("history")
     data class History(
-        @SerialName("before") val before: Long,
+        @SerialName("before") val before: Long? = null,
         @SerialName("limit") val limit: Int = REQUEST_PAGE_SIZE,
+    ): WebAppClientMessage()
+
+    /** Asks for the current state of already known requests, to revalidate a client side cache. */
+    @Serializable
+    @SerialName("sync")
+    data class Sync(
+        @SerialName("request_ids") val requestIds: List<String>,
     ): WebAppClientMessage()
 }
 
@@ -258,13 +305,24 @@ sealed class WebAppServerMessage {
     @SerialName("tunnel.inactive")
     data object TunnelInactive: WebAppServerMessage()
 
-    /** A page of older requests, answering a [WebAppClientMessage.History]. */
+    /** A page of requests, answering a [WebAppClientMessage.History]. */
     @Serializable
     @SerialName("request.history")
     data class RequestHistory(
         @SerialName("requests") val requests: List<RequestUpdate>,
+        /** The cursor the page was asked for, so the client can tell pages apart. */
+        @SerialName("before") val before: Long?,
         /** No further page follows, the client can stop asking. */
         @SerialName("complete") val complete: Boolean,
+    ): WebAppServerMessage()
+
+    /** The current state of the requests a [WebAppClientMessage.Sync] asked about. */
+    @Serializable
+    @SerialName("request.sync")
+    data class RequestSync(
+        @SerialName("requests") val requests: List<RequestUpdate>,
+        /** Requests that neither the tunnel nor the database knows; the client drops them. */
+        @SerialName("missing") val missing: List<String>,
     ): WebAppServerMessage()
 
     @Serializable

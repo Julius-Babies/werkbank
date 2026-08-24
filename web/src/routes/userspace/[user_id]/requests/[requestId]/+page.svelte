@@ -6,7 +6,7 @@
     import {Button} from "$lib/components/ui/button";
     import {ArrowLeftIcon} from "phosphor-svelte";
     import PageContent from "../../_lib/appshell/page/PageContent.svelte";
-    import {requests} from "../requests.ts";
+    import {findRequest} from "../requests.svelte.ts";
     import {untrack} from "svelte";
     import {methodColors, statusColor} from "$lib/components/requests/colors";
     import ContentLoading from "../../_lib/appshell/page/ContentLoading.svelte";
@@ -33,7 +33,7 @@
     })
 
     $effect(() => {
-        const foundRequest = $requests.find(r => r.request_id === requestId)
+        const foundRequest = requestId ? findRequest(requestId) : undefined
         if (!foundRequest) return
         untrack(() => {
             // Merge onto the already-loaded request so headers/body loaded via getRequest survive
