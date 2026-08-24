@@ -1,6 +1,8 @@
 package app.dependencies.openssl
 
 import app.SudoManager
+import app.config.DEFAULT_BASE_DOMAIN
+import app.config.WERKBANK_BASE_DOMAIN
 import app.dependencies.AppDependency
 import app.repository.ProjectRepository
 import app.storage.isDevMode
@@ -62,6 +64,9 @@ class OpensslHandler : KoinComponent {
     val keyStoreFile = certificatesFolder.resolve("keystore.jks")
     val keyStorePassword = "changeit"
 
+    /** Base domains the root CA is created for, written as subject alternative names. */
+    val rootCaDomains get() = listOf(DEFAULT_BASE_DOMAIN, WERKBANK_BASE_DOMAIN)
+
     fun isRootCaSetUp(): Boolean {
         if (!rootCaFile.exists()) return false
         if (!rootKeyFile.exists()) return false
@@ -119,7 +124,7 @@ class OpensslHandler : KoinComponent {
         val cn = if (isDevMode) "Werkbank Dev Root CA" else "Werkbank Root CA"
 
         val tmpCsrRequestFile = File.getTempDirectory().resolve("root-csr.csr")
-        tmpCsrRequestFile.writeText(csrRequestConfigFileContent(cn))
+        tmpCsrRequestFile.writeText(csrRequestConfigFileContent(cn, rootCaDomains))
 
         val certFileArgs = listOf("req", "-x509", "-new", "-nodes",
             "-key", rootKeyFile.absolutePath,
@@ -225,10 +230,8 @@ class OpensslHandler : KoinComponent {
 
         println(buildStyledString { cyan { +"Deleting old leaf certificates if present" } })
         projectRepository.getAllProjects().forEach { project ->
-            val projectPemFile = project.getProjectStorage.resolve("certificate.pem")
-            val projectKeyFile = project.getProjectStorage.resolve("private.key")
-            if (projectPemFile.exists()) projectPemFile.delete()
-            if (projectKeyFile.exists()) projectKeyFile.delete()
+            if (project.certificateFile.exists()) project.certificateFile.delete()
+            if (project.privateKeyFile.exists()) project.privateKeyFile.delete()
         }
 
         // Installation prompt
@@ -439,10 +442,99 @@ class OpensslHandler : KoinComponent {
             return certificatePublicKey.stdout!!.trim() ==
                     privateKeyPublicKey.stdout!!.trim()
         }
+
+        /**
+         * Checks whether [certificateFile] was signed by [rootCaFile] and is currently valid
+         * (not expired, not yet valid). Does not check whether the root CA itself is trusted
+         * by the system, use [isTrusted] for that.
+         */
+        fun isValidChild(rootCaFile: File, certificateFile: File): Boolean {
+            if (!rootCaFile.exists()) return false
+            if (!certificateFile.exists()) return false
+
+            val verifyResult = Command("openssl")
+                .args(
+                    "verify",
+                    "-CAfile",
+                    rootCaFile.absolutePath,
+                    certificateFile.absolutePath
+                )
+                .stdout(Stdio.Pipe)
+                .stderr(Stdio.Pipe)
+                .spawn()
+                .wait()
+
+            return verifyResult == 0
+        }
+
+        /**
+         * Returns all domains the certificate is issued for. Contains the subject alternative names
+         * as well as the common name of the subject.
+         */
+        fun getDomains(certificateFile: File): List<String> {
+            if (!certificateFile.exists()) return emptyList()
+
+            val certificateResult = Command("openssl")
+                .args(
+                    "x509",
+                    "-noout",
+                    "-text",
+                    "-in",
+                    certificateFile.absolutePath
+                )
+                .stdout(Stdio.Pipe)
+                .stderr(Stdio.Pipe)
+                .spawn()
+                .waitWithOutput()
+
+            if (certificateResult.status != 0) return emptyList()
+
+            val lines = certificateResult.stdout.orEmpty().lines()
+            val domains = mutableListOf<String>()
+
+            lines.forEachIndexed { index, line ->
+                val trimmedLine = line.trim()
+                when {
+                    // ex: "X509v3 Subject Alternative Name:" followed by "DNS:a.test, DNS:b.test"
+                    trimmedLine.startsWith("X509v3 Subject Alternative Name") -> {
+                        lines.getOrNull(index + 1)
+                            ?.split(",")
+                            ?.map { it.trim() }
+                            ?.filter { it.startsWith("DNS:") }
+                            ?.forEach { domains += it.removePrefix("DNS:").trim() }
+                    }
+
+                    // ex: "Subject: CN=a.test". The common name is only a domain on leaf
+                    // certificates, CAs use it as a display name ("Werkbank Root CA").
+                    trimmedLine.startsWith("Subject:") -> {
+                        trimmedLine.removePrefix("Subject:")
+                            .split(",")
+                            .map { it.trim() }
+                            .firstOrNull { it.startsWith("CN=") || it.startsWith("CN =") }
+                            ?.substringAfter("=")
+                            ?.trim()
+                            ?.takeIf { it.contains(".") && !it.contains(" ") }
+                            ?.let { domains += it }
+                    }
+                }
+            }
+
+            return domains.filter { it.isNotBlank() }.distinct()
+        }
+
+        /**
+         * Checks whether the certificate can be validated against the trust store of the system,
+         * meaning the issuing CA is installed and trusted.
+         */
+        fun isTrusted(certificateFile: File): Boolean {
+            if (!certificateFile.exists()) return false
+            return isCertificateTrustedBySystem(certificateFile)
+        }
     }
 }
 
 expect fun installRootCa(rootCaFile: File, sudoManager: SudoManager)
+expect fun isCertificateTrustedBySystem(certificateFile: File): Boolean
 expect fun uninstallRootCa(fingerprint: String, sudoManager: SudoManager)
 expect suspend fun getInstalledRootCAs(sudoManager: SudoManager): List<InstalledRootCa>
 

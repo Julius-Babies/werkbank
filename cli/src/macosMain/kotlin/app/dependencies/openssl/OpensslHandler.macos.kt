@@ -85,3 +85,12 @@ actual fun uninstallRootCa(fingerprint: String, sudoManager: SudoManager) {
         .wait()
     if (result != 0) println(buildStyledString { red { +"Failed to uninstall root CA." } })
 }
+actual fun isCertificateTrustedBySystem(certificateFile: File): Boolean {
+    val result = Command("security")
+        .args("verify-cert", "-c", certificateFile.absolutePath)
+        .stdout(Stdio.Pipe)
+        .stderr(Stdio.Pipe)
+        .spawn()
+        .wait()
+    return result == 0
+}

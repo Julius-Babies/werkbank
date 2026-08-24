@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import commands.certificates.CertificatesCommand
 import commands.cloud.CloudCommand
 import commands.completion.CompletionBaseCommand
 import commands.config.ConfigCommand
@@ -82,6 +83,7 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
             UpdateCommand(),
             CloudCommand(),
             ProjectCommand(),
+            CertificatesCommand(),
         )
     }
 }
