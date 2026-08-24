@@ -100,7 +100,10 @@
 
 {#if $user}
     {#if showAppShell}
+        <!-- The shell is exactly one viewport tall, so every page below it can hand its scrolling to
+             an inner container instead of growing the document. -->
         <SidebarProvider
+                class="h-svh overflow-hidden"
                 style="--sidebar-width: calc(var(--spacing) * 72); --header-height: calc(var(--spacing) * 12);"
         >
             <Sidebar collapsible="offcanvas">
@@ -194,8 +197,8 @@
                 </SidebarFooter>
             </Sidebar>
 
-            <SidebarInset>
-                <div class="flex flex-col h-full">
+            <SidebarInset class="min-h-0">
+                <div class="flex min-h-0 flex-1 flex-col">
                     <header
                             class="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)"
                     >
@@ -209,7 +212,7 @@
                         </div>
                     </header>
 
-                    <div class="flex flex-1 flex-col w-full h-full overflow-y-auto max-md:p-2 md:p-4 pb-0!">
+                    <div class="flex min-h-0 flex-1 flex-col w-full overflow-y-auto max-md:p-2 md:p-4 pb-0!">
                         {@render children()}
                     </div>
                 </div>

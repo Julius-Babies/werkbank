@@ -118,6 +118,18 @@
     },
     "settings": {
       "title": "Einstellungen",
+      "data": {
+        "title": "Daten",
+        "description": "Daten, die dieser Browser zu deinem Account speichert."
+      },
+      "request_cache": {
+        "title": "Anfragen-Cache",
+        "description": "Die letzten Stunden der Anfragenliste liegen in diesem Browser, damit sie ohne Warten öffnet. Ältere Anfragen sind weiterhin da, sie werden beim Scrollen vom Server nachgeladen.",
+        "counting": "Cache wird gelesen …",
+        "count": "{count, plural, =0 {Nichts im Cache} one {# Anfrage im Cache} other {# Anfragen im Cache}}",
+        "clear": "Cache leeren",
+        "clearing": "Wird geleert …"
+      },
       "access": {
         "title": "Zugriff",
         "description": "Verwalte deinen Kontozugriff und die Berechtigungen."

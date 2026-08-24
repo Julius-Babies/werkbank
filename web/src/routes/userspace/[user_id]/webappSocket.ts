@@ -1,12 +1,26 @@
 import {latestRequests, MAX_LATEST_REQUESTS, tunnelState, user, watchedFrames, type RequestUpdate} from "./state.ts";
 import {page} from "$app/state";
-import {get} from "svelte/store";
-import {appendOlderRequests, historyComplete, REQUEST_PAGE_SIZE, requests} from "./requests/requests.ts";
+import {
+    connectRequestTransport,
+    disposeRequests,
+    initRequests,
+    onRequestHistory,
+    onRequestSync,
+    onRequestUpdates,
+    refreshRequests,
+    resetRequestLoading,
+    REQUEST_PAGE_SIZE,
+} from "./requests/requests.svelte.ts";
 
 let webSocket: WebSocket | null = null;
 
 // The request whose WebSocket frame timeline the detail page is currently watching, if any.
 let currentWatchId: string | null = null;
+
+function send(message: Record<string, unknown>) {
+    if (webSocket?.readyState !== WebSocket.OPEN) return;
+    webSocket.send(JSON.stringify(message));
+}
 
 /** Subscribe to live WebSocket frames of a request. Clears any previously watched frames. */
 export function watchFrames(requestId: string) {
@@ -14,17 +28,13 @@ export function watchFrames(requestId: string) {
     if (currentWatchId) unwatchFrames();
     currentWatchId = requestId;
     watchedFrames.set([]);
-    if (webSocket?.readyState === WebSocket.OPEN) {
-        webSocket.send(JSON.stringify({type: "watch", request_id: requestId}));
-    }
+    send({type: "watch", request_id: requestId});
 }
 
 /** Stop watching frames of the currently watched request. */
 export function unwatchFrames() {
     if (!currentWatchId) return;
-    if (webSocket?.readyState === WebSocket.OPEN) {
-        webSocket.send(JSON.stringify({type: "unwatch", request_id: currentWatchId}));
-    }
+    send({type: "unwatch", request_id: currentWatchId});
     currentWatchId = null;
     watchedFrames.set([]);
 }
@@ -42,7 +52,7 @@ function scheduleFlush() {
     flushHandle = requestAnimationFrame(flushPendingUpdates);
 }
 
-function applyUpdates(list: RequestUpdate[], buffered: Map<string, RequestUpdate>, cap?: number): RequestUpdate[] {
+function applyUpdates(list: RequestUpdate[], buffered: Map<string, RequestUpdate>, cap: number): RequestUpdate[] {
     const indexById = new Map<string, number>();
     for (let i = 0; i < list.length; i++) {
         indexById.set(list[i].request_id, i);
@@ -71,7 +81,7 @@ function applyUpdates(list: RequestUpdate[], buffered: Map<string, RequestUpdate
         next = [...fresh, ...next];
     }
 
-    if (cap !== undefined && next.length > cap) {
+    if (next.length > cap) {
         next = next.slice(0, cap);
     }
 
@@ -87,35 +97,21 @@ function flushPendingUpdates() {
 
     latestRequests.update(list => applyUpdates(list, buffered, MAX_LATEST_REQUESTS));
 
-    if (page.route?.id?.startsWith("/userspace/[user_id]/requests")) {
-        requests.update(list => applyUpdates(list, buffered));
-    }
-}
-
-// Only one page is asked for at a time; the answer arrives as a request.history message.
-let loadingHistory = false;
-
-/**
- * Asks the server for the requests older than the oldest one loaded. Called while scrolling, so the
- * list only ever holds what has actually been looked at.
- */
-export function loadOlderRequests() {
-    if (loadingHistory || get(historyComplete)) return;
-    if (webSocket?.readyState !== WebSocket.OPEN) return;
-
-    const oldest = get(requests).at(-1);
-    if (!oldest) return;
-
-    loadingHistory = true;
-    webSocket.send(JSON.stringify({
-        type: "history",
-        before: oldest.started_at,
-        limit: REQUEST_PAGE_SIZE,
-    }));
+    // The list is fed regardless of the current route: it is cached across reloads anyway, so
+    // dropping updates while another page is open would only make it wrong until the next reload.
+    onRequestUpdates([...buffered.values()]);
 }
 
 export default function () {
-    return user.subscribe(user => {
+    const userId = page.params.user_id;
+    if (userId) void initRequests(userId);
+
+    connectRequestTransport({
+        history: (before) => send({type: "history", before, limit: REQUEST_PAGE_SIZE}),
+        sync: (ids) => send({type: "sync", request_ids: ids}),
+    });
+
+    const unsubscribe = user.subscribe(user => {
         if (!user) {
             webSocket?.close();
             return;
@@ -127,8 +123,12 @@ export default function () {
             webSocket.onopen = () => {
                 // Re-arm an active watch after a (re)connect.
                 if (currentWatchId) {
-                    webSocket?.send(JSON.stringify({type: "watch", request_id: currentWatchId}));
+                    send({type: "watch", request_id: currentWatchId});
                 }
+
+                // Catch up on everything that happened while there was no connection, and revalidate
+                // the requests that were still running when they were cached.
+                void refreshRequests();
             }
 
             webSocket.onmessage = (event) => {
@@ -146,11 +146,9 @@ export default function () {
                         });
                     }
                 } else if (message.type === "request.history") {
-                    loadingHistory = false;
-                    const added = appendOlderRequests(message.requests);
-                    // A short page means the server is out of history; no new ids means the cursor
-                    // cannot move any further, which ends the paging just as well.
-                    if (message.complete || added === 0) historyComplete.set(true);
+                    void onRequestHistory(message.requests, message.before ?? null, message.complete);
+                } else if (message.type === "request.sync") {
+                    void onRequestSync(message.requests, message.missing);
                 } else if (message.type === "request.update") {
                     // Buffer by id (insertion-ordered) and flush once per frame. Repeated
                     // updates for the same request within a frame collapse to the latest
@@ -161,7 +159,8 @@ export default function () {
             }
 
             webSocket.onclose = (event) => {
-                loadingHistory = false;
+                resetRequestLoading();
+
                 if (!event.wasClean) {
                     tunnelState.set(null);
                     console.log("WebSocket connection closed unexpectedly");
@@ -172,4 +171,10 @@ export default function () {
 
         connect();
     })
+
+    return () => {
+        unsubscribe();
+        connectRequestTransport(null);
+        disposeRequests();
+    };
 }
