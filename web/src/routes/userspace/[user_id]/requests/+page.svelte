@@ -1,7 +1,7 @@
 <script lang="ts">
     import {type RequestUpdate, title} from "../state.ts";
     import {onMount, untrack} from "svelte";
-    import {goto, replaceState} from "$app/navigation";
+    import {goto} from "$app/navigation";
     import {page} from "$app/state";
     import {_} from "svelte-i18n";
     import {fetchRequests, requests} from "./requests.ts";
@@ -41,13 +41,19 @@
     // a newer value of the other.
     let syncedQuery = page.url.searchParams.get("q") ?? ""
 
+    // `replaceState` from `$app/navigation` is shallow routing: it rewrites the address bar but
+    // pins `page.url` to the last real navigation and remembers that pinned URL in the history
+    // entry. Coming back to that entry would restore the URL without the query, so the filter has
+    // to be written with a real navigation.
     $effect(() => {
         const query = currentQuery.query
         untrack(() => {
             if (query === syncedQuery) return
 
             syncedQuery = query
-            replaceState(`?${queryToParams(currentQuery)}`, {})
+            // Typing in the filter navigates on every keystroke, so the entry must be replaced and
+            // focus and scroll position must survive it.
+            void goto(`?${queryToParams(currentQuery)}`, {replaceState: true, keepFocus: true, noScroll: true})
         })
     })
 
