@@ -11,6 +11,9 @@ val isDevMode by lazy {
     File.getWorkingDirectory().resolve("devmode").exists() || getenv("DEV")?.toKString() == "true" || BuildKonfig.isDevelopment
 }
 
+/** Name of the CLI binary, used whenever a command is printed for the user to run. */
+val cliName by lazy { if (isDevMode) "wbdev" else "wb" }
+
 val storageRoot by lazy {
     if (isDevMode) File.getUserHomeDirectory().resolve(".werkbankdev").apply { if (!exists()) mkdir() }
     else File.getUserHomeDirectory().resolve(".werkbank").apply { if (!exists()) mkdir() }
