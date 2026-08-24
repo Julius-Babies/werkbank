@@ -71,21 +71,32 @@ data class Project(
             .forEach { hostsManager.addHost(it) }
     }
 
+    val certificateFile get() = getProjectStorage.resolve("certificate.pem")
+    val privateKeyFile get() = getProjectStorage.resolve("private.key")
+
+    /**
+     * All domains the certificate of this project has to cover. The first entry is the main
+     * domain (`<project-id>.[DEFAULT_BASE_DOMAIN]`), followed by the domains configured in the
+     * Werkbankfile.
+     */
+    fun getCertificateDomains(): List<String> {
+        val mainDomain = "${id.lowercase()}.$DEFAULT_BASE_DOMAIN"
+        return listOf(mainDomain) + getConfig().http
+            .flatMap { it.domains.orEmpty() }
+            .filterNot { it.isBlank() }
+            .distinct()
+            .map { if (it.endsWith(".$mainDomain")) it else "$it.$mainDomain" }
+    }
+
     suspend fun updateCertificates() {
         assertTrue(opensslHandler.isOpensslAvailable.await())
-        val certificateFile = getProjectStorage.resolve("certificate.pem")
-        val privateKeyFile = getProjectStorage.resolve("private.key")
-        val mainDomain = "${id.lowercase()}.$DEFAULT_BASE_DOMAIN"
+        val domains = getCertificateDomains()
         // Regenerate certificates
         opensslHandler.createCertificatePair(
             certificateFile = certificateFile,
             privateKeyFile = privateKeyFile,
-            mainDomain = mainDomain,
-            altDomains = getConfig().http
-                .flatMap { it.domains.orEmpty() }
-                .filterNot { it.isBlank() }
-                .distinct()
-                .map { if (it.endsWith(".$mainDomain")) it else "$it.$mainDomain" }
+            mainDomain = domains.first(),
+            altDomains = domains.drop(1)
         )
     }
 

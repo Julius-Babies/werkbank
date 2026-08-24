@@ -1,16 +1,19 @@
 package commands.completion
 
 import app.data.extensions.project.getCurrentProjectId
+import app.dependencies.AppDependency
 import app.repository.ProjectRepository
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import org.koin.core.qualifier.named
 
 class CompletionBaseCommand : SuspendingCliktCommand("completion"), KoinComponent {
 
     private val projectRepository by inject<ProjectRepository>()
+    private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
     private val command by argument().multiple()
     override val hiddenFromHelp: Boolean = true
 
@@ -26,6 +29,19 @@ class CompletionBaseCommand : SuspendingCliktCommand("completion"), KoinComponen
                     ?.services
                     ?.map { it.name }
                     .orEmpty()
+                    .sorted()
+                    .let { println(it.joinToString(" ")) }
+            }
+            "service-key" -> {
+                dependencies
+                    .filter { it.webfacingDomains.isNotEmpty() }
+                    .map { it.key }
+                    .sorted()
+                    .let { println(it.joinToString(" ")) }
+            }
+            "project" -> {
+                projectRepository.getAllProjects()
+                    .map { it.id }
                     .sorted()
                     .let { println(it.joinToString(" ")) }
             }
