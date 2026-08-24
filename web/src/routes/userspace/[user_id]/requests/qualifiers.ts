@@ -1,4 +1,4 @@
-import {ArrowsLeftRightIcon} from "phosphor-svelte";
+import {ArrowsLeftRightIcon, LinkSimpleIcon} from "phosphor-svelte";
 import {methodColors} from "$lib/components/requests/colors";
 import {FILTER_METHODS} from "./filter.ts";
 import {QUALIFIER_NAMES} from "./query.ts";
@@ -38,6 +38,10 @@ const KIND_VALUES: QualifierValue[] = [
 
 // How a qualifier is presented; the query language decides which ones exist at all.
 const DISPLAY: Record<string, Omit<QueryQualifier, "query">> = {
+    url: {
+        label: "userspace.requests.filter.qualifiers.url",
+        icon: LinkSimpleIcon,
+    },
     method: {
         label: "userspace.requests.filter.qualifiers.method",
         icon: ArrowsLeftRightIcon,
