@@ -1,5 +1,6 @@
 package app.dependencies.rabbitmq
 
+import app.config.WERKBANK_BASE_DOMAIN
 import app.data.Project
 import app.data.extensions.project.usesRabbit
 import app.dependencies.AppDependency
@@ -32,7 +33,7 @@ class RabbitMq : AppDependency, KoinComponent {
 
     val rabbitMqPort = 5672
 
-    val rabbitMqHostname = "rabbitmq.werkbank.studio"
+    val rabbitMqHostname = "rabbitmq.$WERKBANK_BASE_DOMAIN"
     val rabbitMqContainer = DockerContainer(
         image = "rabbitmq:4-management-alpine",
         name = buildString {

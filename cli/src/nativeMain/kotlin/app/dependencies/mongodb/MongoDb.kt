@@ -1,5 +1,6 @@
 package app.dependencies.mongodb
 
+import app.config.WERKBANK_BASE_DOMAIN
 import app.data.Project
 import app.data.extensions.project.usesMongo
 import app.dependencies.AppDependency
@@ -25,7 +26,7 @@ class MongoDb: AppDependency, KoinComponent {
 
     val mongoDbPort = 27017
 
-    val mongoDatabaseHostname = "mongodb.werkbank.studio"
+    val mongoDatabaseHostname = "mongodb.$WERKBANK_BASE_DOMAIN"
     val mongoDatabaseContainer = DockerContainer(
         image = "mongo:8-noble",
         name = buildString {
@@ -51,7 +52,7 @@ class MongoDb: AppDependency, KoinComponent {
         )
     )
 
-    val mongoExpressDomain = "mongo-express.werkbank.studio"
+    val mongoExpressDomain = "mongo-express.$WERKBANK_BASE_DOMAIN"
     val mongoExpressContainer = DockerContainer(
         image = "mongo-express:1.0.2-20-alpine3.19",
         name = buildString {

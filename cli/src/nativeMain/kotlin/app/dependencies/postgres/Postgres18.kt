@@ -1,5 +1,6 @@
 package app.dependencies.postgres
 
+import app.config.WERKBANK_BASE_DOMAIN
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.docker.DockerContainer
@@ -32,7 +33,7 @@ class Postgres18: AppDependency, KoinComponent {
 
     val postgresPort = 5432
 
-    val hostname = "postgres18.werkbank.studio"
+    val hostname = "postgres18.$WERKBANK_BASE_DOMAIN"
 
     val container = DockerContainer(
         image = "postgres:18.1-alpine3.22",

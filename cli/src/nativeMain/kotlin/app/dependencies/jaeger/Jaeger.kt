@@ -1,5 +1,6 @@
 package app.dependencies.jaeger
 
+import app.config.WERKBANK_BASE_DOMAIN
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
@@ -29,7 +30,7 @@ class Jaeger: AppDependency, KoinComponent {
         .resolve("jaeger")
         .resolve("data")
 
-    val jaegerHostname = "jaeger.werkbank.studio"
+    val jaegerHostname = "jaeger.$WERKBANK_BASE_DOMAIN"
     fun getContainer(): DockerContainer {
         return DockerContainer(
             image = "jaegertracing/all-in-one:1.76.0",

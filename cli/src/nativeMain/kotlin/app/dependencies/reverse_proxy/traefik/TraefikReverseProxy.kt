@@ -1,5 +1,7 @@
 package app.dependencies.reverse_proxy.traefik
 
+import app.config.DEFAULT_BASE_DOMAIN
+import app.config.WERKBANK_BASE_DOMAIN
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
@@ -39,7 +41,7 @@ class TraefikReverseProxy : ReverseProxy, KoinComponent {
         append("traefik")
     }
 
-    val traefikDomain = "traefik.werkbank.studio"
+    val traefikDomain = "traefik.$WERKBANK_BASE_DOMAIN"
     private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
     val traefikFileStorage by lazy { storageRoot.resolve("traefik").apply { if (!exists()) mkdir() } }
     private val hostsManager by inject<HostsManager>()
@@ -113,7 +115,7 @@ class TraefikReverseProxy : ReverseProxy, KoinComponent {
     private fun getAllDomainsFromProjects(): List<String> {
         val projects = projectRepository.getAllProjects().map { it.getConfig() }
         return projects.flatMap { project ->
-            val projectBaseDomain = "${project.project.id.lowercase()}.werkbank.space"
+            val projectBaseDomain = "${project.project.id.lowercase()}.$DEFAULT_BASE_DOMAIN"
             project.http.flatMap { httpEntry ->
                 // domains = [] -> use project base domain
                 // domains = null -> don't use any included domains
@@ -121,7 +123,7 @@ class TraefikReverseProxy : ReverseProxy, KoinComponent {
                 httpEntry.domains
                     ?.map {
                         if (it.isBlank()) projectBaseDomain
-                        else "${it.lowercase()}.${project.project.id.lowercase()}.werkbank.space"
+                        else "${it.lowercase()}.$projectBaseDomain"
                     }
                     ?.ifEmpty { listOf(projectBaseDomain) }
                     .orEmpty()
