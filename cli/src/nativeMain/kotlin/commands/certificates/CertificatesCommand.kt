@@ -1,198 +1,138 @@
 package commands.certificates
 
-import app.data.Project
-import app.dependencies.AppDependency
-import app.dependencies.openssl.OpensslHandler
-import app.repository.ProjectRepository
+import app.storage.cliName
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
-import es.jvbabi.kfile.File
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
-import org.koin.core.qualifier.named
-import util.CHECK_MARK
-import util.CROSS_MARK
+import com.github.ajalt.clikt.core.subcommands
+import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.option
 import util.buildStyledString
 import kotlin.system.exitProcess
 
-class CertificatesCommand : SuspendingCliktCommand("certificates"), KoinComponent {
+class CertificatesCommand : SuspendingCliktCommand("certificates") {
     override val invokeWithoutSubcommand: Boolean = true
 
-    private val opensslHandler by inject<OpensslHandler>()
-    private val dependencies by inject<List<AppDependency>>(named("Dependencies"))
-    private val projectRepository by inject<ProjectRepository>()
+    private val external by option(
+        "--external",
+        help = "Also show certificates that were imported from outside, e.g. from the werkbank cloud"
+    ).flag()
 
-    /**
-     * One certificate in the tree view. [domains] are the domains the certificate is
-     * expected to cover, [errors] is empty for a valid certificate.
-     */
-    private data class CertificateEntry(
-        val name: String,
-        val domains: List<String>,
-        val errors: List<String>
-    )
-
-    private data class Section(
-        val title: String,
-        val entries: List<CertificateEntry>
-    )
+    private data class Section(val title: String, val entries: List<CertificateEntry>)
 
     override suspend fun run() {
         if (currentContext.invokedSubcommand != null) return
 
-        val sections = listOf(
-            Section("Root CA", listOf(checkRootCa())),
-            Section("Services", dependencies.filter { it.webfacingDomains.isNotEmpty() }.map { checkDependency(it) }),
-            Section("Projects", projectRepository.getAllProjects().map { checkProject(it) })
+        val inspector = CertificateInspector()
+        val rootEntry = inspector.inspectRootCa()
+        val serviceEntries = inspector.inspectServices()
+        val projectEntries = inspector.inspectProjects()
+        val externalEntries = if (external) inspector.inspectExternalCertificates() else emptyList()
+
+        printReport(
+            buildList {
+                add(Section("Root CA", listOf(rootEntry)))
+                add(Section("Services", serviceEntries))
+                add(Section("Projects", projectEntries))
+                if (external) add(Section("External", externalEntries))
+            }
         )
 
-        printTree(sections)
-
-        val errorCount = sections.sumOf { section -> section.entries.sumOf { it.errors.size } }
-        if (errorCount > 0) {
-            println()
-            println(buildStyledString {
-                red { +"$CROSS_MARK $errorCount problem${if (errorCount == 1) "" else "s"} found" }
-            })
-            exitProcess(1)
-        }
-    }
-
-    private fun checkRootCa(): CertificateEntry {
-        val certificateFile = opensslHandler.rootCaFile
-        val keyFile = opensslHandler.rootKeyFile
-        val errors = mutableListOf<String>()
-
-        errors += checkCertificatePair(
-            certificateFile = certificateFile,
-            privateKeyFile = keyFile,
-            expectedDomains = opensslHandler.rootCaDomains,
-            checkSignedByRootCa = false
-        )
-
-        if (certificateFile.exists() && !OpensslHandler.isTrusted(certificateFile)) {
-            errors += "not trusted by the system, it has to be installed"
-        }
-
-        if (!opensslHandler.keyStoreFile.exists()) {
-            errors += "keystore is missing: ${opensslHandler.keyStoreFile.absolutePath}"
-        }
-
-        return CertificateEntry(
-            name = certificateFile.name,
-            domains = opensslHandler.rootCaDomains,
-            errors = errors
+        printSummary(
+            entries = listOf(rootEntry) + serviceEntries + projectEntries + externalEntries,
+            plan = inspector.repairPlan(rootEntry, serviceEntries, projectEntries),
+            externalEntries = externalEntries
         )
     }
 
-    private fun checkDependency(dependency: AppDependency) = CertificateEntry(
-        name = dependency.key,
-        domains = dependency.webfacingDomains,
-        errors = checkCertificatePair(
-            certificateFile = opensslHandler.internalCertificateDirectory.resolve("${dependency.key}.crt"),
-            privateKeyFile = opensslHandler.internalCertificateDirectory.resolve("${dependency.key}.key"),
-            expectedDomains = dependency.webfacingDomains
-        )
-    )
-
-    private fun checkProject(project: Project): CertificateEntry {
-        val werkbankfile = File(project.path).resolve("Werkbankfile.yaml")
-        if (!werkbankfile.exists()) {
-            return CertificateEntry(
-                name = project.id,
-                domains = emptyList(),
-                errors = listOf("Werkbankfile.yaml is missing: ${werkbankfile.absolutePath}")
-            )
-        }
-
-        val domains = project.getCertificateDomains()
-        return CertificateEntry(
-            name = project.id,
-            domains = domains,
-            errors = checkCertificatePair(
-                certificateFile = project.certificateFile,
-                privateKeyFile = project.privateKeyFile,
-                expectedDomains = domains
-            )
-        )
-    }
-
-    /**
-     * Runs all checks that apply to a certificate and its private key. Checks that depend on
-     * an earlier one are skipped instead of reported twice, e.g. domains are only compared
-     * once the certificate file is known to exist.
-     */
-    private fun checkCertificatePair(
-        certificateFile: File,
-        privateKeyFile: File,
-        expectedDomains: List<String>,
-        checkSignedByRootCa: Boolean = true
-    ): List<String> {
-        val errors = mutableListOf<String>()
-
-        if (!certificateFile.exists()) errors += "certificate is missing: ${certificateFile.absolutePath}"
-        if (!privateKeyFile.exists()) errors += "private key is missing: ${privateKeyFile.absolutePath}"
-        if (errors.isNotEmpty()) return errors
-
-        if (!OpensslHandler.isValidPair(certificateFile, privateKeyFile)) {
-            errors += "certificate and private key do not match"
-        }
-
-        val actualDomains = OpensslHandler.getDomains(certificateFile)
-        val missingDomains = expectedDomains - actualDomains.toSet()
-        if (missingDomains.isNotEmpty()) {
-            errors += "missing domains: ${missingDomains.joinToString(", ")}"
-            errors += "certificate covers: ${actualDomains.ifEmpty { listOf("nothing") }.joinToString(", ")}"
-        }
-
-        if (checkSignedByRootCa && !OpensslHandler.isValidChild(opensslHandler.rootCaFile, certificateFile)) {
-            errors += "not signed by the current root CA or expired"
-        }
-
-        return errors
-    }
-
-    private fun printTree(sections: List<Section>) {
-        val entries = sections.flatMap { it.entries }
-        val nameWidth = entries.maxOfOrNull { it.name.length } ?: 0
-        val domainWidth = entries.maxOfOrNull { domainsOf(it).length } ?: 0
+    private fun printReport(sections: List<Section>) {
+        val titleWidth = sections.flatMap { it.entries }.flatMap { it.findings }
+            .maxOfOrNull { it.title.length } ?: 0
 
         sections.forEach { section ->
             println()
             println(buildStyledString { bold { +section.title } })
 
             if (section.entries.isEmpty()) {
-                println(buildStyledString {
-                    gray { +"└─ none" }
-                })
+                println(buildStyledString { gray { +"  none" } })
                 return@forEach
             }
 
+            // Widths are per section, a single certificate with a long name or many domains
+            // must not tear the other sections apart.
+            val nameWidth = section.entries.maxOf { it.name.length }
+            val domainWidth = section.entries.maxOf { domainsOf(it).length }
+
             section.entries.forEachIndexed { index, entry ->
-                val isLastEntry = index == section.entries.lastIndex
+                val isLast = index == section.entries.lastIndex
                 println(buildStyledString {
-                    gray { +if (isLastEntry) "└─ " else "├─ " }
+                    gray { +if (isLast) "  └─ " else "  ├─ " }
                     yellow { +entry.name.padEnd(nameWidth) }
                     +"  "
                     gray { +domainsOf(entry).padEnd(domainWidth) }
                     +"  "
-                    if (entry.errors.isEmpty()) green { +"$CHECK_MARK valid" }
-                    else red { +"$CROSS_MARK invalid" }
+                    when (entry.status) {
+                        CertificateStatus.VALID -> green { +"valid" }
+                        CertificateStatus.OUTDATED -> yellow { +"outdated" }
+                        CertificateStatus.BROKEN -> red { +"broken" }
+                    }
                 })
 
-                entry.errors.forEachIndexed { errorIndex, error ->
-                    val isLastError = errorIndex == entry.errors.lastIndex
+                entry.findings.forEach { finding ->
                     println(buildStyledString {
-                        gray {
-                            +if (isLastEntry) "   " else "│  "
-                            +if (isLastError) "└─ " else "├─ "
+                        gray { +if (isLast) "     " else "  │  " }
+                        +"  "
+                        when (finding.status) {
+                            CertificateStatus.BROKEN -> red { +finding.title.padEnd(titleWidth) }
+                            else -> yellow { +finding.title.padEnd(titleWidth) }
                         }
-                        red { +error }
+                        gray { +"  ${finding.detail}" }
                     })
                 }
             }
         }
     }
 
+    private fun printSummary(
+        entries: List<CertificateEntry>,
+        plan: RepairPlan,
+        externalEntries: List<CertificateEntry>
+    ) {
+        val affected = entries.filterNot { it.isValid }
+
+        println()
+        if (affected.isEmpty()) {
+            println(buildStyledString { green { +"All certificates are valid" } })
+            return
+        }
+
+        println(buildStyledString {
+            val parts = buildList {
+                affected.count { it.status == CertificateStatus.BROKEN }.let { if (it > 0) add("$it broken") }
+                affected.count { it.status == CertificateStatus.OUTDATED }.let { if (it > 0) add("$it outdated") }
+            }
+            yellow { +"${parts.joinToString(", ")} of ${entries.size} certificates" }
+        })
+
+        if (!plan.isEmpty) {
+            println(buildStyledString { gray { +"Repair with" } })
+            println(buildStyledString {
+                +"  $cliName certificates repair"
+                gray { +"   (${plan.commands.joinToString(", ") { "$cliName certificates $it" }})" }
+            })
+        }
+
+        // Imported certificates cannot be regenerated locally, they have to be fetched again.
+        if (externalEntries.any { !it.isValid }) {
+            println(buildStyledString { gray { +"Import again with" } })
+            println(buildStyledString { +"  $cliName cloud download-certificate" })
+        }
+
+        exitProcess(1)
+    }
+
     private fun domainsOf(entry: CertificateEntry) =
         entry.domains.ifEmpty { listOf("-") }.joinToString(", ")
+
+    init {
+        subcommands(GenerateCommand(), RepairCommand(), InstallCommand())
+    }
 }
