@@ -112,8 +112,11 @@
                     <WsTimeline requestId={request.request_id} />
                 </div>
             {:else}
-            <div class="flex max-xl:flex-col xl:flex-row gap-2 pt-4">
-                <div class="flex-1 min-w-0 bg-zinc-50 p-4 rounded-sm overflow-hidden">
+            <!-- Two equal columns rather than two flex children: `minmax(0, 1fr)` tracks are the same
+                 width whatever is in them, so a long header value or an unwrapped line of source
+                 cannot push one panel wider than the other. -->
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-2 pt-4">
+                <div class="min-w-0 bg-zinc-50 p-4 rounded-sm overflow-hidden">
                     <h2 class="font-heading font-semibold text-gray-800 uppercase">Request</h2>
                     <HeaderTable headers={request.request.headers} />
 
@@ -127,7 +130,7 @@
                     {/if}
                 </div>
                 <div
-                        class="flex-1 min-w-0 p-4 rounded-sm overflow-hidden"
+                        class="min-w-0 p-4 rounded-sm overflow-hidden"
                         class:bg-zinc-100={request.response?.type === "success"}
                         class:bg-red-100={request.response?.type === "error"}
                         class:text-gray-800={request.response?.type === "success"}
