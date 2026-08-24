@@ -9,7 +9,8 @@ import type {RequestKind, RequestUpdate} from "../state.ts";
  *   status:500,502      response status code
  *   project:web         target project
  *   service:api         target service
- *   "user profile"      free text, matched against the request URI
+ *   url:/api/users      substring of the request URI
+ *   "user profile"      free text, the same substring match written without the qualifier
  *   !method:GET         negation, also in front of a group
  *   a b, a AND b        both have to match; whitespace is an implicit AND
  *   a OR b              either has to match; OR binds weaker than AND
@@ -52,7 +53,19 @@ function membership(path: string, values: string[]): string {
     return `${path} in [${values.map(literal).join(", ")}]`
 }
 
+/**
+ * A case insensitive substring match on the request URI. This is what a term without a qualifier
+ * means, so `url:` is only the explicit spelling of it — needed whenever the searched-for text would
+ * otherwise be read as something else, e.g. `url:method:GET` or a phrase starting with `!`.
+ */
+function uriContains(values: string[]): string {
+    return values
+        .map((value) => `${literal(value.toLowerCase())} in uri|lower`)
+        .join(" || ")
+}
+
 const QUALIFIERS: Record<string, (values: string[]) => string> = {
+    url: uriContains,
     method: (values) => membership("method", values.map((value) => value.toUpperCase())),
     is: (values) => {
         const kinds = values.map((value) => value.toLowerCase())
@@ -70,13 +83,6 @@ const QUALIFIERS: Record<string, (values: string[]) => string> = {
 
 /** The qualifiers the query language understands. */
 export const QUALIFIER_NAMES = Object.keys(QUALIFIERS)
-
-/** Free text is a case insensitive substring match on the request URI. */
-function freeText(values: string[]): string {
-    return values
-        .map((value) => `${literal(value.toLowerCase())} in uri|lower`)
-        .join(" || ")
-}
 
 const OPERATORS = ["AND", "OR"]
 
@@ -357,8 +363,10 @@ export function highlightQuery(query: string): QuerySegment[] {
 }
 
 function compileTerm(term: QueryTerm): string {
-    const compile = term.qualifier === null ? freeText : QUALIFIERS[term.qualifier]
-    return compile ? compile(term.values) : NEVER
+    const compile = term.qualifier === null ? uriContains : QUALIFIERS[term.qualifier]
+    // Parenthesized because a term with several values compiles to an OR, and OR binds weaker than
+    // the AND that joins terms: without them `a url:x,y` would evaluate as `(a && x) || y`.
+    return compile ? `(${compile(term.values)})` : NEVER
 }
 
 /** The JEXL expression a query is evaluated as; exported for debugging and tests. */

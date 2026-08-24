@@ -8,6 +8,7 @@ export const en = {
                 placeholder: "Filter requests, e.g. method:GET is:websocket",
                 suggestions: "Filter suggestions",
                 qualifiers: {
+                    url: "URL",
                     method: "Method",
                     is: "Kind",
                     status: "Status code",
@@ -53,6 +54,7 @@ export const de = {
                 placeholder: "Anfragen filtern, z.B. method:GET is:websocket",
                 suggestions: "Filter-Vorschläge",
                 qualifiers: {
+                    url: "URL",
                     method: "Methode",
                     is: "Art",
                     status: "Statuscode",
