@@ -6,6 +6,8 @@
     import {decompressBlob} from "$lib/utils";
     import {onMount} from "svelte";
     import {JsonView} from "@zerodevx/svelte-json-view";
+    import {languageOf} from "$lib/highlight";
+    import SourceView from "./SourceView.svelte";
 
     const MANUAL_DOWNLOAD_SIZE = 1024 * 1024 * 10; // 10MB
 
@@ -42,14 +44,28 @@
         return () => URL.revokeObjectURL(url);
     });
 
-    function contentEncoding(): string | null {
-        const headers = type === "request"
+    /** The headers of the side this body belongs to. */
+    function headers(): Record<string, string[]> | undefined {
+        return type === "request"
             ? request.request.headers
             : request.response?.type === "success" ? request.response.headers : undefined;
-        if (!headers) return null;
-        const key = Object.keys(headers).find((k) => k.toLowerCase() === "content-encoding");
-        return key ? headers[key]?.[0] ?? null : null;
     }
+
+    function header(name: string): string | null {
+        const all = headers();
+        if (!all) return null;
+        const key = Object.keys(all).find((k) => k.toLowerCase() === name);
+        return key ? all[key]?.[0] ?? null : null;
+    }
+
+    function contentEncoding(): string | null {
+        return header("content-encoding");
+    }
+
+    let contentType = $derived(header("content-type"));
+
+    /** The grammar the preview highlights with, or `null` for a body that is not source. */
+    let language = $derived(languageOf(contentType, request.request.uri));
 
     async function fetchBody() {
         if (isLoading) return;
@@ -87,25 +103,29 @@
             </div>
         {/if}
 
-        <div class="bg-background text-foreground rounded-md p-2 overflow-hidden min-w-0">
+        <!-- No padding here: a view that scrolls carries its own, so the padding scrolls with it. -->
+        <div class="bg-background text-foreground rounded-md overflow-hidden min-w-0">
             {#if currentBodyType === "media"}
-                {@const contentType = Object.entries(request.response?.headers || {}).find(([k]) => k.toLowerCase() === "content-type")?.[1]?.[0] ?? null}
-                {#if (contentType+";").startsWith("application/json;")}
+                {#if (contentType + ";").startsWith("application/json;")}
                     {@const json = JSON.parse(text ?? "{}")}
-                    <div class="w-full overflow-x-auto **:break-all! **:whitespace-normal!">
+                    <div class="w-full overflow-x-auto p-2 **:break-all! **:whitespace-normal!">
                         <JsonView json={json} />
                     </div>
                 {:else if (contentType ?? "").toLowerCase().startsWith("image/")}
                     {#if imageUrl}
-                        <img src={imageUrl} alt="Body preview" class="max-w-full h-auto object-contain" />
+                        <div class="p-2">
+                            <img src={imageUrl} alt="Body preview" class="max-w-full h-auto object-contain" />
+                        </div>
                     {/if}
+                {:else if language && text}
+                    <SourceView class="w-full" code={text} {language} />
                 {/if}
             {:else if currentBodyType === "text"}
-                <div class="font-mono text-sm break-all">
+                <div class="p-2 font-mono text-sm break-all">
                     {text}
                 </div>
             {:else if currentBodyType === "raw"}
-                <div class="font-mono text-sm break-all">
+                <div class="p-2 font-mono text-sm break-all">
                     {#if bytes}
                         {#await bytes.arrayBuffer() then buffer}
                             {@const arr = new Uint8Array(buffer)}
