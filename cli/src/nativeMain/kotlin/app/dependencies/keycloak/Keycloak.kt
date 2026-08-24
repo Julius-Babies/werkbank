@@ -1,6 +1,7 @@
 package app.dependencies.keycloak
 
 import app.config.MainConfig
+import app.config.WERKBANK_BASE_DOMAIN
 import app.data.Project
 import app.dependencies.AppDependency
 import app.dependencies.ReverseProxyRecord
@@ -32,7 +33,7 @@ class Keycloak : AppDependency, KoinComponent {
         .resolve("keycloak")
         .resolve("data")
 
-    val keycloakHostname = "keycloak.werkbank.studio"
+    val keycloakHostname = "keycloak.$WERKBANK_BASE_DOMAIN"
 
     private fun getImage(): String = mainConfig.getConfig().keycloak.image
 
@@ -60,10 +61,10 @@ class Keycloak : AppDependency, KoinComponent {
                 "KC_HTTP_PORT" to "8080",
                 "KC_HTTP_ENABLED" to "true",
                 "KC_PROXY_HEADERS" to "xforwarded",
-                "KC_HOSTNAME" to "keycloak.werkbank.studio",
+                "KC_HOSTNAME" to keycloakHostname,
                 "KC_STRICT_HTTPS" to "true",
                 "KC_DB" to "postgres",
-                "KC_DB_URL" to "jdbc:postgresql://postgres18.werkbank.studio:5432/keycloak",
+                "KC_DB_URL" to "jdbc:postgresql://${postgres18.hostname}:5432/keycloak",
                 "KC_DB_USERNAME" to "werkbank",
                 "KC_DB_PASSWORD" to "werkbank",
             ),

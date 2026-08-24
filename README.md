@@ -12,7 +12,7 @@ server.
 
 Werkbank makes it easy to bring localhost to the web. Create a Werkbankfile, add your services and run
 `wb setup`, which creates domains, SSL-certificates. Locally, no cloud _required_. Trust the generated certificate
-and connect to `myproject.werkbank.space`. Want to share it with your team? Create a free account at https://wbspace.app, you
+and connect to `myproject.wb.local`. Want to share it with your team? Create a free account at https://wbspace.app, you
 get a domain and a wildcard SSL certificate. Run `wb login` and `wb setup` again to link the project to your account.
 With `wb tunnel` the proxy is active and you can access your services from anywhere.
 

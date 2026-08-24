@@ -1,5 +1,6 @@
 package app.dependencies.reverse_proxy
 
+import app.config.DEFAULT_BASE_DOMAIN
 import app.config.MainConfig
 import app.config.WerkbankConfig
 import app.dependencies.AppDependency
@@ -39,7 +40,7 @@ class ReverseProxyConfigurationResolver : KoinComponent {
         val projects = projectRepository.getAllProjects().associate { it.getWerkbankConfig() to it.getConfig() }
         return projects.flatMap { (state, project) ->
             val projectBaseDomains = listOfNotNull(
-                "${project.project.id.lowercase()}.werkbank.space",
+                "${project.project.id.lowercase()}.$DEFAULT_BASE_DOMAIN",
                 project.project.externalDomain,
             )
 

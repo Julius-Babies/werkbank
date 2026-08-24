@@ -1,5 +1,6 @@
 package app.data
 
+import app.config.DEFAULT_BASE_DOMAIN
 import app.config.MainConfig
 import app.config.WerkbankConfig
 import app.dependencies.docker.DockerContainer
@@ -60,7 +61,7 @@ data class Project(
     }
 
     fun updateHosts() {
-        val domain = id.lowercase() + ".werkbank.space"
+        val domain = "${id.lowercase()}.$DEFAULT_BASE_DOMAIN"
         hostsManager.addHost(domain)
         getConfig().http
             .flatMap { it.domains.orEmpty() }
@@ -74,12 +75,12 @@ data class Project(
         assertTrue(opensslHandler.isOpensslAvailable.await())
         val certificateFile = getProjectStorage.resolve("certificate.pem")
         val privateKeyFile = getProjectStorage.resolve("private.key")
-        val mainDomain = id.lowercase() + ".werkbank.space"
+        val mainDomain = "${id.lowercase()}.$DEFAULT_BASE_DOMAIN"
         // Regenerate certificates
         opensslHandler.createCertificatePair(
             certificateFile = certificateFile,
             privateKeyFile = privateKeyFile,
-            mainDomain = id.lowercase() + ".werkbank.space",
+            mainDomain = mainDomain,
             altDomains = getConfig().http
                 .flatMap { it.domains.orEmpty() }
                 .filterNot { it.isBlank() }

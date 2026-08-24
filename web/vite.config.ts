@@ -6,8 +6,10 @@ export default defineConfig({
     plugins: [tailwindcss(), sveltekit()],
     server: {
         allowedHosts: [
-            "werkbank.werkbank.space",
-            "julius-babies.werkbank.werkbank.space",
+            "werkbank.wb.local",
+            "julius-babies.werkbank.wb.local",
+            "werkbank.wbdev.local",
+            "julius-babies.werkbank.wbdev.local",
             "julius-babies.wbcloud-dev-juliusbabies-midnight.dev.wbspace.app",
             "wbcloud-dev-juliusbabies-midnight.dev.wbspace.app"
         ]

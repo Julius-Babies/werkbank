@@ -1,6 +1,7 @@
 package app.dependencies.android_dns
 
 import app.config.MainConfig
+import app.config.WERKBANK_BASE_DOMAIN
 import app.data.Project
 import app.data.extensions.project.getAllDomains
 import app.dependencies.AppDependency
@@ -149,8 +150,8 @@ class Unbound : AppDependency, KoinComponent {
         val domains = projectRepository
             .getAllProjects()
             .flatMap { it.getAllDomains() }
-            .plus("traefik.werkbank.studio")
-            .plus("pgadmin.werkbank.studio")
+            .plus("traefik.$WERKBANK_BASE_DOMAIN")
+            .plus("pgadmin.$WERKBANK_BASE_DOMAIN")
             .distinct()
         updateUnboundConfigIfNecessary(configFile, domains)
     }

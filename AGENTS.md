@@ -4,7 +4,7 @@
 
 Werkbank brings `localhost` to the web: static domains, SSL and access control for local development
 services. You describe your services in a `Werkbankfile.yaml`, run `wb setup` (generates domains + SSL
-certificates, locally, no cloud required) and reach them under e.g. `myproject.werkbank.space`.
+certificates, locally, no cloud required) and reach them under e.g. `myproject.wb.local`.
 Optionally shareable with an account on https://wbspace.app; `wb tunnel` makes the proxy reachable
 from anywhere.
 
@@ -43,6 +43,11 @@ cd web && bun run check     # Type-check the web UI
 - **All web projects use Bun** — never use `npm`, `pnpm` or `yarn`.
 - Server ports per `Werkbankfile.yaml`: `api` → 7010, `ui` → 7020.
 - `local.properties` provides the CLI with `cli.version`, `cli.variant`, `cli.dev` (via buildkonfig).
+- Base domains live in `cli/src/nativeMain/kotlin/app/config/Domains.kt` — never hardcode them:
+  `DEFAULT_BASE_DOMAIN` (`wb.local`) for projects (`<project-id>.wb.local`) and `WERKBANK_BASE_DOMAIN`
+  (`werkbank.local`) for werkbank's own services (Traefik, Keycloak, Postgres, ...). In dev mode both
+  labels get a `dev` suffix (`wbdev.local` / `werkbankdev.local`), so a dev CLI never collides with a
+  production install.
 
 ## Agent rules
 

@@ -1,9 +1,10 @@
 package app.data.extensions.project
 
+import app.config.DEFAULT_BASE_DOMAIN
 import app.data.Project
 
 fun Project.getAllDomains(): List<String> {
-    val mainDomain = this.id.lowercase() + ".werkbank.space"
+    val mainDomain = "${this.id.lowercase()}.$DEFAULT_BASE_DOMAIN"
     return (this
         .getConfig()
         .http

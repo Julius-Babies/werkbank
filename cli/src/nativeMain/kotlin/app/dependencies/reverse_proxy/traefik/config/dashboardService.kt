@@ -1,5 +1,6 @@
 package app.dependencies.reverse_proxy.traefik.config
 
+import app.config.WERKBANK_BASE_DOMAIN
 import es.jvbabi.kfile.File
 import io.ktor.utils.io.core.toByteArray
 import org.kotlincrypto.hash.sha1.SHA1
@@ -8,7 +9,7 @@ private val dashboardService = """
 http:
   routers:
     dashboard-api-router:
-      rule: "Host(`traefik.werkbank.studio`) && PathPrefix(`/api`)"
+      rule: "Host(`traefik.${WERKBANK_BASE_DOMAIN}`) && PathPrefix(`/api`)"
       entryPoints:
         - websecure
       service: api@internal
@@ -16,7 +17,7 @@ http:
         - dashboard_stripprefix@internal
       tls: true
     dashboard-router:
-      rule: "Host(`traefik.werkbank.studio`) && PathPrefix(`/`)"
+      rule: "Host(`traefik.${WERKBANK_BASE_DOMAIN}`) && PathPrefix(`/`)"
       entryPoints:
         - websecure
       service: dashboard@internal
