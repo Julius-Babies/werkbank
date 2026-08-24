@@ -45,6 +45,26 @@ fun Task.deleteLinkedExecutableAction() {
     }
 }
 
+/**
+ * Verifies the linked executable exists and removes the previously installed binary before the
+ * copy. Deleting instead of overwriting in place is deliberate: the new file gets a fresh inode,
+ * so a currently running instance cannot cause "Text file busy" and macOS does not keep a stale
+ * code signature cached for the old inode (which makes the rebuilt binary die with SIGKILL).
+ */
+fun Task.deleteInstalledBinaryAction(binaryName: String) {
+    val source = linkedExecutable.get().asFile
+    val target = File(localBinDir, binaryName)
+    val linkTask = linkTaskName
+    doFirst {
+        if (!source.isFile) {
+            error("Linked executable not found at ${source.path}. Did $linkTask run?")
+        }
+        if (target.exists() && !target.delete()) {
+            error("Failed to remove ${target.path}. Stop any running $binaryName process and retry.")
+        }
+    }
+}
+
 fun Task.ensureLocalBinOnPathAction() {
     val binDir = localBinDir
     doLast {
@@ -87,6 +107,7 @@ fun registerInstallTask(name: String, binaryName: String) =
         into(localBinDir)
         rename { binaryName }
         filePermissions { unix("rwxr-xr-x") }
+        deleteInstalledBinaryAction(binaryName)
         ensureLocalBinOnPathAction()
     }
 
