@@ -143,7 +143,9 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     tunnel.startWsProxy(wsRecord)
                 } catch (e: TunnelClosedException) {
                     call.application.environment.log.warn("WebSocket proxy failed for ${wsRecord.uri}: ${e.message}")
-                    call.respondText("Tunnel connection closed", status = HttpStatusCode.BadGateway)
+                    // The tunnel host explains why it could not open the WebSocket (e.g. the local
+                    // service is not running); a generic message would hide that from the developer.
+                    call.respondText(e.message ?: "Tunnel connection closed", status = HttpStatusCode.BadGateway)
                     return@onCall
                 } catch (_: TimeoutException) {
                     call.application.environment.log.warn("WebSocket proxy timed out for ${wsRecord.uri}")

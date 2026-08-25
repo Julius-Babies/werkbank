@@ -15,6 +15,7 @@ import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.network.selector.*
+import io.ktor.network.sockets.*
 import io.ktor.serialization.kotlinx.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.util.logging.LogLevel
@@ -53,6 +54,9 @@ class TunnelViewModel: KoinComponent {
 
         /** How long a ping may stay unanswered before the connection is reported as stalled. */
         private val PING_TIMEOUT = 15.seconds
+
+        /** How long a local service gets to accept the TCP connection behind a WebSocket request. */
+        private val WS_UPSTREAM_PROBE_TIMEOUT = 5.seconds
 
         // WebSocket handshake control headers the ktor client manages itself; forwarding the browser's
         // copies would conflict. Everything else (incl. Sec-WebSocket-Protocol, e.g. Vite's "vite-hmr")
@@ -572,133 +576,178 @@ class TunnelViewModel: KoinComponent {
                                         }
                                         is ServerMessage.WsOpen -> {
                                             launch wsRelay@{
-                                                val target = when (val resolution = tunnelRequestResolver.getTarget(
-                                                    projectKey = msg.project,
-                                                    serviceKey = msg.service,
-                                                    path = msg.path,
-                                                    isWebsocket = true,
-                                                )) {
-                                                    is TunnelRequestResolver.Resolution.Resolved -> resolution.target
-                                                    is TunnelRequestResolver.Resolution.Failed -> {
-                                                        // Fail the handshake fast instead of letting the server
-                                                        // wait out its open-timeout on a request that can't resolve.
+                                                // Nothing in here may escape into the tunnel session: an exception
+                                                // reaching it cancels the socket and takes every other request with it.
+                                                try {
+                                                    val target = when (val resolution = tunnelRequestResolver.getTarget(
+                                                        projectKey = msg.project,
+                                                        serviceKey = msg.service,
+                                                        path = msg.path,
+                                                        isWebsocket = true,
+                                                    )) {
+                                                        is TunnelRequestResolver.Resolution.Resolved -> resolution.target
+                                                        is TunnelRequestResolver.Resolution.Failed -> {
+                                                            // Fail the handshake fast instead of letting the server
+                                                            // wait out its open-timeout on a request that can't resolve.
+                                                            this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                                requestId = msg.requestId,
+                                                                code = 1011,
+                                                                reason = resolution.reason,
+                                                            ))
+                                                            return@wsRelay
+                                                        }
+                                                    }
+
+                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
+                                                        requestId = msg.requestId,
+                                                        service = target.service.name,
+                                                    ))
+
+                                                    _requests.update { it.takeLast(MAX_TRACKED_REQUESTS - 1) + Request(
+                                                        requestId = msg.requestId,
+                                                        method = "WS/GET",
+                                                        project = target.project.id,
+                                                        service = target.service.name,
+                                                        path = msg.path,
+                                                        targetUrl = target.url,
+                                                        startedAt = Clock.System.now(),
+                                                        headers = msg.headers.map { header ->
+                                                            val separator = header.indexOf(": ")
+                                                            if (separator <= 0) header to "" else header.substring(0, separator) to header.substring(separator + 2)
+                                                        },
+                                                        result = null,
+                                                        ws = Request.WsState(),
+                                                    ) }
+
+                                                    // Asking the WebSocket client whether the service is up costs the
+                                                    // whole session (see probeUpstream), so a plain TCP connect asks first.
+                                                    val upstream = URLBuilder(target.url).build()
+                                                    val unreachable = probeUpstream(upstream.host, upstream.port)
+                                                    if (unreachable != null) {
+                                                        val reason = "The service ${target.service.name} is not reachable at ${upstream.host}:${upstream.port} ($unreachable)"
+                                                        log(LogLevel.WARN, "WebSocket ${msg.path}: $reason")
+                                                        _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.ServiceNotRunning(Clock.System.now())) else it } }
+                                                        updateWs(msg.requestId) { it.copy(closed = true) }
                                                         this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
                                                             requestId = msg.requestId,
                                                             code = 1011,
-                                                            reason = resolution.reason,
+                                                            reason = reason,
                                                         ))
                                                         return@wsRelay
                                                     }
-                                                }
 
-                                                this@serverSession.sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
-                                                    requestId = msg.requestId,
-                                                    service = target.service.name,
-                                                ))
-
-                                                _requests.update { it.takeLast(MAX_TRACKED_REQUESTS - 1) + Request(
-                                                    requestId = msg.requestId,
-                                                    method = "WS/GET",
-                                                    project = target.project.id,
-                                                    service = target.service.name,
-                                                    path = msg.path,
-                                                    targetUrl = target.url,
-                                                    startedAt = Clock.System.now(),
-                                                    headers = msg.headers.map { header ->
-                                                        val (key, value) = header.split(": ")
-                                                        key to value
-                                                    },
-                                                    result = null,
-                                                    ws = Request.WsState(),
-                                                ) }
-
-                                                try {
-                                                    client.webSocket(
-                                                        urlString = target.url,
-                                                        request = {
-                                                            msg.headers.forEach { header ->
-                                                                val separator = header.indexOf(": ")
-                                                                if (separator <= 0) return@forEach
-                                                                val name = header.substring(0, separator)
-                                                                val value = header.substring(separator + 2)
-                                                                if (name.lowercase() !in NON_FORWARDED_WS_HEADERS) {
-                                                                    headers.append(name, value)
+                                                    // Its own client per connection, so the failure of one upstream
+                                                    // stays with that upstream; see upstreamWsClient.
+                                                    val upstreamClient = upstreamWsClient()
+                                                    /** Whether the handshake with the local service went through. */
+                                                    var opened = false
+                                                    try {
+                                                        upstreamClient.webSocket(
+                                                            urlString = target.url,
+                                                            request = {
+                                                                msg.headers.forEach { header ->
+                                                                    val separator = header.indexOf(": ")
+                                                                    if (separator <= 0) return@forEach
+                                                                    val name = header.substring(0, separator)
+                                                                    val value = header.substring(separator + 2)
+                                                                    if (name.lowercase() !in NON_FORWARDED_WS_HEADERS) {
+                                                                        headers.append(name, value)
+                                                                    }
+                                                                }
+                                                                // The ktor client owns Host for the handshake, so the public
+                                                                // origin can only travel in X-Forwarded-* here.
+                                                                msg.headers.headerValue("Host")?.let { clientHost ->
+                                                                    if (msg.headers.headerValue("X-Forwarded-Host") == null) {
+                                                                        headers.append("X-Forwarded-Host", clientHost)
+                                                                    }
+                                                                }
+                                                                if (msg.headers.headerValue("X-Forwarded-Proto") == null) {
+                                                                    headers.append("X-Forwarded-Proto", PUBLIC_SCHEME)
                                                                 }
                                                             }
-                                                            // The ktor client owns Host for the handshake, so the public
-                                                            // origin can only travel in X-Forwarded-* here.
-                                                            msg.headers.headerValue("Host")?.let { clientHost ->
-                                                                if (msg.headers.headerValue("X-Forwarded-Host") == null) {
-                                                                    headers.append("X-Forwarded-Host", clientHost)
+                                                        ) {
+                                                            wsProxyState[msg.requestId] = this
+                                                            opened = true
+                                                            this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
+                                                                requestId = msg.requestId,
+                                                                headers = call.response.headers.entries().flatMap { (name, values) ->
+                                                                    values.map { "$name: $it" }
+                                                                },
+                                                            ))
+
+                                                            for (frame in incoming) {
+                                                                when (frame) {
+                                                                    is Frame.Text -> {
+                                                                        updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
+                                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
+                                                                            requestId = msg.requestId,
+                                                                            text = frame.readText()
+                                                                        ))
+                                                                    }
+                                                                    is Frame.Binary -> {
+                                                                        updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
+                                                                        this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(
+                                                                            msg.requestId,
+                                                                            TunnelFrame.webSocketFlags(frame.fin),
+                                                                            frame.readBytes(),
+                                                                        )))
+                                                                    }
+                                                                    is Frame.Close -> {
+                                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                                            requestId = msg.requestId,
+                                                                            code = frame.readReason()?.code?.toInt() ?: 1000,
+                                                                            reason = frame.readReason()?.message ?: ""
+                                                                        ))
+                                                                        break
+                                                                    }
+                                                                    else -> {}
                                                                 }
-                                                            }
-                                                            if (msg.headers.headerValue("X-Forwarded-Proto") == null) {
-                                                                headers.append("X-Forwarded-Proto", PUBLIC_SCHEME)
                                                             }
                                                         }
-                                                    ) {
-                                                        wsProxyState[msg.requestId] = this
-                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
+                                                    } catch (e: Exception) {
+                                                        // Our own shutdown is not a failure of this connection.
+                                                        if (e is kotlin.coroutines.cancellation.CancellationException && !this@wsRelay.isActive) throw e
+                                                        // The Darwin engine ends a finished WebSocket task by cancelling
+                                                        // the session job instead of delivering a close frame, so a
+                                                        // cancellation on a session that was open means the local
+                                                        // service hung up — a normal close, not an internal error.
+                                                        val upstreamClosed = opened && e is kotlin.coroutines.cancellation.CancellationException
+                                                        if (!upstreamClosed) log(
+                                                            level = LogLevel.ERROR,
+                                                            message = "WebSocket ${msg.path} failed: ${e.message ?: e::class.simpleName}",
+                                                            throwable = e,
+                                                        )
+                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
                                                             requestId = msg.requestId,
-                                                            headers = call.response.headers.entries().flatMap { (name, values) ->
-                                                                values.map { "$name: $it" }
+                                                            code = if (upstreamClosed) 1001 else 1011,
+                                                            reason = when {
+                                                                upstreamClosed -> "The service ${target.service.name} closed the WebSocket"
+                                                                opened -> "The WebSocket to ${target.service.name} failed: ${e.message ?: e::class.simpleName}"
+                                                                else -> "The service ${target.service.name} refused the WebSocket handshake: ${e.message ?: e::class.simpleName}"
                                                             },
                                                         ))
-
-                                                        for (frame in incoming) {
-                                                            when (frame) {
-                                                                is Frame.Text -> {
-                                                                    updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
-                                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
-                                                                        requestId = msg.requestId,
-                                                                        text = frame.readText()
-                                                                    ))
-                                                                }
-                                                                is Frame.Binary -> {
-                                                                    updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
-                                                                    this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(
-                                                                        msg.requestId,
-                                                                        TunnelFrame.webSocketFlags(frame.fin),
-                                                                        frame.readBytes(),
-                                                                    )))
-                                                                }
-                                                                is Frame.Close -> {
-                                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
-                                                                        requestId = msg.requestId,
-                                                                        code = frame.readReason()?.code?.toInt() ?: 1000,
-                                                                        reason = frame.readReason()?.message ?: ""
-                                                                    ))
-                                                                    break
-                                                                }
-                                                                else -> {}
-                                                            }
-                                                        }
+                                                    } finally {
+                                                        updateWs(msg.requestId) { it.copy(closed = true) }
+                                                        wsProxyState.remove(msg.requestId)
+                                                        wsBinaryFragments.remove(msg.requestId)
+                                                        upstreamClient.close()
                                                     }
-                                                } catch (e: Exception) {
-                                                    // Our own shutdown is not a failure of this connection.
+                                                } catch (e: Throwable) {
                                                     if (e is kotlin.coroutines.cancellation.CancellationException && !this@wsRelay.isActive) throw e
-                                                    // The Darwin engine ends a finished WebSocket task by cancelling
-                                                    // the session job instead of delivering a close frame, so a
-                                                    // cancellation with this coroutine still alive means the local
-                                                    // service hung up — a normal close, not an internal error.
-                                                    val upstreamClosed = e is kotlin.coroutines.cancellation.CancellationException
-                                                    if (!upstreamClosed) log(
+                                                    log(
                                                         level = LogLevel.ERROR,
                                                         message = "WebSocket ${msg.path} failed: ${e.message ?: e::class.simpleName}",
                                                         throwable = e,
                                                     )
-                                                    this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
-                                                        requestId = msg.requestId,
-                                                        code = if (upstreamClosed) 1001 else 1011,
-                                                        reason = when {
-                                                            upstreamClosed -> "The service ${target.service.name} closed the WebSocket"
-                                                            else -> e.message ?: "Failed to connect to local WebSocket service"
-                                                        },
-                                                    ))
-                                                } finally {
-                                                    updateWs(msg.requestId) { it.copy(closed = true) }
-                                                    wsProxyState.remove(msg.requestId)
-                                                    wsBinaryFragments.remove(msg.requestId)
+                                                    // The server would otherwise wait out its open-timeout on a
+                                                    // request this tunnel has already given up on.
+                                                    runCatching {
+                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                            requestId = msg.requestId,
+                                                            code = 1011,
+                                                            reason = e.message ?: "The tunnel failed to open the WebSocket",
+                                                        ))
+                                                    }
                                                 }
                                             }
                                         }
@@ -766,6 +815,43 @@ class TunnelViewModel: KoinComponent {
                 }
             }
         }
+    }
+
+    /**
+     * A client of its own for a single proxied WebSocket.
+     *
+     * A WebSocket the engine cannot finish is reported by failing the job of the session it created,
+     * which lives in the job tree of the client that started it. The tunnel's own socket must not
+     * share that tree with connections to local services, and neither must two of those with each
+     * other — one dev server refusing a handshake may not cost anything but its own connection.
+     */
+    private fun upstreamWsClient() = httpClientBase {
+        followRedirects = false
+        install(WebSockets) {
+            pingInterval = 15.seconds
+        }
+    }
+
+    /**
+     * Checks whether anything accepts connections on [host]:[port], before a WebSocket handshake is
+     * attempted against it. Returns null when the port is open, otherwise why it is not.
+     *
+     * Worth the extra connect: the client answers the same question only by failing the session (and
+     * with it the request), while a service that is simply not running is the most likely outcome of
+     * all and deserves a handshake failure that says so.
+     */
+    private suspend fun probeUpstream(host: String, port: Int): String? {
+        val socket = try {
+            withTimeoutOrNull(WS_UPSTREAM_PROBE_TIMEOUT) {
+                aSocket(selectorManager).tcp().connect(host, port)
+            } ?: return "no connection within ${WS_UPSTREAM_PROBE_TIMEOUT.inWholeSeconds}s"
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return e.message ?: "connection refused"
+        }
+        socket.close()
+        return null
     }
 
     /**

@@ -91,6 +91,8 @@ fun RequestTable(
                     content = { request ->
                         val ws = request.ws
                         when {
+                            // A WebSocket whose service never answered has no frames to show.
+                            request.result is Request.Result.ServiceNotRunning -> Text("Down", color = Color.Red)
                             ws != null -> Row {
                                 Text("$UP_ARROW${ws.framesSent}", color = Color.Green)
                                 Text(" $DOWN_ARROW${ws.framesReceived}", color = Color.Cyan)
