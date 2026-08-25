@@ -161,10 +161,9 @@ private fun TunnelScreen(viewModel: TunnelViewModel) {
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .width(terminal.size.columns)
-                    .height(1)
+            ConnectionStatusLog(
+                entries = connectionStatusLog,
+                modifier = Modifier.width(terminal.size.columns),
             ) {
                 Row {
                     when (val connectionState = state.connectionState) {
@@ -224,17 +223,13 @@ private fun TunnelScreen(viewModel: TunnelViewModel) {
                     if (isDevMode) Text(" (Dev) ", color = Color.Yellow)
                     if (state.highlightedRequestId != null) Text(" " + state.highlightedRequestId, color = Color.Blue)
                     Spacer(Modifier.weight(1f, true))
+                    Text(" ")
                     Text(
                         value = "CTRL+C to exit",
                         color = Color.Blue,
                     )
                 }
             }
-
-            ConnectionStatusLog(
-                entries = connectionStatusLog,
-                modifier = Modifier.width(terminal.size.columns),
-            )
         }
 
         if (rejected != null) {

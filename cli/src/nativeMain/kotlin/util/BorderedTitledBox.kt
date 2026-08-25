@@ -4,19 +4,36 @@ import androidx.compose.runtime.Composable
 import com.jakewharton.mosaic.layout.offset
 import com.jakewharton.mosaic.layout.padding
 import com.jakewharton.mosaic.modifier.Modifier
-import com.jakewharton.mosaic.text.SpanStyle
-import com.jakewharton.mosaic.text.buildAnnotatedString
-import com.jakewharton.mosaic.text.withStyle
 import com.jakewharton.mosaic.ui.Alignment
 import com.jakewharton.mosaic.ui.Box
 import com.jakewharton.mosaic.ui.BoxScope
 import com.jakewharton.mosaic.ui.Color
+import com.jakewharton.mosaic.ui.Row
 import com.jakewharton.mosaic.ui.Text
 
+/** [BorderedTitledBox] with a plain [title] on its top border. */
 @Composable
 fun BorderedTitledBox(
 	title: String,
 	titleColor: Color = Color.Cyan,
+	borderColor: Color = Color.Cyan,
+	modifier: Modifier = Modifier,
+	borderVariant: Border.Variant = Border.Variant.Hard,
+	content: @Composable BoxScope.() -> Unit,
+) {
+	BorderedTitledBox(
+		title = { Text(title, color = titleColor) },
+		borderColor = borderColor,
+		modifier = modifier,
+		borderVariant = borderVariant,
+		content = content,
+	)
+}
+
+/** A box with a border around [content] and [title] sitting on its top line. */
+@Composable
+fun BorderedTitledBox(
+	title: @Composable () -> Unit,
 	borderColor: Color = Color.Cyan,
 	modifier: Modifier = Modifier,
 	borderVariant: Border.Variant = Border.Variant.Hard,
@@ -33,20 +50,12 @@ fun BorderedTitledBox(
 			)
 			.padding(horizontal = 1),
 	) {
-		Text(
-			buildAnnotatedString {
-				// The title sits on the top border, so it closes it on its left and reopens it on its right.
-				append(borderVariant.titleLeft.asTopEnd())
-				append(' ')
-				withStyle(SpanStyle(titleColor)) {
-					append(title)
-				}
-				append(' ')
-				append(borderVariant.titleRight.asTopStart())
-			},
-			modifier = Modifier.align(Alignment.TopStart).offset(x = -1, y = -1),
-			color = borderColor,
-		)
+		// The title sits on the top border, so it closes it on its left and reopens it on its right.
+		Row(modifier = Modifier.align(Alignment.TopStart).offset(x = -1, y = -1)) {
+			Text("${borderVariant.titleLeft.asTopEnd()} ", color = borderColor)
+			title()
+			Text(" ${borderVariant.titleRight.asTopStart()}", color = borderColor)
+		}
 		content()
 	}
 }

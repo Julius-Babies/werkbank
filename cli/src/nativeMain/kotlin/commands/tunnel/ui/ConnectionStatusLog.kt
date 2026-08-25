@@ -44,14 +44,14 @@ private val timeFormat = LocalDateTime.Format {
  */
 @Composable
 fun ConnectionStatusLog(
-    entries: List<ConnectionStatusLogEntry>,
     modifier: Modifier = Modifier,
+    entries: List<ConnectionStatusLogEntry>,
+    title: @Composable () -> Unit,
 ) {
     val visible = entries.takeLast(VISIBLE_ENTRIES)
     BorderedTitledBox(
-        title = "Connection log",
+        title = title,
         modifier = modifier.height(VISIBLE_ENTRIES + BORDER_ROWS),
-        titleColor = Color(128, 128, 128),
         borderColor = Color(128, 128, 128),
         borderVariant = Border.Variant.Custom(
             topLeft = Border.Corner.Rounded,
