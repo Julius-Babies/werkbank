@@ -17,6 +17,7 @@ import com.jakewharton.mosaic.ui.Color
 import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Row
 import com.jakewharton.mosaic.ui.Spacer
+import commands.tunnel.ui.ConnectionStatusLog
 import commands.tunnel.ui.RequestTable
 import commands.tunnel.ui.details.RequestDetailsPanel
 import kotlinx.coroutines.coroutineScope
@@ -68,6 +69,7 @@ private fun TunnelScreen(viewModel: TunnelViewModel) {
     val terminal = LocalTerminalState.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val requests by viewModel.requests.collectAsStateWithLifecycle()
+    val connectionStatusLog by viewModel.connectionStatusLog.collectAsStateWithLifecycle()
     val rejected = state.connectionState as? TunnelState.ConnectionState.Rejected
 
     Box(
@@ -159,10 +161,9 @@ private fun TunnelScreen(viewModel: TunnelViewModel) {
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .width(terminal.size.columns)
-                    .height(1)
+            ConnectionStatusLog(
+                entries = connectionStatusLog,
+                modifier = Modifier.width(terminal.size.columns),
             ) {
                 Row {
                     when (val connectionState = state.connectionState) {
@@ -222,6 +223,7 @@ private fun TunnelScreen(viewModel: TunnelViewModel) {
                     if (isDevMode) Text(" (Dev) ", color = Color.Yellow)
                     if (state.highlightedRequestId != null) Text(" " + state.highlightedRequestId, color = Color.Blue)
                     Spacer(Modifier.weight(1f, true))
+                    Text(" ")
                     Text(
                         value = "CTRL+C to exit",
                         color = Color.Blue,

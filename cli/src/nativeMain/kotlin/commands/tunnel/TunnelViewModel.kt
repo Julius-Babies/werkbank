@@ -6,6 +6,7 @@ import app.process.currentProcessId
 import app.process.isProcessRunning
 import app.process.processInfo
 import app.process.stopProcess
+import app.storage.TunnelLogFile
 import app.storage.TunnelPidFile
 import app.werkbank.shared.tunnel.*
 import http.httpClientBase
@@ -16,6 +17,7 @@ import io.ktor.http.*
 import io.ktor.network.selector.*
 import io.ktor.serialization.kotlinx.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.util.logging.LogLevel
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
@@ -45,6 +47,12 @@ class TunnelViewModel: KoinComponent {
 
         /** How many requests the TUI keeps; older entries are dropped from the front. */
         private const val MAX_TRACKED_REQUESTS = 500
+
+        /** How many connection log entries the TUI keeps; the log file keeps all of them. */
+        private const val MAX_TRACKED_LOG_ENTRIES = 50
+
+        /** How long a ping may stay unanswered before the connection is reported as stalled. */
+        private val PING_TIMEOUT = 15.seconds
 
         // WebSocket handshake control headers the ktor client manages itself; forwarding the browser's
         // copies would conflict. Everything else (incl. Sec-WebSocket-Protocol, e.g. Vite's "vite-hmr")
@@ -99,6 +107,9 @@ class TunnelViewModel: KoinComponent {
     private val _requests = MutableStateFlow<List<Request>>(emptyList())
     val requests: StateFlow<List<Request>> = _requests
 
+    private val _connectionStatusLog = MutableStateFlow<List<ConnectionStatusLogEntry>>(emptyList())
+    val connectionStatusLog: StateFlow<List<ConnectionStatusLogEntry>> = _connectionStatusLog
+
     private val selectorManager = SelectorManager(Dispatchers.Default)
     private val connectionPool = LocalConnectionPool(selectorManager)
 
@@ -127,8 +138,17 @@ class TunnelViewModel: KoinComponent {
         authToken = authTokenValue
 
         viewModelScope.launch {
+            val cloudDomain = mainConfig.getConfig().werkbankCloudDomain
+            var everConnected = false
+            /** Attempts since the last connection that came up, so a flaky network shows in the log. */
+            var failedAttempts = 0
             while (true) {
                 state.update { it.copy(connectionState = TunnelState.ConnectionState.Connecting) }
+                val connectMessage = if (everConnected) "Reconnecting to $cloudDomain" else "Connecting to $cloudDomain"
+                log(
+                    level = LogLevel.INFO,
+                    message = if (failedAttempts == 0) connectMessage else "$connectMessage (attempt ${failedAttempts + 1})",
+                )
 
                 val requestBodies = mutableMapOf<Uuid, ByteWriteChannel>()
                 val wsProxyState = mutableMapOf<Uuid, DefaultClientWebSocketSession>()
@@ -145,7 +165,7 @@ class TunnelViewModel: KoinComponent {
 
                 try {
                     client.webSocket(
-                        urlString = "wss://${mainConfig.getConfig().werkbankCloudDomain}/api/tunnel",
+                        urlString = "wss://$cloudDomain/api/tunnel",
                         request = {
                             bearerAuth(authToken)
                         }
@@ -153,18 +173,27 @@ class TunnelViewModel: KoinComponent {
                         var currentPingId: Uuid? = null
                         var lastPingStart: Instant? = null
                         var currentPingLatch = CompletableDeferred(Unit)
+                        // Only the transitions are logged; a stalled connection times out every ping.
+                        var pingTimedOut = false
                         launch {
                             while (this@serverSession.isActive) {
                                 lastPingStart = Clock.System.now()
                                 currentPingId = Uuid.random()
                                 sendSerialized<ClientMessage>(ClientMessage.Ping(currentPingId))
                                 currentPingLatch = CompletableDeferred()
-                                val ok = withTimeoutOrNull(15.seconds) {
+                                val ok = withTimeoutOrNull(PING_TIMEOUT) {
                                     currentPingLatch.await()
                                     true
                                 } ?: false
                                 if (ok) {
+                                    if (pingTimedOut) {
+                                        pingTimedOut = false
+                                        log(LogLevel.INFO, "The server answers pings again")
+                                    }
                                     state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = Clock.System.now() - lastPingStart)) }
+                                } else if (!pingTimedOut) {
+                                    pingTimedOut = true
+                                    log(LogLevel.WARN, "No pong from the server within ${PING_TIMEOUT.inWholeSeconds}s")
                                 }
                                 // Every ping updates the state and re-renders the TUI, and its frames
                                 // compete with request traffic on the tunnel socket — keep it rare.
@@ -172,6 +201,9 @@ class TunnelViewModel: KoinComponent {
                             }
                         }
                         state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = null)) }
+                        log(LogLevel.INFO, "Connected to $cloudDomain")
+                        everConnected = true
+                        failedAttempts = 0
 
                         for (message in incoming) {
                             if (!owner) {
@@ -510,6 +542,11 @@ class TunnelViewModel: KoinComponent {
                                                     throw e
                                                 } catch (e: Exception) {
                                                     checkpoints.mark("Unexpected error: ${e.message}")
+                                                    log(
+                                                        level = LogLevel.ERROR,
+                                                        message = "${msg.method} ${msg.path} failed: ${e.message ?: e::class.simpleName}",
+                                                        throwable = e,
+                                                    )
                                                     // Once the response headers are out the browser owns the
                                                     // stream; the best we can do is end it. Only before that
                                                     // can the server still render the unexpected-error page.
@@ -645,6 +682,11 @@ class TunnelViewModel: KoinComponent {
                                                     // cancellation with this coroutine still alive means the local
                                                     // service hung up — a normal close, not an internal error.
                                                     val upstreamClosed = e is kotlin.coroutines.cancellation.CancellationException
+                                                    if (!upstreamClosed) log(
+                                                        level = LogLevel.ERROR,
+                                                        message = "WebSocket ${msg.path} failed: ${e.message ?: e::class.simpleName}",
+                                                        throwable = e,
+                                                    )
                                                     this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
                                                         requestId = msg.requestId,
                                                         code = if (upstreamClosed) 1001 else 1011,
@@ -683,13 +725,26 @@ class TunnelViewModel: KoinComponent {
                             }
                         }
 
-                        rejected = closeReason.await()
+                        val serverCloseReason = closeReason.await()
+                        rejected = serverCloseReason
                             ?.takeIf { it.knownReason == CloseReason.Codes.VIOLATED_POLICY }
                             ?.message
+                        if (rejected == null) {
+                            val detail = serverCloseReason?.let { reason ->
+                                if (reason.message.isBlank()) " (${reason.code})" else " (${reason.code}: ${reason.message})"
+                            }
+                            log(LogLevel.WARN, "Tunnel closed by the server${detail ?: ""}")
+                        }
                     }
                 } catch (e: Exception) {
                     // Released here as well as below because the retry delay may never return.
                     if (owner) TunnelPidFile.clear(currentProcessId())
+                    failedAttempts++
+                    log(
+                        level = LogLevel.ERROR,
+                        message = "${e.message ?: e::class.simpleName ?: "Connection failed"} - retrying in ${TUNNEL_RECONNECT_DELAY.inWholeSeconds}s",
+                        throwable = e,
+                    )
                     state.update { it.copy(connectionState = TunnelState.ConnectionState.Retrying(Clock.System.now() + TUNNEL_RECONNECT_DELAY, e)) }
                     delay(TUNNEL_RECONNECT_DELAY)
                 }
@@ -701,6 +756,7 @@ class TunnelViewModel: KoinComponent {
                 // keep the slot.
                 val rejection = rejected
                 if (rejection != null) {
+                    log(LogLevel.WARN, "Tunnel refused: $rejection")
                     // Drop anything sent while no dialog was up, so a stale request cannot skip this one.
                     do { val stale = retryRequests.tryReceive() } while (stale.isSuccess)
                     state.update {
@@ -710,6 +766,18 @@ class TunnelViewModel: KoinComponent {
                 }
             }
         }
+    }
+
+    /**
+     * Records a connection event for the status log at the bottom of the TUI and appends it to
+     * `tunnel.log`, where [throwable] is kept with its full stack trace.
+     */
+    private fun log(level: LogLevel, message: String, throwable: Throwable? = null) {
+        val timestamp = Clock.System.now()
+        _connectionStatusLog.update {
+            (it + ConnectionStatusLogEntry(message = message, timestamp = timestamp, level = level)).takeLast(MAX_TRACKED_LOG_ENTRIES)
+        }
+        TunnelLogFile.append(timestamp = timestamp, level = level, message = message, throwable = throwable)
     }
 
     private fun updateWs(requestId: Uuid, transform: (Request.WsState) -> Request.WsState) {
@@ -744,12 +812,14 @@ class TunnelViewModel: KoinComponent {
 
     /** Reconnect after the server refused the tunnel because another one holds the account slot. */
     fun onRetryRejectedTunnel() {
+        log(LogLevel.INFO, "Retrying after the tunnel was refused")
         retryRequests.trySend(Unit)
     }
 
     /** Shut the local tunnel from the dialog down and reconnect as soon as it released the slot. */
     fun onStopLocalTunnelAndRetry() {
         val other = (state.value.connectionState as? TunnelState.ConnectionState.Rejected)?.localTunnel ?: return
+        log(LogLevel.INFO, "Stopping the local tunnel with pid ${other.pid}")
         viewModelScope.launch {
             stopProcess(other.pid)
             // The server frees the slot the moment that process' socket dies, which is why this waits
@@ -831,6 +901,12 @@ data class TunnelState(
         data class Rejected(val reason: String, val localTunnel: ProcessInfo?): ConnectionState()
     }
 }
+
+data class ConnectionStatusLogEntry(
+    val message: String,
+    val timestamp: Instant,
+    val level: LogLevel
+)
 
 data class Request(
     val requestId: Uuid,
