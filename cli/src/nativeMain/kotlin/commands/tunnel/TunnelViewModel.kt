@@ -625,7 +625,9 @@ class TunnelViewModel: KoinComponent {
                                                     val unreachable = probeUpstream(upstream.host, upstream.port)
                                                     if (unreachable != null) {
                                                         val reason = "The service ${target.service.name} is not reachable at ${upstream.host}:${upstream.port} ($unreachable)"
-                                                        log(LogLevel.WARN, "WebSocket ${msg.path}: $reason")
+                                                        // A service that is not running is an ordinary state - most
+                                                        // projects a tunnel serves are not started at any given time.
+                                                        log(LogLevel.DEBUG, "WebSocket ${msg.path}: $reason")
                                                         _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.ServiceNotRunning(Clock.System.now())) else it } }
                                                         updateWs(msg.requestId) { it.copy(closed = true) }
                                                         this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
@@ -855,12 +857,14 @@ class TunnelViewModel: KoinComponent {
     }
 
     /**
-     * Records a connection event for the status log at the bottom of the TUI and appends it to
-     * `tunnel.log`, where [throwable] is kept with its full stack trace.
+     * Records a connection event in `tunnel.log`, where [throwable] is kept with its full stack trace,
+     * and - from [LogLevel.INFO] up - in the status log at the bottom of the TUI.
      */
     private fun log(level: LogLevel, message: String, throwable: Throwable? = null) {
         val timestamp = Clock.System.now()
-        _connectionStatusLog.update {
+        // The three lines on screen are for what the user is meant to notice; everything below INFO
+        // is only worth looking up in the log file.
+        if (level >= LogLevel.INFO) _connectionStatusLog.update {
             (it + ConnectionStatusLogEntry(message = message, timestamp = timestamp, level = level)).takeLast(MAX_TRACKED_LOG_ENTRIES)
         }
         TunnelLogFile.append(timestamp = timestamp, level = level, message = message, throwable = throwable)
