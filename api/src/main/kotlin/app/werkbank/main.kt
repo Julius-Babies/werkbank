@@ -11,11 +11,11 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.netty.handler.ssl.OptionalSslHandler
 import io.netty.handler.ssl.SslContextBuilder
+import io.opentelemetry.kotlin.OpenTelemetry
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.koin.ktor.ext.inject
 import org.koin.ktor.plugin.KoinApplicationStarted
-import util.StubSpan
 import java.io.File
 import kotlin.uuid.Uuid
 
@@ -64,8 +64,10 @@ class AppCommand : SuspendingCliktCommand("server") {
                         if (withLocalMainCertificate) {
                             val appConfig by inject<AppConfig>()
                             val localCertificateManager by inject<LocalCertificateManager>()
+                            val openTelemetry by inject<OpenTelemetry>()
                             localCertificateManager.requestCertificate(
-                                span = StubSpan,
+                                // Startup work belongs to no request, so there is no span to record on.
+                                span = openTelemetry.span.invalid,
                                 listOf(appConfig.appDomain, "*." + appConfig.appDomain),
                                 targetCertFile = File("/tmp/${Uuid.random()}.crt"),
                                 targetKeyFile = File("/tmp/${Uuid.random()}.key")

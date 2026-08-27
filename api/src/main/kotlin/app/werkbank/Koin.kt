@@ -20,11 +20,14 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
+import io.ktor.util.logging.KtorSimpleLogger
 import io.opentelemetry.kotlin.OpenTelemetry
 import io.opentelemetry.kotlin.createOpenTelemetry
+import io.opentelemetry.kotlin.error.SdkErrorSeverity
 import io.opentelemetry.kotlin.tracing.Tracer
 import io.opentelemetry.kotlin.tracing.export.batchSpanProcessor
 import io.opentelemetry.kotlin.tracing.export.otlpHttpSpanExporter
+import io.opentelemetry.kotlin.tracing.sampling.alwaysOn
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.koin.core.module.dsl.singleOf
@@ -71,9 +74,26 @@ fun Application.configureKoin(
 
             single {
                 val config: AppConfig = get()
+                val logger = KtorSimpleLogger("OpenTelemetry")
                 createOpenTelemetry {
                     serviceName = config.otel.serviceName
+                    // Without a handler the SDK swallows its own failures, so a collector that
+                    // rejects every batch looks exactly like a server that produces no spans.
+                    errorHandler { error ->
+                        when (error.severity) {
+                            SdkErrorSeverity.ERROR -> logger.error(error.toString())
+                            SdkErrorSeverity.WARNING -> logger.warn(error.toString())
+                            SdkErrorSeverity.INFO -> logger.info(error.toString())
+                        }
+                    }
+                    // A tunnelled request carrying traceparent (e.g. from an instrumented frontend)
+                    // continues that trace instead of starting an unrelated one.
+                    propagator { composite(w3cTraceContext(), w3cBaggage()) }
                     tracerProvider {
+                        // Not parent-based (the default): the server's own traces are the tool for
+                        // debugging a tunnel, so a client that sends traceparent with sampled=0 must
+                        // not be able to switch them off.
+                        sampler { alwaysOn() }
                         export {
                             batchSpanProcessor(
                                 otlpHttpSpanExporter(config.otel.endpoint)

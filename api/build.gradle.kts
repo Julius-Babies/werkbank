@@ -70,6 +70,7 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.server.testHost)
+    testImplementation(libs.opentelemetry.exporter.inMemory)
 }
 
 tasks.register<Jar>("fatJar") {
