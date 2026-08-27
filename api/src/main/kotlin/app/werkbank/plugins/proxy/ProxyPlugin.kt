@@ -23,11 +23,18 @@ import io.ktor.server.websocket.*
 import io.ktor.util.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
+import io.opentelemetry.kotlin.tracing.SpanKind
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import org.koin.ktor.ext.inject
+import plugins.recordException
+import plugins.recordFailure
+import plugins.span
+import plugins.startChildSpan
+import plugins.traceStep
 import java.io.File
 import java.util.*
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -58,14 +65,24 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             val (destination, username) = domain.split(".", limit = 2)
             call.attributes[requestedDestination] = destination
 
-            val resolution = resolutionCache.resolve(domain, username, destination)
+            call.span.setStringAttribute(SUBDOMAIN, domain)
+            call.span.setStringAttribute(DESTINATION, destination)
+            call.span.setStringAttribute(USER_NAME, username)
+
+            val resolution = call.traceStep("proxy.resolve") { span ->
+                resolutionCache.resolve(domain, username, destination).also {
+                    if (it is ProxyResolution.Success) span.setStringAttribute(PROJECT_NAME, it.project.projectKey)
+                }
+            }
             if (resolution is ProxyResolution.UserNotFound) {
                 call.markRequestAsWerkbankHandled()
+                call.span.recordFailure("user_not_found", "No user named $username")
                 call.respondText("User not found", status = HttpStatusCode.NotFound)
                 return@onCall
             }
             if (resolution is ProxyResolution.Failure) {
                 call.markRequestAsWerkbankHandled()
+                call.span.recordFailure(resolution.error.code, resolution.error.message)
                 resolution.error.respondIn(call, HttpStatusCode.NotFound)
                 return@onCall
             }
@@ -76,14 +93,21 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             call.attributes[targetProject] = project
             call.attributes[targetProjectOwnerId] = resolution.ownerId
             call.attributes[targetService] = service?.let { Optional.of(it) } ?: Optional.empty()
+            call.span.setStringAttribute(PROJECT_ID, project.id.value.toHexString())
+            call.span.setStringAttribute(PROJECT_NAME, project.projectKey)
+            service?.let { call.span.setStringAttribute(SERVICE_NAME, it.serviceKey) }
 
-            val authorizationResult = call.checkRequestAuthorization()
+            val authorizationResult = call.traceStep("proxy.authorize") { call.checkRequestAuthorization() }
             if (authorizationResult !is AuthorizationResult.Success) {
                 call.markRequestAsWerkbankHandled()
                 if (call.request.headers["Werkbank-No-Browser"] == "true" || !call.isLikelyBrowser()) {
                     authorizationResult as AuthorizationResult.Failure
+                    call.span.recordFailure(authorizationResult.code, authorizationResult.message)
                     authorizationResult.respondIn(call, HttpStatusCode.Unauthorized)
                 } else {
+                    // A browser is sent through the login flow, which is a normal outcome of a
+                    // protected project and not a failed request.
+                    call.span.addEvent("proxy.auth.redirect")
                     val proxyAuthSession = ProxyAuthSession(
                         path = call.request.uri,
                         project = project,
@@ -106,8 +130,12 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 call.request.headers["Upgrade"]?.lowercase() == "websocket"
 
             val tunnel = tunnelManager.getTunnel(user)
+            call.span.setBooleanAttribute(TUNNEL_CONNECTED, tunnel != null)
+            tunnel?.let { call.span.setBooleanAttribute(TUNNEL_ALIVE, it.isAlive) }
+            tunnel?.pingMs?.value?.let { call.span.setLongAttribute(TUNNEL_PING_MS, it) }
 
             if (tunnel == null) {
+                call.recordProxyErrorPage("tunnel-not-running", "No tunnel is connected for $username")
                 val url = with(call) {
                     URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-not-running")
                         .applyProjectContextForErrorPage()
@@ -139,16 +167,25 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                     responseBodyPath = null,
                 )
 
+                // Outlives the call span, which ends with the 101: a proxied WebSocket lives on for as
+                // long as the browser keeps it open, and its frame counts and close reason are only
+                // known then.
+                val wsSpan = call.startChildSpan("tunnel WS ${wsRecord.uri}", SpanKind.CLIENT)
+
                 val wsProxy = try {
                     tunnel.startWsProxy(wsRecord)
                 } catch (e: TunnelClosedException) {
                     call.application.environment.log.warn("WebSocket proxy failed for ${wsRecord.uri}: ${e.message}")
+                    wsSpan.finishWith(wsRecord, e)
+                    call.span.recordException(e)
                     // The tunnel host explains why it could not open the WebSocket (e.g. the local
                     // service is not running); a generic message would hide that from the developer.
                     call.respondText(e.message ?: "Tunnel connection closed", status = HttpStatusCode.BadGateway)
                     return@onCall
-                } catch (_: TimeoutException) {
+                } catch (e: TimeoutException) {
                     call.application.environment.log.warn("WebSocket proxy timed out for ${wsRecord.uri}")
+                    wsSpan.finishWith(wsRecord, e)
+                    call.span.recordException(e)
                     call.respondText("WebSocket proxy timed out", status = HttpStatusCode.GatewayTimeout)
                     return@onCall
                 }
@@ -228,6 +265,12 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                                 tunnelToClient.cancel()
                             }
                         }
+                    } catch (e: CancellationException) {
+                        // The browser going away cancels the relay; that is a normal end, not a failure.
+                        throw e
+                    } catch (e: Throwable) {
+                        wsSpan.recordException(e)
+                        throw e
                     } finally {
                         // Both relay loops ended, which also covers the hard aborts: a reset, a closed
                         // tab or the ping timeout end the client loop without a Close frame ever
@@ -235,9 +278,11 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         // when we get here on an already-cancelled call.
                         withContext(NonCancellable) { wsProxy.relayClientGone() }
                         wsProxy.close()
+                        val wsResult = wsProxy.snapshot.value
+                        wsSpan.finishWith(wsResult)
                         requestPersistenceQueue.submit(
                             PersistJob(
-                                record = wsProxy.snapshot.value,
+                                record = wsResult,
                                 projectId = project.id,
                                 explicitServiceId = service?.id,
                                 requestBodyFile = null,
@@ -254,6 +299,11 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 val requestBodyFile = if (call.request.httpMethod == HttpMethod.Get) null
                     else File(tempDir, "tunnel-req-$requestId")
                 val responseBodyFile = File(tempDir, "tunnel-res-$requestId")
+
+                val tunnelSpan = call.startChildSpan(
+                    "tunnel ${call.request.httpMethod.value} ${call.request.uri}",
+                    SpanKind.CLIENT,
+                )
 
                 val proxyRequest = tunnel.startRequest(
                     TunnelRequestRecord(
@@ -292,6 +342,10 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         withTimeout(NO_RESPONSE_TIMEOUT) { proxyRequest.awaitResponse() }
                     } catch (_: TimeoutCancellationException) {
                         proxyRequest.fail(Exception("No response from the tunnel host within ${NO_RESPONSE_TIMEOUT.inWholeSeconds}s"))
+                        call.recordProxyErrorPage(
+                            "no-response",
+                            "No response from the tunnel host within ${NO_RESPONSE_TIMEOUT.inWholeSeconds}s",
+                        )
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/no-response")
                                 .applyProjectContextForErrorPage()
@@ -300,6 +354,13 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (e: UnexpectedTunnelException) {
+                        call.recordProxyErrorPage("unexpected-error", e.message ?: "Unexpected error")
+                        // The checkpoints go on the call span as well: they are the only account of how
+                        // far the tunnel host got before it broke.
+                        call.span.recordCheckpoints(
+                            e.checkpoints,
+                            baseTimestampMs = proxyRequest.snapshot.value.sentToTunnelAt ?: System.currentTimeMillis(),
+                        )
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/unexpected-error")
                                 .applyProjectContextForErrorPage()
@@ -312,6 +373,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         )
                         return@onCall
                     } catch (_: TimeoutException) {
+                        call.recordProxyErrorPage("request-timeout", "The tunnel host reported a request timeout")
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout")
                                 .applyProjectContextForErrorPage()
@@ -320,6 +382,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (_: TunnelClosedException) {
+                        call.recordProxyErrorPage("tunnel-closed", "The tunnel closed while the request was in flight")
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed")
                                 .applyProjectContextForErrorPage()
@@ -328,6 +391,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (_: ServerNotRunningException) {
+                        call.recordProxyErrorPage("service-not-running", "The service is not running on the tunnel host")
                         val url = with(call) {
                             URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running")
                                 .applyProjectContextForErrorPage()
@@ -380,12 +444,14 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         }
                     })
                 } finally {
+                    val record = proxyRequest.snapshot.value
+                    tunnelSpan.finishWith(record)
                     // Hand the finished capture to the background queue and return immediately; it owns
                     // the temp body files from here and deletes them once persisted. Persisting inline
                     // would hold the client connection and a database pool slot on the request hot path.
                     requestPersistenceQueue.submit(
                         PersistJob(
-                            record = proxyRequest.snapshot.value,
+                            record = record,
                             projectId = project.id,
                             explicitServiceId = service?.id,
                             requestBodyFile = requestBodyFile,
@@ -422,6 +488,19 @@ private val WS_PROXY_PING_INTERVAL = 20.seconds
  * hydration can't overwrite the injected markup with the original placeholder.
  */
 private const val TUNNEL_DETAILS_PLACEHOLDER = "__WERKBANK_TUNNEL_DETAILS__"
+
+/**
+ * Marks this call's span as failed and names the proxy error page it is answered with. The pages are
+ * served with a 200, so without this a request that never reached the dev server would look like a
+ * successful one.
+ *
+ * Must be called before the page is responded: the call span is ended by `ResponseSent`, which fires
+ * before the `finally` blocks around the response.
+ */
+private fun ApplicationCall.recordProxyErrorPage(page: String, message: String) {
+    span.setStringAttribute(PROXY_ERROR_PAGE, page)
+    span.recordFailure("werkbank.proxy.$page", message)
+}
 
 private suspend fun ApplicationCall.respondWebpage(
     url: Url,

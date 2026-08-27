@@ -17,7 +17,7 @@ kotlinCrypto = "0.8.0"
 table-tui = "0.1.1"
 acme-client = "5.1.0"
 gson = "2.14.0"
-opentelemetry-kotlin = "0.4.0"
+opentelemetry-kotlin = "0.7.0"
 batik = "1.19"
 buildkonfig = "0.22.0"
 mosaic = "0.20.1"
@@ -54,6 +54,7 @@ gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 opentelemetry-core = { module = "io.opentelemetry.kotlin:core", version.ref = "opentelemetry-kotlin" }
 opentelemetry-implementation = { module = "io.opentelemetry.kotlin:implementation", version.ref = "opentelemetry-kotlin" }
 opentelemetry-exporter-otlp = { module = "io.opentelemetry.kotlin:exporters-otlp", version.ref = "opentelemetry-kotlin" }
+opentelemetry-exporter-inMemory = { module = "io.opentelemetry.kotlin:exporters-in-memory", version.ref = "opentelemetry-kotlin" }
 batik-transcoder = { module = "org.apache.xmlgraphics:batik-transcoder", version.ref = "batik" }
 batik-codec = { module = "org.apache.xmlgraphics:batik-codec", version.ref = "batik" }
 kotlin-crypto-sha2 = { module = "org.kotlincrypto.hash:sha2", version.ref = "kotlinCrypto" }
