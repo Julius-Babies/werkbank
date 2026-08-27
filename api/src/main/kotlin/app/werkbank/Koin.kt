@@ -15,6 +15,7 @@ import app.werkbank.config.AppConfig
 import app.werkbank.data.repository.CliBinaryRepository
 import app.werkbank.data.repository.CliBinaryRepositoryImpl
 import app.werkbank.database.DatabaseManager
+import app.werkbank.util.AnchoredWallClock
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -75,7 +76,7 @@ fun Application.configureKoin(
             single {
                 val config: AppConfig = get()
                 val logger = KtorSimpleLogger("OpenTelemetry")
-                createOpenTelemetry {
+                createOpenTelemetry(clock = AnchoredWallClock()) {
                     serviceName = config.otel.serviceName
                     // Without a handler the SDK swallows its own failures, so a collector that
                     // rejects every batch looks exactly like a server that produces no spans.
