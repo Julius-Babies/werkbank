@@ -232,7 +232,7 @@ class TunnelViewModel: KoinComponent {
                                             wsBinaryFragments[id] = (wsBinaryFragments[id] ?: ByteArray(0)) + payload
                                         } else {
                                             val message = wsBinaryFragments.remove(id)?.plus(payload) ?: payload
-                                            wsProxyState[id]?.send(Frame.Binary(true, message))
+                                            wsProxyState[id].relayToService("forward a binary frame") { send(Frame.Binary(true, message)) }
                                             updateWs(id) { it.copy(framesSent = it.framesSent + 1) }
                                         }
                                     } else {
@@ -754,11 +754,15 @@ class TunnelViewModel: KoinComponent {
                                             }
                                         }
                                         is ServerMessage.WsText -> {
-                                            wsProxyState[msg.requestId]?.send(Frame.Text(msg.text))
+                                            wsProxyState[msg.requestId].relayToService("forward a text frame") { send(Frame.Text(msg.text)) }
                                             updateWs(msg.requestId) { it.copy(framesSent = it.framesSent + 1) }
                                         }
                                         is ServerMessage.WsClose -> {
-                                            wsProxyState[msg.requestId]?.close(CloseReason(msg.code.toShort(), msg.reason))
+                                            // The reason is truncated because a close frame carries at most 123
+                                            // bytes of it and ktor throws on anything longer; see toCloseReasonMessage.
+                                            wsProxyState[msg.requestId].relayToService("close the WebSocket") {
+                                                close(CloseReason(msg.code.toShort(), msg.reason.toCloseReasonMessage()))
+                                            }
                                             updateWs(msg.requestId) { it.copy(closed = true) }
                                             wsProxyState.remove(msg.requestId)
                                             wsBinaryFragments.remove(msg.requestId)
@@ -767,8 +771,10 @@ class TunnelViewModel: KoinComponent {
                                             sendSerialized<ClientMessage>(ClientMessage.Pong(msg.requestId))
                                         }
                                         is ServerMessage.Pong -> {
-                                            require(currentPingId == msg.requestId)
-                                            currentPingLatch.complete(Unit)
+                                            // A pong for an earlier ping arrives after that ping timed out; it
+                                            // says nothing about the one currently in flight. Requiring a match
+                                            // here would throw into the reader loop and end the tunnel.
+                                            if (currentPingId == msg.requestId) currentPingLatch.complete(Unit)
                                         }
                                     }
                                 }
@@ -831,6 +837,28 @@ class TunnelViewModel: KoinComponent {
         followRedirects = false
         install(WebSockets) {
             pingInterval = 15.seconds
+        }
+    }
+
+    /**
+     * Runs [block] on the upstream session of a proxied WebSocket, keeping its failure to itself.
+     *
+     * The callers sit in the tunnel's reader loop, the one place where an exception cancels the tunnel
+     * socket and takes every other request down with it - while a frame that cannot be handed to an
+     * upstream only means that one local service is gone. The failure is often a CancellationException:
+     * that is how the engine reports a session it cancelled, and it belongs to that session rather than
+     * to this coroutine, so only an actual cancellation of the reader is passed on.
+     */
+    private suspend fun DefaultClientWebSocketSession?.relayToService(
+        what: String,
+        block: suspend DefaultClientWebSocketSession.() -> Unit,
+    ) {
+        val session = this ?: return
+        try {
+            session.block()
+        } catch (e: Exception) {
+            if (e is kotlin.coroutines.cancellation.CancellationException && !currentCoroutineContext().isActive) throw e
+            log(LogLevel.DEBUG, "Could not $what: ${e.message ?: e::class.simpleName}")
         }
     }
 

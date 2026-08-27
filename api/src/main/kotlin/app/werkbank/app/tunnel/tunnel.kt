@@ -7,6 +7,7 @@ import app.werkbank.shared.tunnel.ServerMessage
 import app.werkbank.shared.tunnel.TunnelCheckpoint
 import app.werkbank.shared.tunnel.TUNNEL_ALREADY_RUNNING_REASON
 import app.werkbank.shared.tunnel.TunnelFrame
+import app.werkbank.shared.tunnel.toCloseReasonMessage
 import app.werkbank.shared.tunnel.json
 import app.werkbank.shared.tunnel.rawChunks
 import app.werkbank.util.launchConnectionJob
@@ -86,36 +87,51 @@ fun Route.tunnel() {
 
             try {
                 for (frame in incoming) {
-                    when (frame) {
-                        is Frame.Binary -> {
-                            val bytes = frame.readBytes()
-                            if (bytes.size < TunnelFrame.HEADER_SIZE) continue
-                            // Both HTTP response bodies and WebSocket binary frames arrive as raw binary
-                            // frames (see [TunnelFrame]); the flags byte says which, so we route the
-                            // payload straight to its sink without any base64 round-trip.
-                            val requestId = TunnelFrame.requestId(bytes)
-                            val payload = TunnelFrame.payload(bytes)
-                            if (TunnelFrame.isWebSocket(bytes)) {
-                                connection.dispatchWsBinary(requestId, payload, TunnelFrame.isFin(bytes))
-                            } else {
-                                connection.dispatchBinary(requestId, payload)
+                    // Guarded per frame: this loop is the tunnel's only reader, so an exception from
+                    // one request's sink would close the socket and take every other request on it
+                    // down with it.
+                    try {
+                        when (frame) {
+                            is Frame.Binary -> {
+                                val bytes = frame.readBytes()
+                                if (bytes.size < TunnelFrame.HEADER_SIZE) continue
+                                // Both HTTP response bodies and WebSocket binary frames arrive as raw binary
+                                // frames (see [TunnelFrame]); the flags byte says which, so we route the
+                                // payload straight to its sink without any base64 round-trip.
+                                val requestId = TunnelFrame.requestId(bytes)
+                                val payload = TunnelFrame.payload(bytes)
+                                if (TunnelFrame.isWebSocket(bytes)) {
+                                    connection.dispatchWsBinary(requestId, payload, TunnelFrame.isFin(bytes))
+                                } else {
+                                    connection.dispatchBinary(requestId, payload)
+                                }
                             }
-                        }
 
-                        is Frame.Text -> {
-                            when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
-                                is ClientMessage.Ping ->
-                                    sendSerialized<ServerMessage>(ServerMessage.Pong(message.requestId))
-                                is ClientMessage.Pong -> connection.onPongReceived(message.requestId)
-                                else -> connection.dispatch(message)
+                            is Frame.Text -> {
+                                when (val message = json.decodeFromString<ClientMessage>(frame.readText())) {
+                                    is ClientMessage.Ping ->
+                                        sendSerialized<ServerMessage>(ServerMessage.Pong(message.requestId))
+                                    is ClientMessage.Pong -> connection.onPongReceived(message.requestId)
+                                    else -> connection.dispatch(message)
+                                }
                             }
-                        }
 
-                        else -> {}
+                            else -> {}
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        call.application.environment.log.warn(
+                            "Tunnel of user {} could not handle a frame, keeping the tunnel open",
+                            user.user.id.value,
+                            e,
+                        )
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                println("Tunnel connection closed: ${e.message}")
+                call.application.environment.log.info("Tunnel connection closed: {}", e.message)
             } finally {
                 tunnelManager.onTunnelClosed(user.user, connection)
             }
@@ -613,7 +629,10 @@ class WsBridge internal constructor(
                         TunnelClosedException("Upstream refused WebSocket (${message.code}): ${message.reason}")
                     )
                 }
-                _incomingFrames.trySend(Frame.Close(CloseReason(message.code.toShort(), message.reason)))
+                // Truncated because the reason may be a whole engine error message; see
+                // toCloseReasonMessage. The full text still reaches the browser through the
+                // TunnelClosedException above when the handshake never completed.
+                _incomingFrames.trySend(Frame.Close(CloseReason(message.code.toShort(), message.reason.toCloseReasonMessage())))
                 close()
             }
 
