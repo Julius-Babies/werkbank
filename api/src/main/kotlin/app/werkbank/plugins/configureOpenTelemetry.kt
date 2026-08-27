@@ -37,6 +37,7 @@ import org.koin.ktor.ext.inject
 private val callSpanKey = AttributeKey<Span>("werkbank.otel.call-span")
 private val callContextKey = AttributeKey<Context>("werkbank.otel.call-context")
 private val telemetryKey = AttributeKey<CallTelemetry>("werkbank.otel.telemetry")
+private val callFailedKey = AttributeKey<Unit>("werkbank.otel.call-failed")
 
 /** The application-wide pieces the per-call tracing helpers need. */
 private class CallTelemetry(val tracer: Tracer, val noopSpan: Span)
@@ -100,6 +101,21 @@ fun Span.recordFailure(errorType: String, message: String) {
 
 /** Human-readable description of the failure, alongside [ErrorAttributes.ERROR_TYPE]. */
 private const val ERROR_MESSAGE = "werkbank.error.message"
+
+/**
+ * Marks this call's span as failed. Use this rather than `call.span.recordFailure` so the reason
+ * survives: [endCallSpan] would otherwise replace it with the bare response status.
+ */
+fun ApplicationCall.recordFailure(errorType: String, message: String) {
+    attributes.put(callFailedKey, Unit)
+    span.recordFailure(errorType, message)
+}
+
+/** Records [error] on this call's span, keeping its reason as [recordFailure] does. */
+fun ApplicationCall.recordException(error: Throwable) {
+    attributes.put(callFailedKey, Unit)
+    span.recordException(error)
+}
 
 fun Application.configureOpenTelemetry() {
     val openTelemetry by inject<OpenTelemetry>()
@@ -178,8 +194,10 @@ private fun ApplicationCall.endCallSpan(error: Throwable?) {
     if (status != null) {
         span.setLongAttribute(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, status.toLong())
         // 5xx is the server's own fault, so it fails the span. A 4xx is a valid outcome of a
-        // well-behaved server and stays unset unless something else marked the span as failed.
-        if (error == null && status >= 500) span.recordFailure(status.toString(), "HTTP $status")
+        // well-behaved server and stays unset. A failure recorded earlier keeps its own reason: it
+        // knows more than the status code does.
+        val failedEarlier = error != null || attributes.contains(callFailedKey)
+        if (!failedEarlier && status >= 500) span.recordFailure(status.toString(), "HTTP $status")
     }
     span.end()
 }
