@@ -135,13 +135,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
             tunnel?.pingMs?.value?.let { call.span.setLongAttribute(TUNNEL_PING_MS, it) }
 
             if (tunnel == null) {
-                call.recordProxyErrorPage("tunnel-not-running", "No tunnel is connected for $username")
-                val url = with(call) {
-                    URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-not-running")
-                        .applyProjectContextForErrorPage()
-                        .build()
-                }
-                call.respondWebpage(url, appConfig.appDomain)
+                call.respondProxyError("tunnel-not-running", "No tunnel is connected for $username", appConfig)
                 return@onCall
             }
 
@@ -177,7 +171,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 } catch (e: TunnelClosedException) {
                     call.application.environment.log.warn("WebSocket proxy failed for ${wsRecord.uri}: ${e.message}")
                     wsSpan.finishWith(wsRecord, e)
-                    call.span.recordException(e)
+                    call.recordException(e)
                     // The tunnel host explains why it could not open the WebSocket (e.g. the local
                     // service is not running); a generic message would hide that from the developer.
                     call.respondText(e.message ?: "Tunnel connection closed", status = HttpStatusCode.BadGateway)
@@ -185,7 +179,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                 } catch (e: TimeoutException) {
                     call.application.environment.log.warn("WebSocket proxy timed out for ${wsRecord.uri}")
                     wsSpan.finishWith(wsRecord, e)
-                    call.span.recordException(e)
+                    call.recordException(e)
                     call.respondText("WebSocket proxy timed out", status = HttpStatusCode.GatewayTimeout)
                     return@onCall
                 }
@@ -342,62 +336,35 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         withTimeout(NO_RESPONSE_TIMEOUT) { proxyRequest.awaitResponse() }
                     } catch (_: TimeoutCancellationException) {
                         proxyRequest.fail(Exception("No response from the tunnel host within ${NO_RESPONSE_TIMEOUT.inWholeSeconds}s"))
-                        call.recordProxyErrorPage(
+                        call.respondProxyError(
                             "no-response",
                             "No response from the tunnel host within ${NO_RESPONSE_TIMEOUT.inWholeSeconds}s",
+                            appConfig,
                         )
-                        val url = with(call) {
-                            URLBuilder("${appConfig.localWebRoot}/proxy/error/no-response")
-                                .applyProjectContextForErrorPage()
-                                .build()
-                        }
-                        call.respondWebpage(url, appConfig.appDomain)
                         return@onCall
                     } catch (e: UnexpectedTunnelException) {
-                        call.recordProxyErrorPage("unexpected-error", e.message ?: "Unexpected error")
+                        val unexpected = e.message ?: "Unexpected error"
                         // The checkpoints go on the call span as well: they are the only account of how
                         // far the tunnel host got before it broke.
                         call.span.recordCheckpoints(
                             e.checkpoints,
                             baseTimestampMs = proxyRequest.snapshot.value.sentToTunnelAt ?: System.currentTimeMillis(),
                         )
-                        val url = with(call) {
-                            URLBuilder("${appConfig.localWebRoot}/proxy/error/unexpected-error")
-                                .applyProjectContextForErrorPage()
-                                .build()
-                        }
-                        call.respondWebpage(
-                            url,
-                            appConfig.appDomain,
-                            replacements = mapOf(TUNNEL_DETAILS_PLACEHOLDER to tunnelDetailsHtml(e.message ?: "Unexpected error", e.checkpoints)),
+                        call.respondProxyError(
+                            "unexpected-error",
+                            unexpected,
+                            appConfig,
+                            replacements = mapOf(TUNNEL_DETAILS_PLACEHOLDER to tunnelDetailsHtml(unexpected, e.checkpoints)),
                         )
                         return@onCall
                     } catch (_: TimeoutException) {
-                        call.recordProxyErrorPage("request-timeout", "The tunnel host reported a request timeout")
-                        val url = with(call) {
-                            URLBuilder("${appConfig.localWebRoot}/proxy/error/request-timeout")
-                                .applyProjectContextForErrorPage()
-                                .build()
-                        }
-                        call.respondWebpage(url, appConfig.appDomain)
+                        call.respondProxyError("request-timeout", "The tunnel host reported a request timeout", appConfig)
                         return@onCall
                     } catch (_: TunnelClosedException) {
-                        call.recordProxyErrorPage("tunnel-closed", "The tunnel closed while the request was in flight")
-                        val url = with(call) {
-                            URLBuilder("${appConfig.localWebRoot}/proxy/error/tunnel-closed")
-                                .applyProjectContextForErrorPage()
-                                .build()
-                        }
-                        call.respondWebpage(url, appConfig.appDomain)
+                        call.respondProxyError("tunnel-closed", "The tunnel closed while the request was in flight", appConfig)
                         return@onCall
                     } catch (_: ServerNotRunningException) {
-                        call.recordProxyErrorPage("service-not-running", "The service is not running on the tunnel host")
-                        val url = with(call) {
-                            URLBuilder("${appConfig.localWebRoot}/proxy/error/service-not-running")
-                                .applyProjectContextForErrorPage()
-                                .build()
-                        }
-                        call.respondWebpage(url, appConfig.appDomain)
+                        call.respondProxyError("service-not-running", "The service is not running on the tunnel host", appConfig)
                         return@onCall
                     }
 
@@ -490,16 +457,45 @@ private val WS_PROXY_PING_INTERVAL = 20.seconds
 private const val TUNNEL_DETAILS_PLACEHOLDER = "__WERKBANK_TUNNEL_DETAILS__"
 
 /**
- * Marks this call's span as failed and names the proxy error page it is answered with. The pages are
- * served with a 200, so without this a request that never reached the dev server would look like a
- * successful one.
+ * Answers the request with the proxy error [page] rendered by the web UI, and records [message] as the
+ * failure on the call span — the pages are served with a 200, so a failed request would otherwise look
+ * like a successful one.
  *
- * Must be called before the page is responded: the call span is ended by `ResponseSent`, which fires
- * before the `finally` blocks around the response.
+ * When the web UI cannot be reached the page is replaced by a plain-text response carrying the same
+ * message. Without that fallback a request that failed for a well-understood reason ("no tunnel is
+ * connected") is answered with a bare 500 about the proxy's own plumbing, which says nothing about
+ * what actually went wrong.
  */
-private fun ApplicationCall.recordProxyErrorPage(page: String, message: String) {
+private suspend fun ApplicationCall.respondProxyError(
+    page: String,
+    message: String,
+    appConfig: AppConfig,
+    replacements: Map<String, String> = emptyMap(),
+) {
     span.setStringAttribute(PROXY_ERROR_PAGE, page)
-    span.recordFailure("werkbank.proxy.$page", message)
+    recordFailure("werkbank.proxy.$page", message)
+
+    // Everything the page needs is inside the try: looking up the project context hits the database,
+    // and a failure there must not turn into a 500 either.
+    try {
+        val url = URLBuilder("${appConfig.localWebRoot}/proxy/error/$page")
+            .applyProjectContextForErrorPage()
+            .build()
+        respondWebpage(url, appConfig.appDomain, replacements)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        application.environment.log.warn(
+            "Could not render the proxy error page '{}' from {}: {}", page, appConfig.localWebRoot, e.message
+        )
+        span.addEvent("proxy.error_page.unavailable") {
+            setStringAttribute("exception.message", e.message ?: e::class.simpleName ?: "unknown")
+        }
+        respondText(
+            "$message\n\nwerkbank could not render its error page (${appConfig.localWebRoot} is unreachable).\n",
+            status = HttpStatusCode.BadGateway,
+        )
+    }
 }
 
 private suspend fun ApplicationCall.respondWebpage(
@@ -507,21 +503,45 @@ private suspend fun ApplicationCall.respondWebpage(
     appDomain: String,
     replacements: Map<String, String> = emptyMap(),
 ) {
-    val client = HttpClient()
-    val response = client.get(url)
-    val contentType = response.contentType()
-    val status = response.status
-    val body = response.bodyAsText()
+    // `use`, because an unreachable web UI made the fetch throw and leaked the client — and with it
+    // its engine's threads — on every error page that could not be rendered.
+    val (status, contentType, body) = HttpClient().use { client ->
+        val response = client.get(url)
+        Triple(response.status, response.contentType(), response.bodyAsText())
+    }
+
     val fixedBody = replacements.entries
         .fold(body) { acc, (token, value) -> acc.replace(token, value) }
-        .replace("\"/_app/", "\"https://$appDomain/_app/")
+        .withAssetBase(appDomain)
 
     respondText(status = status, contentType = contentType) {
         fixedBody
     }
-
-    client.close()
 }
+
+/**
+ * Points every root-relative URL of the injected page at the werkbank app domain.
+ *
+ * The page is served from the project's own subdomain, so its asset URLs — `/_app/...` in a release
+ * build, Vite's `/node_modules/...`, `/@fs/...` and `/@vite/...` in development — would be requested
+ * from the tunnelled project, where this proxy answers with the error page itself. Importing an HTML
+ * document as a module fails, so the page never hydrates: `onMount` does not run and everything it
+ * drives (status polling, the waiting indicator) stands still.
+ *
+ * One `<base>` covers all of them, whatever the build emits, and the `fetch("/api/...")` calls of
+ * interactive error pages along with it. Assets on the app domain answer cross-origin requests from
+ * project subdomains — see the CORS block in deploy/Caddyfile and `server.cors` in web/vite.config.ts.
+ */
+private fun String.withAssetBase(appDomain: String): String {
+    // A page that sets its own base knows better than we do.
+    if (BASE_ELEMENT.containsMatchIn(this)) return this
+    val head = HEAD_ELEMENT.find(this) ?: return this
+    val afterHead = head.range.last + 1
+    return substring(0, afterHead) + "<base href=\"https://$appDomain/\">" + substring(afterHead)
+}
+
+private val HEAD_ELEMENT = Regex("<head[^>]*>", RegexOption.IGNORE_CASE)
+private val BASE_ELEMENT = Regex("<base[\\s>]", RegexOption.IGNORE_CASE)
 
 private fun String.escapeHtml(): String = this
     .replace("&", "&amp;")
@@ -581,6 +601,12 @@ suspend fun URLBuilder.applyProjectContextForErrorPage(): URLBuilder {
         parameters.append("owner_id", project.owner.id.value.toHexString())
         parameters.append("owner_avatar_url", project.owner.profileImageUrl ?: "null")
         parameters.append("owner_username", project.owner.username)
+        // The service-not-running page names the service it could not reach; without this it only
+        // ever had "unknown service" to show.
+        parameters.append(
+            "service_name",
+            call.attributes.getOrNull(targetService)?.orElse(null)?.serviceKey ?: "null",
+        )
     }
 
     return this

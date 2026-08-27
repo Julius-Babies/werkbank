@@ -1,0 +1,32 @@
+<svg width="133" height="133" viewBox="0 0 133 133" fill="none" xmlns="http://www.w3.org/2000/svg">
+<title>Werkbank logo, disappearing downwards</title>
+<defs>
+<linearGradient id="wb_red_out_down_gradient" gradientUnits="userSpaceOnUse" x1="28.6663" y1="0" x2="104" y2="99.9712">
+<stop stop-color="#C56666"/>
+<stop offset="1" stop-color="#5F3232"/>
+</linearGradient>
+</defs>
+<style>
+/* Leaves the way the "in" animation entered: down the slant, off the bottom left. The
+   stagger runs right-to-left so it does not look like the entry played backwards. */
+.wb-red-out-down-bar { animation: wb-red-out-down 520ms cubic-bezier(0.55, 0, 0.85, 0.35) both; }
+.wb-red-out-down-bar-2 { animation-delay: 80ms; }
+.wb-red-out-down-bar-1 { animation-delay: 160ms; }
+@keyframes wb-red-out-down {
+from { opacity: 1; transform: translate(0, 0); }
+/* opacity runs ahead of the movement so the round caps are already faint by the time the
+   viewBox clips them square at the edge */
+55% { opacity: 0.15; }
+to { opacity: 0; transform: translate(-28.68px, 100px); }
+}
+@media (prefers-reduced-motion: reduce) {
+.wb-red-out-down-bar { animation: wb-red-out-down-reduced 200ms linear both; animation-delay: 0s; }
+@keyframes wb-red-out-down-reduced { from { opacity: 1; } to { opacity: 0; } }
+}
+</style>
+<g transform="translate(0.167 16.514)">
+<path class="wb-red-out-down-bar wb-red-out-down-bar-1" d="M28.6663 0V0C44.1303 0 53.2109 12.0504 48.9484 26.9153L28 99.9712V99.9712C12.536 99.9712 3.4554 87.9208 7.71785 73.0559L28.6663 0Z" fill="url(#wb_red_out_down_gradient)"/>
+<path class="wb-red-out-down-bar wb-red-out-down-bar-2" d="M66.6663 0V0C82.1303 0 91.2109 12.0504 86.9484 26.9153L66 99.9712V99.9712C50.536 99.9712 41.4554 87.9208 45.7178 73.0559L66.6663 0Z" fill="url(#wb_red_out_down_gradient)"/>
+<path class="wb-red-out-down-bar wb-red-out-down-bar-3" d="M104.666 0V0C120.13 0 129.211 12.0504 124.948 26.9153L104 99.9712V99.9712C88.536 99.9712 79.4554 87.9208 83.7178 73.0559L104.666 0Z" fill="url(#wb_red_out_down_gradient)"/>
+</g>
+</svg>

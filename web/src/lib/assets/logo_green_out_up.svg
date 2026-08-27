@@ -1,0 +1,33 @@
+<svg width="133" height="133" viewBox="0 0 133 133" fill="none" xmlns="http://www.w3.org/2000/svg">
+<title>Werkbank logo, disappearing upwards</title>
+<defs>
+<linearGradient id="wb_green_out_up_gradient" gradientUnits="userSpaceOnUse" x1="28.6663" y1="0" x2="104" y2="99.9712">
+<stop stop-color="#66C586"/>
+<stop offset="1" stop-color="#325F41"/>
+</linearGradient>
+</defs>
+<style>
+/* Same slant and timing as the out_down variant, but the bars keep going up and to the
+   right, so in + out_up reads as one continuous pass through the frame. The stagger runs
+   left-to-right, matching the entry order. */
+.wb-green-out-up-bar { animation: wb-green-out-up 520ms cubic-bezier(0.55, 0, 0.85, 0.35) both; }
+.wb-green-out-up-bar-2 { animation-delay: 80ms; }
+.wb-green-out-up-bar-3 { animation-delay: 160ms; }
+@keyframes wb-green-out-up {
+from { opacity: 1; transform: translate(0, 0); }
+/* opacity runs ahead of the movement so the round caps are already faint by the time the
+   viewBox clips them square at the edge */
+55% { opacity: 0.15; }
+to { opacity: 0; transform: translate(28.68px, -100px); }
+}
+@media (prefers-reduced-motion: reduce) {
+.wb-green-out-up-bar { animation: wb-green-out-up-reduced 200ms linear both; animation-delay: 0s; }
+@keyframes wb-green-out-up-reduced { from { opacity: 1; } to { opacity: 0; } }
+}
+</style>
+<g transform="translate(0.167 16.514)">
+<path class="wb-green-out-up-bar wb-green-out-up-bar-1" d="M28.6663 0V0C44.1303 0 53.2109 12.0504 48.9484 26.9153L28 99.9712V99.9712C12.536 99.9712 3.4554 87.9208 7.71785 73.0559L28.6663 0Z" fill="url(#wb_green_out_up_gradient)"/>
+<path class="wb-green-out-up-bar wb-green-out-up-bar-2" d="M66.6663 0V0C82.1303 0 91.2109 12.0504 86.9484 26.9153L66 99.9712V99.9712C50.536 99.9712 41.4554 87.9208 45.7178 73.0559L66.6663 0Z" fill="url(#wb_green_out_up_gradient)"/>
+<path class="wb-green-out-up-bar wb-green-out-up-bar-3" d="M104.666 0V0C120.13 0 129.211 12.0504 124.948 26.9153L104 99.9712V99.9712C88.536 99.9712 79.4554 87.9208 83.7178 73.0559L104.666 0Z" fill="url(#wb_green_out_up_gradient)"/>
+</g>
+</svg>

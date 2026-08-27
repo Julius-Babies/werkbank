@@ -25,6 +25,7 @@ import app.werkbank.app.webapp.settings.access_keys.createAccessKey
 import app.werkbank.app.webapp.settings.access_keys.getAccessKeys
 import app.werkbank.app.webapp.settings.access_keys.deleteAccessKey
 import app.werkbank.app.webapp.socket.webappSocket
+import app.werkbank.app.webapp.tunnel_active.isTunnelActive
 import app.werkbank.config.AppConfig
 import io.ktor.server.application.*
 import io.ktor.server.routing.*
@@ -127,6 +128,14 @@ fun Application.configureRouting() {
                             }
 
                             getRequest()
+                        }
+                    }
+
+                    route("/tunnel") {
+                        route("/error-page") {
+                            route("/tunnel-state") {
+                                isTunnelActive()
+                            }
                         }
                     }
                 }
