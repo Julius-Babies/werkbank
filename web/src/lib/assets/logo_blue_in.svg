@@ -1,0 +1,32 @@
+<svg width="133" height="133" viewBox="0 0 133 133" fill="none" xmlns="http://www.w3.org/2000/svg">
+<title>Werkbank logo, appearing</title>
+<defs>
+<linearGradient id="wb_blue_in_gradient" gradientUnits="userSpaceOnUse" x1="28.6663" y1="0" x2="104" y2="99.9712">
+<stop stop-color="#6685C5"/>
+<stop offset="1" stop-color="#32405F"/>
+</linearGradient>
+</defs>
+<style>
+/* The bars travel along their own slant (-0.2868 x per 1 y), so they read as being drawn
+   rather than sliding sideways. 100 y units is the full bar height, which parks them
+   outside the viewBox at the start.
+   Class, keyframe and gradient names carry the colour and direction so several of these
+   SVGs can be inlined into one document without their style blocks colliding. */
+.wb-blue-in-bar { animation: wb-blue-in 620ms cubic-bezier(0.16, 0.84, 0.32, 1) both; }
+.wb-blue-in-bar-2 { animation-delay: 80ms; }
+.wb-blue-in-bar-3 { animation-delay: 160ms; }
+@keyframes wb-blue-in {
+from { opacity: 0; transform: translate(-28.68px, 100px); }
+to { opacity: 1; transform: translate(0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+.wb-blue-in-bar { animation: wb-blue-in-reduced 200ms linear both; animation-delay: 0s; }
+@keyframes wb-blue-in-reduced { from { opacity: 0; } to { opacity: 1; } }
+}
+</style>
+<g transform="translate(0.167 16.514)">
+<path class="wb-blue-in-bar wb-blue-in-bar-1" d="M28.6663 0V0C44.1303 0 53.2109 12.0504 48.9484 26.9153L28 99.9712V99.9712C12.536 99.9712 3.4554 87.9208 7.71785 73.0559L28.6663 0Z" fill="url(#wb_blue_in_gradient)"/>
+<path class="wb-blue-in-bar wb-blue-in-bar-2" d="M66.6663 0V0C82.1303 0 91.2109 12.0504 86.9484 26.9153L66 99.9712V99.9712C50.536 99.9712 41.4554 87.9208 45.7178 73.0559L66.6663 0Z" fill="url(#wb_blue_in_gradient)"/>
+<path class="wb-blue-in-bar wb-blue-in-bar-3" d="M104.666 0V0C120.13 0 129.211 12.0504 124.948 26.9153L104 99.9712V99.9712C88.536 99.9712 79.4554 87.9208 83.7178 73.0559L104.666 0Z" fill="url(#wb_blue_in_gradient)"/>
+</g>
+</svg>

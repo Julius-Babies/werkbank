@@ -1,0 +1,36 @@
+<svg width="133" height="133" viewBox="0 0 133 133" fill="none" xmlns="http://www.w3.org/2000/svg">
+<title>Werkbank logo, loading</title>
+<defs>
+<linearGradient id="wb_blue_load_gradient" gradientUnits="userSpaceOnUse" x1="28.6663" y1="0" x2="104" y2="99.9712">
+<stop stop-color="#6685C5"/>
+<stop offset="1" stop-color="#32405F"/>
+</linearGradient>
+</defs>
+<style>
+/* Opacity carries the wave because it is the only cue that survives at 16px; the 4px
+   slant-aligned nudge only reads at larger sizes.
+   The phase offsets are negative (period 1100ms minus 130/260ms) so every bar is already
+   mid-cycle on the first frame - positive delays would leave bars 2 and 3 sitting at full
+   opacity until their first cycle starts.
+   Reduced motion keeps a slow synchronised pulse, since this still has to signal "busy". */
+.wb-blue-load-bar { animation: wb-blue-load 1100ms ease-in-out infinite; }
+.wb-blue-load-bar-2 { animation-delay: -970ms; }
+.wb-blue-load-bar-3 { animation-delay: -840ms; }
+@keyframes wb-blue-load {
+0%, 100% { opacity: 0.28; transform: translate(-1.15px, 4px); }
+35% { opacity: 1; transform: translate(0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+.wb-blue-load-bar { animation: wb-blue-load-reduced 1800ms ease-in-out infinite; animation-delay: 0s; }
+@keyframes wb-blue-load-reduced {
+0%, 100% { opacity: 0.45; }
+50% { opacity: 1; }
+}
+}
+</style>
+<g transform="translate(0.167 16.514)">
+<path class="wb-blue-load-bar wb-blue-load-bar-1" d="M28.6663 0V0C44.1303 0 53.2109 12.0504 48.9484 26.9153L28 99.9712V99.9712C12.536 99.9712 3.4554 87.9208 7.71785 73.0559L28.6663 0Z" fill="url(#wb_blue_load_gradient)"/>
+<path class="wb-blue-load-bar wb-blue-load-bar-2" d="M66.6663 0V0C82.1303 0 91.2109 12.0504 86.9484 26.9153L66 99.9712V99.9712C50.536 99.9712 41.4554 87.9208 45.7178 73.0559L66.6663 0Z" fill="url(#wb_blue_load_gradient)"/>
+<path class="wb-blue-load-bar wb-blue-load-bar-3" d="M104.666 0V0C120.13 0 129.211 12.0504 124.948 26.9153L104 99.9712V99.9712C88.536 99.9712 79.4554 87.9208 83.7178 73.0559L104.666 0Z" fill="url(#wb_blue_load_gradient)"/>
+</g>
+</svg>
