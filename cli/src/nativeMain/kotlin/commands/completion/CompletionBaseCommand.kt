@@ -45,6 +45,27 @@ class CompletionBaseCommand : SuspendingCliktCommand("completion"), KoinComponen
                     .sorted()
                     .let { println(it.joinToString(" ")) }
             }
+            "databases" -> {
+                val databaseSystem = command[1]
+                when (databaseSystem) {
+                    "postgres18" -> {
+                        val projects = projectRepository.getAllProjects()
+                        val desiredDatabases = projects
+                            .flatMap { project ->
+                                project.getConfig()
+                                    .dependencies
+                                    ?.postgres
+                                    ?.postgres18
+                                    ?.databases
+                                    .orEmpty().map { dbname ->
+                                        project.id + "_" + dbname.substringAfter(project.id + "_")
+                                    }
+                            }
+                            .toSet()
+                        println(desiredDatabases.sorted().joinToString(" "))
+                    }
+                }
+            }
             else -> return
         }
     }
