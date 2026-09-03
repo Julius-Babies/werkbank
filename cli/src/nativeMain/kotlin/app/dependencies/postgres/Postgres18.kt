@@ -9,6 +9,7 @@ import app.hosts.HostsManager
 import app.repository.ProjectRepository
 import app.storage.isDevMode
 import app.storage.storageRoot
+import app.data.extensions.project.postgres18DatabaseNames
 import app.data.extensions.project.usesPostgres18
 import app.dependencies.ReverseProxyRecord
 import app.dependencies.docker.NetworkConfig
@@ -112,18 +113,8 @@ class Postgres18: AppDependency, KoinComponent {
                 .filter { it.isNotBlank() }
                 .toSet()
 
-            val projects = projectRepository.getAllProjects()
-            val desiredDatabases = projects
-                .flatMap { project ->
-                    project.getConfig()
-                        .dependencies
-                        ?.postgres
-                        ?.postgres18
-                        ?.databases
-                        .orEmpty().map { dbname ->
-                            project.id + "_" + dbname.substringAfter(project.id + "_")
-                        }
-                }
+            val desiredDatabases = projectRepository.getAllProjects()
+                .flatMap { it.postgres18DatabaseNames() }
                 .toSet()
 
             (desiredDatabases - existingDatabases).forEach { dbname ->

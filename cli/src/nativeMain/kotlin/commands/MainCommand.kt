@@ -14,8 +14,10 @@ import commands.config.ConfigCommand
 import commands.dependencies.DependenciesCommand
 import commands.down.DownCommand
 import commands.exposed.ExposedCommand
+import commands.install_skill.InstallSkillCommand
 import commands.login.LoginCommand
 import commands.login.LogoutCommand
+import commands.postgres18.Postgres18Command
 import commands.poweroff.PoweroffCommand
 import commands.project.ProjectCommand
 import commands.service.ServiceCommand
@@ -68,6 +70,8 @@ class MainCommand : SuspendingCliktCommand("wb"), KoinComponent {
             CloudCommand(),
             ProjectCommand(),
             CertificatesCommand(),
+            Postgres18Command(),
+            InstallSkillCommand(),
         )
     }
 }
