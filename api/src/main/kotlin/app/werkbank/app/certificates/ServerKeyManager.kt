@@ -8,7 +8,9 @@ import app.werkbank.database.User
 import app.werkbank.database.Users
 import io.ktor.util.logging.KtorSimpleLogger
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.lowerCase
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -22,6 +24,8 @@ import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Clock
+import kotlin.time.Instant
 import javax.net.ssl.ExtendedSSLSession
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLEngine
@@ -34,7 +38,16 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
     private val cache = ConcurrentHashMap<String, CertKeyPair>()
     private val logger = KtorSimpleLogger("ServerKeyManager")
 
-    private data class CertKeyPair(val certs: List<X509Certificate>, val key: PrivateKey)
+    private data class CertKeyPair(
+        val certs: List<X509Certificate>,
+        val key: PrivateKey,
+        val validUntil: Instant,
+    )
+
+    /** Drops the cached certificate of [username], e.g. after a renewal stored a new one. */
+    fun invalidateForUser(username: String) {
+        cache.remove(username.lowercase())?.let { logger.trace("invalidate: dropped cert for $username") }
+    }
 
     override fun getClientAliases(
         keyType: String?,
@@ -96,7 +109,8 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
     }
 
     private fun resolve(username: String): CertKeyPair? {
-        cache[username]?.let { return it }
+        val key = username.lowercase()
+        cache[key]?.let { if (it.validUntil > Clock.System.now()) return it else cache.remove(key) }
 
         logger.trace("resolve: looking up $username")
         val pair = try {
@@ -109,11 +123,12 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
                 }
                 logger.trace("resolve: found user {}", user.id)
 
-                val certRecord = Certificate.find { Certificates.user eq user.id }
-                    .orderBy(Certificates.createdAt to SortOrder.DESC)
-                    .firstOrNull()
+                // Longest remaining validity wins; a record counts as valid from creation until validUntil.
+                val certRecord = Certificate.find {
+                    (Certificates.user eq user.id) and (Certificates.validUntil greater Clock.System.now())
+                }.orderBy(Certificates.validUntil to SortOrder.DESC).firstOrNull()
                 if (certRecord == null) {
-                    logger.warn("resolve: no certificate found for user $username")
+                    logger.warn("resolve: no valid certificate found for user $username")
                     return@queryBlocking null
                 }
                 logger.trace("resolve: found cert record {}", certRecord.id)
@@ -124,13 +139,13 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
                     return@queryBlocking null
                 }
 
-                val key = parsePrivateKey(certRecord.privateKey.bytes)
-                if (key == null) {
+                val privateKey = parsePrivateKey(certRecord.privateKey.bytes)
+                if (privateKey == null) {
                     logger.warn("resolve: failed to parse private key for $username")
                     return@queryBlocking null
                 }
 
-                CertKeyPair(certs, key)
+                CertKeyPair(certs, privateKey, certRecord.validUntil)
             }
         } catch (e: Exception) {
             logger.error("resolve: exception for $username: ${e.message}")
@@ -139,7 +154,7 @@ class ServerKeyManager : X509ExtendedKeyManager(), KoinComponent {
 
         if (pair != null) {
             logger.trace("resolve: cached cert+key for $username")
-            cache[username] = pair
+            cache[key] = pair
         }
         return pair
     }

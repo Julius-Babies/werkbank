@@ -40,8 +40,10 @@ class AppCommand : SuspendingCliktCommand("server") {
 
     override suspend fun run() {
 
+        // Shared with Koin so renewals can invalidate the cache of the instance TLS actually uses.
+        val serverKeyManager = ServerKeyManager()
         val sslContext = SslContextBuilder
-            .forServer(ServerKeyManager())
+            .forServer(serverKeyManager)
             .build()
 
         embeddedServer(
@@ -56,7 +58,7 @@ class AppCommand : SuspendingCliktCommand("server") {
                 }
             },
             module = {
-                rootModule(storageDirectory.toFile())
+                rootModule(storageDirectory.toFile(), serverKeyManager)
 
                 this.monitor.subscribe(KoinApplicationStarted) {
                     launch {

@@ -1,5 +1,6 @@
 package app.werkbank
 
+import app.werkbank.app.certificates.ServerKeyManager
 import app.werkbank.app.jobs.startBackgroundJobs
 import app.werkbank.plugins.auth.installAuthentikt
 import app.werkbank.plugins.auth.installAuthorization
@@ -15,9 +16,10 @@ import java.io.File
 import kotlin.time.Duration.Companion.seconds
 
 fun Application.rootModule(
-    storageRoot: File
+    storageRoot: File,
+    serverKeyManager: ServerKeyManager,
 ) {
-    configureKoin(storageRoot)
+    configureKoin(storageRoot, serverKeyManager)
     configureSerialization()
     installAuthentikt()
     installAuthorization()
