@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory
 import kotlin.concurrent.atomics.AtomicLong
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.incrementAndFetch
+import kotlin.time.Duration
+import kotlin.time.TimeSource
 
 /**
  * Bounded in-memory work queue drained by a [QueueProcessorJob].
@@ -28,7 +30,7 @@ open class JobQueue<T : Any>(
 ) {
 
     private val logger = LoggerFactory.getLogger(javaClass)
-    private val channel = Channel<T>(capacity)
+    private val channel = Channel<Queued<T>>(capacity)
     private val claimedKeys = mutableSetOf<Any>()
     private val dropCount = AtomicLong(0)
 
@@ -43,7 +45,7 @@ open class JobQueue<T : Any>(
             return false
         }
 
-        if (channel.trySend(item).isFailure) {
+        if (channel.trySend(Queued(item, TimeSource.Monotonic.markNow())).isFailure) {
             if (key != null) release(key)
             drop(item, "queue is saturated")
             return false
@@ -53,17 +55,20 @@ open class JobQueue<T : Any>(
 
     /**
      * Takes items until the queue closes or the caller is cancelled, releasing the dedupe key after
-     * [handler] returned. Safe to call from several coroutines to fan out onto workers.
+     * [handler] returned. Safe to call from several coroutines to fan out onto workers. [handler]
+     * also gets how long the item waited, which is what a saturated queue shows up as.
      */
-    internal suspend fun consumeEach(handler: suspend (T) -> Unit) {
-        for (item in channel) {
+    internal suspend fun consumeEach(handler: suspend (T, Duration) -> Unit) {
+        for (queued in channel) {
             try {
-                handler(item)
+                handler(queued.item, queued.enqueuedAt.elapsedNow())
             } finally {
-                deduplicateBy?.invoke(item)?.let(::release)
+                deduplicateBy?.invoke(queued.item)?.let(::release)
             }
         }
     }
+
+    private class Queued<T>(val item: T, val enqueuedAt: TimeSource.Monotonic.ValueTimeMark)
 
     private fun release(key: Any) {
         synchronized(claimedKeys) { claimedKeys.remove(key) }

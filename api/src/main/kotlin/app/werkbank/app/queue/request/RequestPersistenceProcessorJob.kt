@@ -1,6 +1,7 @@
 package app.werkbank.app.queue.request
 
 import app.werkbank.app.jobs.QueueProcessorJob
+import io.opentelemetry.kotlin.tracing.Span
 import app.werkbank.app.tunnel.RequestKind
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.Project
@@ -30,7 +31,8 @@ class RequestPersistenceProcessorJob(queue: RequestPersistenceQueue) :
     private val db by inject<DatabaseManager>()
     private val logger = LoggerFactory.getLogger(RequestPersistenceProcessorJob::class.java)
 
-    override suspend fun process(item: PersistJob) {
+    override suspend fun process(item: PersistJob, span: Span) {
+        span.setStringAttribute("request.id", item.record.requestId.toString())
         try {
             persist(item)
         } finally {

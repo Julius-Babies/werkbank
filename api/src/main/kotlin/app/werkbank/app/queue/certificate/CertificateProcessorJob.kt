@@ -4,8 +4,7 @@ import app.certificates.CertificateManager
 import app.werkbank.app.jobs.QueueProcessorJob
 import app.werkbank.database.Certificate
 import app.werkbank.database.DatabaseManager
-import io.opentelemetry.kotlin.tracing.StatusData
-import io.opentelemetry.kotlin.tracing.Tracer
+import io.opentelemetry.kotlin.tracing.Span
 import org.jetbrains.exposed.v1.core.statements.api.ExposedBlob
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -17,11 +16,10 @@ class CertificateProcessorJob(queue: CertificateQueue) :
     QueueProcessorJob<CertificateQueue.Request>("certificate", queue), KoinComponent {
 
     private val certificateManager by inject<CertificateManager>()
-    private val tracer by inject<Tracer>()
     private val db by inject<DatabaseManager>()
 
-    override suspend fun process(item: CertificateQueue.Request) {
-        val span = tracer.startSpan("certificate-request")
+    override suspend fun process(item: CertificateQueue.Request, span: Span) {
+        span.setStringAttribute("certificate.domains", item.domains.joinToString())
         val requestId = Uuid.random()
         val certificateFile = File(System.getProperty("java.io.tmpdir"), "certificate-$requestId.crt")
         val keyFile = File(System.getProperty("java.io.tmpdir"), "key-$requestId.key")
@@ -44,11 +42,8 @@ class CertificateProcessorJob(queue: CertificateQueue) :
             }
 
             span.addEvent("certificate-stored")
-        } catch (e: Exception) {
-            span.addEvent("exception", attributes = { setStringAttribute("stacktrace", e.stackTraceToString()) })
-            span.setStatus(StatusData.Error(e.message ?: "Unknown error"))
         } finally {
-            span.end()
+            // Failures are recorded on the span and logged by QueueProcessorJob.
             certificateFile.delete()
             keyFile.delete()
         }
