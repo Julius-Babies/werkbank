@@ -3,8 +3,12 @@ package app.werkbank
 import app.certificates.CertificateManager
 import app.certificates.LetsEncryptCertificateManager
 import app.certificates.LocalCertificateManager
-import app.queue.certificate.CertificateQueue
+import app.werkbank.app.jobs.BackgroundJob
+import app.werkbank.app.queue.certificate.CertificateProcessorJob
+import app.werkbank.app.queue.certificate.CertificateQueue
+import app.werkbank.app.queue.request.RequestPersistenceProcessorJob
 import app.werkbank.app.queue.request.RequestPersistenceQueue
+import app.werkbank.app.certificates.ServerKeyManager
 import app.werkbank.app.cli.ImportCliBinaries
 import app.werkbank.app.dns.CloudflareDnsManagerImpl
 import app.werkbank.app.dns.DnsManager
@@ -42,12 +46,14 @@ import java.io.File
 val APP_STORAGE_ROOT_QUALIFIER = named("storage-root")
 
 fun Application.configureKoin(
-    storageRoot: File
+    storageRoot: File,
+    serverKeyManager: ServerKeyManager,
 ) {
     install(Koin) {
         slf4jLogger()
         modules(module {
             single(APP_STORAGE_ROOT_QUALIFIER) { storageRoot }
+            single { serverKeyManager }
             single {
                 val json = Json {
                     prettyPrint = true
@@ -129,6 +135,10 @@ fun Application.configureKoin(
             }
             single { CertificateQueue() }
             single { RequestPersistenceQueue() }
+
+            // Background jobs must be bound to BackgroundJob so startBackgroundJobs() picks them up.
+            single { CertificateProcessorJob(get()) } bind BackgroundJob::class
+            single { RequestPersistenceProcessorJob(get()) } bind BackgroundJob::class
 
             single { TunnelManager() }
             singleOf(::CliBinaryRepositoryImpl) bind CliBinaryRepository::class
