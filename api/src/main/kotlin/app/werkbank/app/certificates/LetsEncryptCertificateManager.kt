@@ -5,7 +5,9 @@ import app.werkbank.config.AppConfig
 import app.werkbank.util.forEachAsync
 import io.ktor.util.logging.*
 import io.opentelemetry.kotlin.tracing.Span
-import kotlinx.coroutines.*
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -17,13 +19,13 @@ import org.shredzone.acme4j.challenge.Dns01Challenge
 import org.shredzone.acme4j.exception.AcmeRateLimitedException
 import org.shredzone.acme4j.util.KeyPairUtils
 import java.io.File
-import java.io.FileWriter
 import java.net.URL
 import java.security.KeyPair
 import java.security.Security
 import java.util.*
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.toKotlinInstant
 import kotlin.uuid.Uuid
 
 
@@ -70,10 +72,8 @@ class LetsEncryptCertificateManager : CertificateManager, KoinComponent {
 
     override suspend fun requestCertificate(
         span: Span,
-        domains: List<String>,
-        targetCertFile: File,
-        targetKeyFile: File
-    ) {
+        domains: List<String>
+    ): CertificateResult {
         val requestId = Uuid.random()
 
         span.setStringAttribute("certificate.domains", domains.joinToString())
@@ -161,34 +161,40 @@ class LetsEncryptCertificateManager : CertificateManager, KoinComponent {
             span.addEvent("certificate.error", attributes = {
                 setStringAttribute("error", "Order status is ${order.status}")
             })
-            return
+            return CertificateResult.Error("Order status is ${order.status}")
         }
 
         val certificate = order.certificate
-        // write chain
-        withContext(Dispatchers.IO) {
-            FileWriter(targetCertFile).use { writer ->
-                for (cert in certificate.certificateChain) {
-                    writer.write("-----BEGIN CERTIFICATE-----\n")
+        val certificateBytes = buildString {
+            for (cert in certificate.certificateChain) {
+                appendLine("-----BEGIN CERTIFICATE-----")
 
-                    val base64 = Base64.getMimeEncoder(64, "\n".toByteArray())
-                        .encodeToString(cert.encoded)
+                val base64 = Base64.getMimeEncoder(64, "\n".toByteArray())
+                    .encodeToString(cert.encoded)
 
-                    writer.write(base64)
-                    writer.write("\n-----END CERTIFICATE-----\n")
-                }
+                appendLine(base64)
+                appendLine("-----END CERTIFICATE-----")
             }
+        }.toByteArray()
 
-            FileWriter(targetKeyFile).use { writer ->
-                writer.write("-----BEGIN PRIVATE KEY-----\n")
+        val privateKeyBytes = buildString {
+            appendLine("-----BEGIN PRIVATE KEY-----")
 
-                val encoded = Base64.getMimeEncoder(64, "\n".toByteArray())
-                    .encodeToString(domainKeyPair.private.encoded)
+            val encoded = Base64.getMimeEncoder(64, "\n".toByteArray())
+                .encodeToString(domainKeyPair.private.encoded)
 
-                writer.write(encoded)
-                writer.write("\n-----END PRIVATE KEY-----\n")
-            }
-        }
-        span.addEvent("certificate.written")
+            appendLine(encoded)
+            appendLine("-----END PRIVATE KEY-----")
+        }.toByteArray()
+
+
+        span.addEvent("certificate.saved")
+
+        val validUntil = certificate.certificate.notAfter.toInstant().toKotlinInstant()
+        return CertificateResult.Success(
+            privateKey = privateKeyBytes,
+            certificate = certificateBytes,
+            validUntil = validUntil
+        )
     }
 }

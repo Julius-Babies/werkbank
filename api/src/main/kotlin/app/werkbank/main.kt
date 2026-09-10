@@ -17,7 +17,6 @@ import kotlinx.coroutines.runBlocking
 import org.koin.ktor.ext.inject
 import org.koin.ktor.plugin.KoinApplicationStarted
 import java.io.File
-import kotlin.uuid.Uuid
 
 fun main(args: Array<String>) {
     runBlocking {
@@ -68,9 +67,7 @@ class AppCommand : SuspendingCliktCommand("server") {
                             localCertificateManager.requestCertificate(
                                 // Startup work belongs to no request, so there is no span to record on.
                                 span = openTelemetry.span.invalid,
-                                listOf(appConfig.appDomain, "*." + appConfig.appDomain),
-                                targetCertFile = File("/tmp/${Uuid.random()}.crt"),
-                                targetKeyFile = File("/tmp/${Uuid.random()}.key")
+                                listOf(appConfig.appDomain, "*." + appConfig.appDomain)
                             )
                         }
                     }

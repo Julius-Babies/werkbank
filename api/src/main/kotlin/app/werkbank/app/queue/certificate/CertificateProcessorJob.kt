@@ -1,6 +1,7 @@
 package app.werkbank.app.queue.certificate
 
 import app.certificates.CertificateManager
+import app.certificates.CertificateResult
 import app.werkbank.app.jobs.QueueProcessorJob
 import app.werkbank.database.Certificate
 import app.werkbank.database.DatabaseManager
@@ -24,20 +25,19 @@ class CertificateProcessorJob(queue: CertificateQueue) :
         val certificateFile = File(System.getProperty("java.io.tmpdir"), "certificate-$requestId.crt")
         val keyFile = File(System.getProperty("java.io.tmpdir"), "key-$requestId.key")
         try {
-            certificateManager.requestCertificate(
-                domains = item.domains,
-                targetCertFile = certificateFile,
-                targetKeyFile = keyFile,
+            val result = certificateManager.requestCertificate(
                 span = span,
-            )
+                domains = item.domains,
+            ) as CertificateResult.Success
 
             span.addEvent("certificate-downloaded")
 
             db.query {
                 Certificate.new {
                     this.user = item.targetUser
-                    this.privateKey = ExposedBlob(keyFile.readBytes())
-                    this.certificate = ExposedBlob(certificateFile.readBytes())
+                    this.privateKey = ExposedBlob(result.privateKey)
+                    this.certificate = ExposedBlob(result.certificate)
+                    this.validUntil = result.validUntil
                 }
             }
 

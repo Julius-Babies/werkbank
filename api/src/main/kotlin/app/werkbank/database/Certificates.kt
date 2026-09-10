@@ -15,6 +15,7 @@ class Certificate(id: EntityID<User.Id>): UuidEntity(id) {
     var privateKey by Certificates.privateKey
     var certificate by Certificates.certificate
     var createdAt by Certificates.createdAt
+    var validUntil by Certificates.validUntil
 }
 
 object Certificates : UuidTable("certificates") {
@@ -22,4 +23,5 @@ object Certificates : UuidTable("certificates") {
     val privateKey = blob("private_key")
     val certificate = blob("certificate")
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
+    val validUntil = timestamp("valid_until")
 }
