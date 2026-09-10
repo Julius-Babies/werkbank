@@ -8,27 +8,17 @@ import java.io.File
 import kotlin.uuid.Uuid
 
 /**
- * Finished proxy requests (headers, bodies, WebSocket frames) waiting to be written to the database
- * off the request hot path by [RequestPersistenceProcessorJob].
- *
- * The proxy handler used to persist inline in its `finally` block, which held the client connection
- * and a database pool slot while it decompressed bodies and streamed potentially large blobs into
- * Postgres — work the browser was already done waiting for. Submitting here returns immediately, so
- * proxied traffic is never slowed by persistence or by a database that is momentarily slow.
- *
- * Under a persistence backlog captures are dropped (and their temp bodies deleted) rather than
- * applying backpressure onto the proxy. Diagnostic history is worth degrading; request latency
- * is not.
+ * Finished proxy requests waiting to be written to the database by [RequestPersistenceProcessorJob],
+ * off the request hot path: submitting returns immediately, so a slow database never delays proxied
+ * traffic. Under a backlog captures are dropped instead of pushing backpressure onto the proxy —
+ * diagnostic history is worth degrading, request latency is not.
  */
 class RequestPersistenceQueue : JobQueue<PersistJob>(
     name = "request-persistence",
     onDrop = { it.deleteBodies() },
 )
 
-/**
- * A finished proxy request awaiting persistence. Owns its temp body files — the queue deletes them
- * on drop, the processor once persisted.
- */
+/** Owns its temp body files: the queue deletes them on drop, the processor once persisted. */
 data class PersistJob(
     val record: TunnelRequestRecord,
     val projectId: EntityID<Uuid>,

@@ -5,10 +5,8 @@ import app.werkbank.database.User
 import kotlin.time.Instant
 
 /**
- * Certificate requests waiting to be issued by [CertificateProcessorJob].
- *
- * Deduplicated per user and domain set: issuing a certificate takes an ACME round trip, and repeated
- * logins would otherwise queue the same request several times.
+ * Certificate requests waiting to be issued by [CertificateProcessorJob]. Deduplicated per user and
+ * domain set, so repeated logins or renewal ticks do not queue the same ACME order twice.
  */
 class CertificateQueue : JobQueue<CertificateQueue.Request>(
     name = "certificate",

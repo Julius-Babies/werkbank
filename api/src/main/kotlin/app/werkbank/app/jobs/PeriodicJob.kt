@@ -8,17 +8,10 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 
 /**
- * Runs [execute] while the job is active, sleeping [interval] between runs.
+ * Runs [execute] while active, sleeping [interval] in between.
  *
- * A failing tick is logged and skipped instead of ending the loop: a job that renews certificates
- * must survive a database that was briefly unreachable. The delay is applied after [execute]
- * returns, so a slow tick pushes the next one back rather than letting runs overlap.
- *
- * ```
- * class CleanupJob : PeriodicJob("cleanup", interval = 1.hours) {
- *     override suspend fun execute() { /* one pass */ }
- * }
- * ```
+ * A failing tick is logged and skipped instead of ending the loop. The delay runs after [execute]
+ * returns, so a slow tick pushes the next one back rather than overlapping.
  */
 abstract class PeriodicJob(
     override val name: String,

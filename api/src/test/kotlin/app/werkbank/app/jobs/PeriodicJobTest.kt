@@ -4,21 +4,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.atomics.AtomicInt
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.concurrent.atomics.incrementAndFetch
 import kotlin.test.Test
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
+@OptIn(ExperimentalAtomicApi::class)
 class PeriodicJobTest {
 
     private class CountingJob(
-        interval: kotlin.time.Duration,
-        initialDelay: kotlin.time.Duration = kotlin.time.Duration.ZERO,
+        interval: Duration,
+        initialDelay: Duration = Duration.ZERO,
         private val onTick: suspend (Int) -> Unit = {},
     ) : PeriodicJob("test", interval, initialDelay) {
-        val ticks = AtomicInteger(0)
-        override suspend fun execute() = onTick(ticks.incrementAndGet())
+        val ticks = AtomicInt(0)
+        override suspend fun execute() = onTick(ticks.incrementAndFetch())
     }
 
     @Test
@@ -26,12 +30,12 @@ class PeriodicJobTest {
         val job = CountingJob(interval = 10.milliseconds)
         val running = launch { job.run() }
 
-        withTimeout(5.seconds) { while (job.ticks.get() < 3) delay(5) }
+        withTimeout(5.seconds) { while (job.ticks.load() < 3) delay(5) }
         running.cancel()
 
-        val ticksAtCancel = job.ticks.get()
+        val ticksAtCancel = job.ticks.load()
         delay(50)
-        assertTrue(job.ticks.get() == ticksAtCancel, "job kept ticking after cancellation")
+        assertTrue(job.ticks.load() == ticksAtCancel, "job kept ticking after cancellation")
     }
 
     @Test
@@ -41,7 +45,7 @@ class PeriodicJobTest {
         })
         val running = launch { job.run() }
 
-        withTimeout(5.seconds) { while (job.ticks.get() < 3) delay(5) }
+        withTimeout(5.seconds) { while (job.ticks.load() < 3) delay(5) }
         running.cancel()
     }
 
@@ -51,9 +55,9 @@ class PeriodicJobTest {
         val running = launch { job.run() }
 
         delay(50)
-        assertTrue(job.ticks.get() == 0, "job ran before its initial delay elapsed")
+        assertTrue(job.ticks.load() == 0, "job ran before its initial delay elapsed")
 
-        withTimeout(5.seconds) { while (job.ticks.get() < 1) delay(5) }
+        withTimeout(5.seconds) { while (job.ticks.load() < 1) delay(5) }
         running.cancel()
     }
 }

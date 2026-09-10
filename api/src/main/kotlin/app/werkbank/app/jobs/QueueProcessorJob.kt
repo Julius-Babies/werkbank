@@ -8,15 +8,8 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * Drains a [JobQueue] with [workers] parallel workers until the surrounding scope is cancelled.
  *
- * An item that fails is logged and skipped; the workers keep running. Raise [workers] only for work
- * that is safe to run concurrently and stay well under the database pool size when it hits Postgres.
- *
- * ```
- * class CertificateProcessorJob(queue: CertificateQueue) :
- *     QueueProcessorJob<CertificateQueue.Request>("certificate", queue) {
- *     override suspend fun process(item: CertificateQueue.Request) { /* one item */ }
- * }
- * ```
+ * A failing item is logged and skipped. Raise [workers] only for work that is safe to run
+ * concurrently, and stay under the database pool size when it hits Postgres.
  */
 abstract class QueueProcessorJob<T : Any>(
     override val name: String,

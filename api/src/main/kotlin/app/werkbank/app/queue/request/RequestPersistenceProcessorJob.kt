@@ -23,11 +23,7 @@ import org.koin.core.component.inject
 import org.slf4j.LoggerFactory
 import kotlin.time.Instant
 
-/**
- * Writes the captures from [RequestPersistenceQueue] into the database.
- *
- * A handful of workers; enough to keep up while staying well under the HikariCP pool size.
- */
+/** Writes the captures from [RequestPersistenceQueue] into the database. */
 class RequestPersistenceProcessorJob(queue: RequestPersistenceQueue) :
     QueueProcessorJob<PersistJob>("request-persistence", queue, workers = WORKER_COUNT), KoinComponent {
 
@@ -43,22 +39,17 @@ class RequestPersistenceProcessorJob(queue: RequestPersistenceQueue) :
     }
 
     /**
-     * Persists a single captured request into [TunnelRequest]. Bodies are streamed from their temp
-     * files straight into the blob columns via [ExposedBlob], so they are never fully materialised on
-     * the heap. For WebSocket connections the captured frames are written into [TunnelRequestFrames].
-     * The service may be unresolved (the CLI picks it), so requests are persisted even without one.
+     * Bodies are streamed from their temp files into the blob columns, never materialised on the
+     * heap. The service may be unresolved (the CLI picks it), so requests persist even without one.
      */
     private suspend fun persist(job: PersistJob) {
         val record = job.record
 
-        // Bodies are stored exactly as they came over the tunnel, i.e. still compressed. Decode them
-        // so the stored copy is the plain body and drop the Content-Encoding header that no longer
-        // applies. `decode = false` reproduces the raw behaviour and is used as a fallback if decoding
-        // blows up on a mislabelled body (e.g. header claims gzip but the bytes are not) — the
-        // transaction rolls back so we never lose the request record over an unreadable body.
+        // Bodies arrive still compressed. Decode them and drop the now-wrong Content-Encoding header.
+        // `decode = false` is the fallback for a mislabelled body (header claims gzip, bytes are not);
+        // the transaction rolls back, so an unreadable body never costs us the request record.
         suspend fun writeRecord(decode: Boolean) {
-            // The raw file streams are the underlying resource; closing them in the finally releases
-            // the fds even if a decoder constructor throws on a mislabelled body before the insert.
+            // Closed in the finally so the fds are released even if a decoder throws before the insert.
             val rawRequestBody = job.requestBodyFile?.takeIf { it.isFile && it.length() > 0 }?.inputStream()
             val rawResponseBody = job.responseBodyFile?.takeIf { it.isFile && it.length() > 0 }?.inputStream()
 
@@ -140,6 +131,7 @@ class RequestPersistenceProcessorJob(queue: RequestPersistenceQueue) :
     }
 
     companion object {
+        /** Enough to keep up while staying well under the HikariCP pool size. */
         private const val WORKER_COUNT = 4
     }
 }
