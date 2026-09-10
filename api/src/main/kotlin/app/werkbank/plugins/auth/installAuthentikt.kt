@@ -1,6 +1,6 @@
 package app.werkbank.plugins.auth
 
-import app.queue.certificate.CertificateQueue
+import app.werkbank.app.queue.certificate.CertificateQueue
 import app.werkbank.app.dns.DnsManager
 import app.werkbank.app.login.redirectAttribute
 import app.werkbank.config.AppConfig
