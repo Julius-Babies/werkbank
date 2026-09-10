@@ -1,6 +1,7 @@
 package app.werkbank
 
 import app.queue.certificate.CertificateQueue
+import app.werkbank.app.jobs.startBackgroundJobs
 import app.werkbank.app.queue.request.RequestPersistenceQueue
 import app.werkbank.plugins.auth.installAuthentikt
 import app.werkbank.plugins.auth.installAuthorization
@@ -46,4 +47,6 @@ fun Application.rootModule(
 
     val requestPersistenceQueue by inject<RequestPersistenceQueue>()
     launchConnectionJob(this, "request-persistence-queue") { requestPersistenceQueue.start() }
+
+    startBackgroundJobs()
 }
