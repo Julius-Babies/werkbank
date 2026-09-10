@@ -39,8 +39,7 @@ class LocalCertificateManager: CertificateManager, KoinComponent {
         }
 
         if (!rootCaKey.exists() || !rootCa.exists()) {
-            // The root CA is long-lived, so both halves are written by openssl itself: `-out` creates
-            // the key with 0600, which we would lose by piping it through here and writing it back.
+            // `-out` lets openssl create the key with 0600, which piping it through here would lose.
             openssl(
                 listOf("genrsa", "-out", rootCaKey.absolutePath, "4096"),
                 failureMessage = "Failed to create root CA private key.",
@@ -68,12 +67,9 @@ class LocalCertificateManager: CertificateManager, KoinComponent {
     }
 
     /**
-     * Issues a certificate for [domains], signed by the local root CA.
-     *
-     * The private key, the signing request and the certificate are piped between the openssl calls
-     * instead of being written out: `-out` is omitted so openssl prints the PEM to stdout, and the
-     * next call reads it back from stdin. Nothing but the (non-secret) SAN config touches the disk,
-     * so a crash between two steps cannot leave a private key behind in the temp directory.
+     * Issues a certificate for [domains], signed by the local root CA. Key, signing request and
+     * certificate are piped between the openssl calls via stdout/stdin, so no private key can be
+     * left behind in the temp directory if a step fails.
      */
     override suspend fun requestCertificate(
         span: Span,
@@ -93,8 +89,8 @@ class LocalCertificateManager: CertificateManager, KoinComponent {
             failureMessage = "Failed to create certificate signing request for $commonName.",
         )
 
-        // `-extfile` has no stdin equivalent, and stdin already carries the signing request. The SAN
-        // config is just the domain list, so a temp file is harmless as long as it is cleaned up.
+        // `-extfile` has no stdin equivalent and stdin already carries the signing request. The SAN
+        // config is only the domain list, so a cleaned-up temp file is fine.
         val certificate = withFile(
             content = generateSanConfig(alternativeNames = domains),
             prefix = "werkbank-san",
@@ -124,10 +120,7 @@ class LocalCertificateManager: CertificateManager, KoinComponent {
         )
     }
 
-    /**
-     * Runs openssl with [args] and returns its stdout, feeding [stdin] in first when given.
-     * A non-zero exit throws with [failureMessage] and openssl's stderr attached.
-     */
+    /** Runs openssl, returns stdout, throws [failureMessage] plus stderr on a non-zero exit. */
     private suspend fun openssl(
         args: List<String>,
         stdin: String? = null,
@@ -142,8 +135,8 @@ class LocalCertificateManager: CertificateManager, KoinComponent {
         val child = command.spawn()
         if (stdin != null) {
             val writer = child.bufferedStdin() ?: error("openssl stdin unavailable")
-            // Inputs are a few kB of PEM, far below the pipe buffer, so this cannot block on a child
-            // that is not draining yet. waitWithOutput() closes stdin afterwards, giving it its EOF.
+            // A few kB of PEM, far below the pipe buffer, so this cannot block on a child that is
+            // not draining yet. waitWithOutput() closes stdin afterwards, giving it its EOF.
             writer.writeLine(stdin.trimEnd())
             writer.flush()
         }
@@ -165,7 +158,7 @@ class LocalCertificateManager: CertificateManager, KoinComponent {
     }
 }
 
-/** Reads the expiry back out of the signed certificate rather than recomputing the validity window. */
+/** Reads the expiry off the signed certificate instead of recomputing the validity window. */
 private fun String.parseNotAfter() = (CertificateFactory.getInstance("X.509")
     .generateCertificate(ByteArrayInputStream(toByteArray())) as X509Certificate)
     .notAfter.toInstant().toKotlinInstant()

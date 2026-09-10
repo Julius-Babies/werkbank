@@ -6,12 +6,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Writes [content] to a temp file, runs [block] with it and deletes it afterwards.
- *
- * For the external tools that only accept a path where we would rather pipe the data in. The file is
- * removed even if [block] throws or is cancelled, so nothing is left behind in the temp directory —
- * do not put secrets in it though, it exists on disk for the duration of [block] with the default
- * temp file permissions.
+ * Writes [content] to a temp file, runs [block] with it and deletes it afterwards, also on failure
+ * or cancellation. For external tools that only accept a path. Not for secrets: the file lives on
+ * disk for the duration of [block] with default temp permissions.
  */
 suspend fun <T> withFile(
     content: String,
