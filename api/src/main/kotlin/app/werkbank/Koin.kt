@@ -4,6 +4,7 @@ import app.certificates.CertificateManager
 import app.certificates.LetsEncryptCertificateManager
 import app.certificates.LocalCertificateManager
 import app.werkbank.app.jobs.BackgroundJob
+import app.werkbank.app.jobs.certificate_renew.CertificateRenewJob
 import app.werkbank.app.queue.certificate.CertificateProcessorJob
 import app.werkbank.app.queue.certificate.CertificateQueue
 import app.werkbank.app.queue.request.RequestPersistenceProcessorJob
@@ -139,6 +140,7 @@ fun Application.configureKoin(
             // Background jobs must be bound to BackgroundJob so startBackgroundJobs() picks them up.
             single { CertificateProcessorJob(get()) } bind BackgroundJob::class
             single { RequestPersistenceProcessorJob(get()) } bind BackgroundJob::class
+            single { CertificateRenewJob() } bind BackgroundJob::class
 
             single { TunnelManager() }
             singleOf(::CliBinaryRepositoryImpl) bind CliBinaryRepository::class
