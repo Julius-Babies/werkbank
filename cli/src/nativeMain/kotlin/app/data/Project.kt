@@ -62,13 +62,12 @@ data class Project(
 
     fun updateHosts() {
         val domain = "${id.lowercase()}.$DEFAULT_BASE_DOMAIN"
-        hostsManager.addHost(domain)
-        getConfig().http
+        val domains = getConfig().http
             .flatMap { it.domains.orEmpty() }
             .filterNot { it.isBlank() }
             .distinct()
             .map { if (it.endsWith(".$domain")) it else "$it.$domain" }
-            .forEach { hostsManager.addHost(it) }
+        hostsManager.addHosts(listOf(domain) + domains)
     }
 
     val certificateFile get() = getProjectStorage.resolve("certificate.pem")

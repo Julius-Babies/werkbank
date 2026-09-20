@@ -91,7 +91,7 @@ class TraefikReverseProxy : ReverseProxy, KoinComponent {
         writeServiceConfigs(config)
         createDashboardService()
         generateSslConfig()
-        config.managedHosts.forEach { hostsManager.addHost(it) }
+        hostsManager.addHosts(config.managedHosts)
     }
 
     override suspend fun provision() {
