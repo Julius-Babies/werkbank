@@ -81,8 +81,7 @@ class MongoDb: AppDependency, KoinComponent {
 
     override suspend fun configure() {
         if (!mongoRoot.exists()) mongoRoot.mkdir(recursive = true)
-        hostsManager.addHost(mongoDatabaseHostname)
-        hostsManager.addHost(mongoExpressDomain)
+        hostsManager.addHosts(listOf(mongoDatabaseHostname, mongoExpressDomain))
     }
 
     override suspend fun provision() {
