@@ -58,35 +58,32 @@ fun Route.tunnel() {
                 return@webSocket
             }
 
-            // ktor's own pinger shares the outgoing channel with the proxied traffic, so under load
-            // its ping frame queues behind megabytes of response body and its pong timeout tears a
-            // perfectly healthy tunnel down. The tunnel carries its own ping instead, and judges
-            // liveness by [TunnelInstance.isAlive] rather than by a single unanswered ping.
+            // ktor's ping queues behind the proxied traffic and times out under load; the tunnel
+            // has its own ping and judges liveness by [TunnelInstance.isAlive] instead.
             pingIntervalMillis = PINGER_DISABLED
 
             launchConnectionJob(call.application, "tunnel-ping") {
                 while (true) {
                     connection.ping()
                     delay(TunnelInstance.PING_INTERVAL)
-                    if (!connection.isAlive) {
-                        // Don't leave a dead tunnel sitting on the account's slot until the OS
-                        // notices the socket is gone: drop it, so the client can reconnect.
-                        call.application.environment.log.info(
-                            "Tunnel of user {} sent nothing for {}s, closing it",
-                            user.user.id.value,
-                            TunnelInstance.STALE_AFTER.inWholeSeconds,
-                        )
-                        connection.terminate()
-                        break
-                    }
                 }
+            }
+
+            // Separate from the ping: a send on a dead socket can block forever, this check must not.
+            launchConnectionJob(call.application, "tunnel-watchdog") {
+                while (connection.isAlive) delay(TunnelInstance.PING_INTERVAL)
+                // Free the account's slot now instead of when the OS notices the socket is gone.
+                call.application.environment.log.info(
+                    "Tunnel of user {} sent nothing for {}s, closing it",
+                    user.user.id.value,
+                    TunnelInstance.STALE_AFTER.inWholeSeconds,
+                )
+                connection.terminate()
             }
 
             try {
                 for (frame in incoming) {
-                    // Every frame proves the client is there, not just a pong: pings and pongs share
-                    // the socket with the request traffic, so under load they arrive seconds late
-                    // while data keeps flowing.
+                    // Any frame counts: under load a pong arrives seconds late while data keeps flowing.
                     connection.markAlive()
                     // Guarded per frame: this loop is the tunnel's only reader, so an exception from
                     // one request's sink would close the socket and take every other request on it
@@ -194,18 +191,15 @@ class TunnelInstance(
     @Volatile
     private var lastFrameAt: Long = System.currentTimeMillis()
 
-    /** Records that the client sent something. Called by the tunnel's reader for every frame. */
+    /** Called by the tunnel's reader for every incoming frame. */
     fun markAlive() {
         lastFrameAt = System.currentTimeMillis()
     }
 
     /**
      * Whether this tunnel is still usable. False once the socket's scope is gone, or once the client
-     * sent nothing at all for [STALE_AFTER] — a half-open TCP connection stays `isActive` for as long
-     * as the OS keeps it around, so the last frame's timestamp is the only reliable liveness signal.
-     *
-     * Deliberately every frame and not just the pong: all requests share this one socket, so a pong
-     * queues behind whatever body data is in flight and can be seconds late on a busy tunnel.
+     * sent nothing for [STALE_AFTER] — a half-open TCP connection stays `isActive` for as long as the
+     * OS keeps it around. Any frame counts, not just pongs, which queue behind body data under load.
      */
     val isAlive: Boolean
         get() = webSocketSession.isActive &&
@@ -275,7 +269,7 @@ class TunnelInstance(
     private var pendingPingId: Uuid? = null
     private var pendingPingSentAt: Long = 0
 
-    /** Sends a ping. Its only job is the round trip time the overview shows; see [isAlive]. */
+    /** Only measures the round trip time for the overview; liveness is [isAlive]. */
     suspend fun ping() {
         val pingId = Uuid.random()
         synchronized(pingLock) {
@@ -287,8 +281,7 @@ class TunnelInstance(
 
     fun onPongReceived(requestId: Uuid) {
         synchronized(pingLock) {
-            // A pong for an earlier ping arrives once the next one is already out; it measures a round
-            // trip that has since been superseded, so only the pending ping updates the displayed time.
+            // A late pong for an earlier ping would pair with the wrong start time.
             if (requestId != pendingPingId) return
             pendingPingId = null
             _pingMs.value = System.currentTimeMillis() - pendingPingSentAt
@@ -311,10 +304,9 @@ class TunnelInstance(
     }
 
     companion object {
-        /** How often the server pings the client, both to measure the round trip and to keep it talking. */
         val PING_INTERVAL = 3.seconds
 
-        /** No frame at all for this long means the client is gone, whatever the socket still claims. */
+        /** No frame for this long means the client is gone, whatever the socket still claims. */
         val STALE_AFTER = 30.seconds
     }
 }
