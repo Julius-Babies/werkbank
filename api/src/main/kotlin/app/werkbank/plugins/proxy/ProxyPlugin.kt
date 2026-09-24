@@ -231,8 +231,8 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                             }
 
                             // WebSocketUpgrade hands out a *raw* session, so this connection gets
-                            // none of the ping/pong the WebSockets plugin gives the routed tunnel
-                            // socket. An idle Vite HMR connection then sends nothing for minutes and
+                            // no keepalive of its own, unlike the tunnel socket with its own ping.
+                            // An idle Vite HMR connection then sends nothing for minutes and
                             // every proxy, load balancer and NAT on the way to the browser drops it
                             // once its idle timeout hits — which is why this only ever bites in
                             // production and never against a local dev stack.
