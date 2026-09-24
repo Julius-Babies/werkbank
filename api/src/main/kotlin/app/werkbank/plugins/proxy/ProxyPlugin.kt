@@ -214,17 +214,15 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                             }
 
                             val tunnelToClient = launchConnectionJob(call.application, "ws-proxy-tunnel-to-client") {
-                                for (frame in wsProxy.incomingFrames) {
+                                // A close is the last frame, the relay ends with it.
+                                wsProxy.relayIncoming { frame ->
                                     when (frame) {
                                         is Frame.Text -> send(Frame.Text(frame.readText()))
                                         // The bridge hands out reassembled messages, so fin is always
                                         // set here; relay it instead of hardcoding it so a fragment can
                                         // never silently go out as a complete message.
                                         is Frame.Binary -> send(Frame.Binary(frame.fin, frame.readBytes()))
-                                        is Frame.Close -> {
-                                            close(frame.readReason() ?: CloseReason(1000, ""))
-                                            break
-                                        }
+                                        is Frame.Close -> close(frame.readReason() ?: CloseReason(1000, ""))
                                         else -> {}
                                     }
                                 }

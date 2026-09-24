@@ -80,6 +80,14 @@ sealed class ClientMessage {
         @SerialName("reason") val reason: String,
     ): ClientMessage()
 
+    /** Returns flow control credit; see [TunnelFlowControl.onCredit]. */
+    @Serializable
+    @SerialName("flow.credit")
+    data class Credit(
+        @SerialName("request_id") override val requestId: Uuid,
+        @SerialName("bytes") val bytes: Long,
+    ): ClientMessage()
+
     @Serializable
     @SerialName("ping")
     data class Ping(

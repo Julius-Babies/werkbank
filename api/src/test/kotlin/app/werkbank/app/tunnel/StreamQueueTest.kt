@@ -22,7 +22,7 @@ class StreamQueueTest {
     }
 
     @Test
-    fun `consumed items free their budget again`() = runBlocking {
+    fun `consumed items free their budget again`() = runBlocking<Unit> {
         val queue = queue()
         assertTrue(queue.offer(ByteArray(10)))
         queue.close()
@@ -40,7 +40,7 @@ class StreamQueueTest {
     }
 
     @Test
-    fun `close still delivers queued items in order`() = runBlocking {
+    fun `close still delivers queued items in order`() = runBlocking<Unit> {
         val queue = queue()
         queue.offer(byteArrayOf(1))
         queue.offer(byteArrayOf(2))
@@ -51,7 +51,7 @@ class StreamQueueTest {
     }
 
     @Test
-    fun `cancel drops queued items and surfaces its cause`() = runBlocking {
+    fun `cancel drops queued items and surfaces its cause`() = runBlocking<Unit> {
         val queue = queue()
         queue.offer(byteArrayOf(1))
         queue.cancel(StreamOverflowException("overflow"))
