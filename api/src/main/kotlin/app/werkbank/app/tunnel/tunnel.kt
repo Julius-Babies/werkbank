@@ -58,35 +58,33 @@ fun Route.tunnel() {
                 return@webSocket
             }
 
+            // ktor's ping queues behind the proxied traffic and times out under load; the tunnel
+            // has its own ping and judges liveness by [TunnelInstance.isAlive] instead.
+            pingIntervalMillis = PINGER_DISABLED
+
             launchConnectionJob(call.application, "tunnel-ping") {
-                var missedPongs = 0
                 while (true) {
-                    val pingId = Uuid.random()
-                    val startTime = System.currentTimeMillis()
-                    val latch = connection.awaitPong(pingId)
-                    sendSerialized<ServerMessage>(ServerMessage.Ping(pingId))
-                    val ok = withTimeoutOrNull(5.seconds) {
-                        latch.await()
-                        true
-                    } ?: false
-                    if (ok) {
-                        missedPongs = 0
-                        connection.updatePingMs(System.currentTimeMillis() - startTime)
-                    } else if (++missedPongs >= TunnelInstance.MAX_MISSED_PONGS) {
-                        // Don't leave a dead tunnel sitting on the account's slot until the OS
-                        // notices the socket is gone: drop it, so the client can reconnect.
-                        call.application.environment.log.info(
-                            "Tunnel of user {} missed {} pongs, closing it", user.user.id.value, missedPongs
-                        )
-                        connection.terminate()
-                        break
-                    }
-                    delay(3.seconds)
+                    connection.ping()
+                    delay(TunnelInstance.PING_INTERVAL)
                 }
+            }
+
+            // Separate from the ping: a send on a dead socket can block forever, this check must not.
+            launchConnectionJob(call.application, "tunnel-watchdog") {
+                while (connection.isAlive) delay(TunnelInstance.PING_INTERVAL)
+                // Free the account's slot now instead of when the OS notices the socket is gone.
+                call.application.environment.log.info(
+                    "Tunnel of user {} sent nothing for {}s, closing it",
+                    user.user.id.value,
+                    TunnelInstance.STALE_AFTER.inWholeSeconds,
+                )
+                connection.terminate()
             }
 
             try {
                 for (frame in incoming) {
+                    // Any frame counts: under load a pong arrives seconds late while data keeps flowing.
+                    connection.markAlive()
                     // Guarded per frame: this loop is the tunnel's only reader, so an exception from
                     // one request's sink would close the socket and take every other request on it
                     // down with it.
@@ -191,19 +189,21 @@ class TunnelInstance(
     val pingMs: StateFlow<Long?> = _pingMs
 
     @Volatile
-    private var lastPongAt: Long = System.currentTimeMillis()
+    private var lastFrameAt: Long = System.currentTimeMillis()
 
-    fun updatePingMs(value: Long) {
-        _pingMs.value = value
+    /** Called by the tunnel's reader for every incoming frame. */
+    fun markAlive() {
+        lastFrameAt = System.currentTimeMillis()
     }
 
     /**
      * Whether this tunnel is still usable. False once the socket's scope is gone, or once the client
-     * stopped answering pings for [STALE_AFTER_MS] — a half-open TCP connection stays `isActive` for
-     * as long as the OS keeps it around, so the pong timestamp is the only reliable liveness signal.
+     * sent nothing for [STALE_AFTER] — a half-open TCP connection stays `isActive` for as long as the
+     * OS keeps it around. Any frame counts, not just pongs, which queue behind body data under load.
      */
     val isAlive: Boolean
-        get() = webSocketSession.isActive && System.currentTimeMillis() - lastPongAt < STALE_AFTER_MS
+        get() = webSocketSession.isActive &&
+            System.currentTimeMillis() - lastFrameAt < STALE_AFTER.inWholeMilliseconds
 
     /** Registers a new outgoing HTTP request and returns its live handle. Call [ProxyRequest.send] to fire it. */
     fun startRequest(record: TunnelRequestRecord, scope: CoroutineScope): ProxyRequest {
@@ -267,23 +267,24 @@ class TunnelInstance(
 
     private val pingLock = Any()
     private var pendingPingId: Uuid? = null
-    private var pendingPingLatch: CompletableDeferred<Unit>? = null
+    private var pendingPingSentAt: Long = 0
 
-    fun awaitPong(requestId: Uuid): CompletableDeferred<Unit> {
+    /** Only measures the round trip time for the overview; liveness is [isAlive]. */
+    suspend fun ping() {
+        val pingId = Uuid.random()
         synchronized(pingLock) {
-            pendingPingId = requestId
-            val latch = CompletableDeferred<Unit>()
-            pendingPingLatch = latch
-            return latch
+            pendingPingId = pingId
+            pendingPingSentAt = System.currentTimeMillis()
         }
+        send(ServerMessage.Ping(pingId))
     }
 
     fun onPongReceived(requestId: Uuid) {
         synchronized(pingLock) {
-            if (requestId == pendingPingId) {
-                lastPongAt = System.currentTimeMillis()
-                pendingPingLatch?.complete(Unit)
-            }
+            // A late pong for an earlier ping would pair with the wrong start time.
+            if (requestId != pendingPingId) return
+            pendingPingId = null
+            _pingMs.value = System.currentTimeMillis() - pendingPingSentAt
         }
     }
 
@@ -303,11 +304,10 @@ class TunnelInstance(
     }
 
     companion object {
-        /** No pong for this long means the client is gone, whatever the socket still claims. */
-        private const val STALE_AFTER_MS = 15_000L
+        val PING_INTERVAL = 3.seconds
 
-        /** Consecutive unanswered pings before the server tears the tunnel down itself. */
-        const val MAX_MISSED_PONGS = 3
+        /** No frame for this long means the client is gone, whatever the socket still claims. */
+        val STALE_AFTER = 30.seconds
     }
 }
 

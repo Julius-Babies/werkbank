@@ -52,8 +52,17 @@ class TunnelViewModel: KoinComponent {
         /** How many connection log entries the TUI keeps; the log file keeps all of them. */
         private const val MAX_TRACKED_LOG_ENTRIES = 50
 
-        /** How long a ping may stay unanswered before the connection is reported as stalled. */
-        private val PING_TIMEOUT = 15.seconds
+        /** Every ping re-renders the TUI and competes with request traffic, so keep it rare. */
+        private val PING_INTERVAL = 2.seconds
+
+        /** Server silence after which the connection is reported as stalled. */
+        private val STALL_AFTER = 15.seconds
+
+        /**
+         * Server silence after which the tunnel is reconnected. Any frame counts, not just pongs,
+         * which queue behind body data under load.
+         */
+        private val STALE_AFTER = 30.seconds
 
         /** How long a local service gets to accept the TCP connection behind a WebSocket request. */
         private val WS_UPSTREAM_PROBE_TIMEOUT = 5.seconds
@@ -92,7 +101,9 @@ class TunnelViewModel: KoinComponent {
     private val client = httpClientBase {
         followRedirects = false
         install(WebSockets) {
-            pingInterval = 15.seconds
+            // ktor's ping queues behind the proxied traffic and times out under load; the tunnel has
+            // its own ping and watchdog instead. This client only ever opens the tunnel socket.
+            pingInterval = null
             contentConverter = KotlinxWebsocketSerializationConverter(json)
         }
 
@@ -176,32 +187,39 @@ class TunnelViewModel: KoinComponent {
                     ) serverSession@{
                         var currentPingId: Uuid? = null
                         var lastPingStart: Instant? = null
-                        var currentPingLatch = CompletableDeferred(Unit)
-                        // Only the transitions are logged; a stalled connection times out every ping.
-                        var pingTimedOut = false
+                        var lastServerFrameAt = Clock.System.now()
                         launch {
                             while (this@serverSession.isActive) {
-                                lastPingStart = Clock.System.now()
+                                // The id first, so a late pong for the previous ping can't pair with
+                                // this start time.
                                 currentPingId = Uuid.random()
+                                lastPingStart = Clock.System.now()
                                 sendSerialized<ClientMessage>(ClientMessage.Ping(currentPingId))
-                                currentPingLatch = CompletableDeferred()
-                                val ok = withTimeoutOrNull(PING_TIMEOUT) {
-                                    currentPingLatch.await()
-                                    true
-                                } ?: false
-                                if (ok) {
-                                    if (pingTimedOut) {
-                                        pingTimedOut = false
-                                        log(LogLevel.INFO, "The server answers pings again")
-                                    }
-                                    state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = Clock.System.now() - lastPingStart)) }
-                                } else if (!pingTimedOut) {
-                                    pingTimedOut = true
-                                    log(LogLevel.WARN, "No pong from the server within ${PING_TIMEOUT.inWholeSeconds}s")
+                                delay(PING_INTERVAL)
+                            }
+                        }
+                        // Separate from the ping: a send on a dead socket can block forever, this
+                        // check must not.
+                        launch {
+                            // Only the transitions are logged.
+                            var stalled = false
+                            while (true) {
+                                delay(PING_INTERVAL)
+                                val silence = Clock.System.now() - lastServerFrameAt
+                                if (silence >= STALE_AFTER) {
+                                    // Cancelled, not closed: a graceful close would block on the dead
+                                    // socket. The reader loop ends and the outer loop reconnects.
+                                    log(LogLevel.WARN, "Nothing from the server for ${silence.inWholeSeconds}s, reconnecting")
+                                    this@serverSession.cancel()
+                                    break
                                 }
-                                // Every ping updates the state and re-renders the TUI, and its frames
-                                // compete with request traffic on the tunnel socket — keep it rare.
-                                delay(2.seconds)
+                                if (silence >= STALL_AFTER && !stalled) {
+                                    stalled = true
+                                    log(LogLevel.WARN, "Nothing from the server for ${STALL_AFTER.inWholeSeconds}s")
+                                } else if (silence < STALL_AFTER && stalled) {
+                                    stalled = false
+                                    log(LogLevel.INFO, "The server is responding again")
+                                }
                             }
                         }
                         state.update { it.copy(connectionState = TunnelState.ConnectionState.Connected(currentPing = null)) }
@@ -210,6 +228,7 @@ class TunnelViewModel: KoinComponent {
                         failedAttempts = 0
 
                         for (message in incoming) {
+                            lastServerFrameAt = Clock.System.now()
                             if (!owner) {
                                 // A refused tunnel is closed before the server sends anything, so the
                                 // first frame proves that this process, and no other, owns the slot.
@@ -771,10 +790,17 @@ class TunnelViewModel: KoinComponent {
                                             sendSerialized<ClientMessage>(ClientMessage.Pong(msg.requestId))
                                         }
                                         is ServerMessage.Pong -> {
-                                            // A pong for an earlier ping arrives after that ping timed out; it
-                                            // says nothing about the one currently in flight. Requiring a match
-                                            // here would throw into the reader loop and end the tunnel.
-                                            if (currentPingId == msg.requestId) currentPingLatch.complete(Unit)
+                                            // A late pong for an earlier ping would pair with the wrong start time.
+                                            val start = lastPingStart
+                                            if (currentPingId == msg.requestId && start != null) {
+                                                state.update {
+                                                    it.copy(
+                                                        connectionState = TunnelState.ConnectionState.Connected(
+                                                            currentPing = Clock.System.now() - start
+                                                        )
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }

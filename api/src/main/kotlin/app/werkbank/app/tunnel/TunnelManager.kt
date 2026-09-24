@@ -23,8 +23,8 @@ class TunnelManager {
      * Returns `false` when a live tunnel already holds the slot — the caller must then reject its
      * WebSocket, because two tunnels for one account would make request routing ambiguous.
      *
-     * A stale predecessor never blocks: a session whose socket is already dead or that stopped
-     * answering pings (see [TunnelInstance.isAlive]) is torn down and replaced. Without that, a
+     * A stale predecessor never blocks: a session whose socket is already dead or that went silent
+     * (see [TunnelInstance.isAlive]) is torn down and replaced. Without that, a
      * half-open TCP connection — laptop suspended, network dropped — would lock the account out
      * until the OS gets around to failing the socket.
      */
