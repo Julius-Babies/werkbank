@@ -261,8 +261,18 @@ class TunnelViewModel: KoinComponent {
                                             updateWs(id) { it.copy(framesSent = it.framesSent + 1) }
                                         }
                                     } else {
-                                        requestBodies[id]?.writeFully(payload)
-                                        requestBodies[id]?.flush()
+                                        val body = requestBodies[id]
+                                        if (body != null) {
+                                            // Fails once the request coroutine gave up on the body and
+                                            // cancelled the channel; the rest of it is dropped.
+                                            try {
+                                                body.writeFully(payload)
+                                                body.flush()
+                                            } catch (e: Exception) {
+                                                if (!this@serverSession.isActive) throw e
+                                                requestBodies.remove(id)
+                                            }
+                                        }
                                     }
                                 }
                                 is Frame.Text -> {
@@ -591,12 +601,20 @@ class TunnelViewModel: KoinComponent {
                                                     } catch (_: Exception) {
                                                         // The tunnel itself is gone; nothing more we can send.
                                                     }
+                                                } finally {
+                                                    // A body nobody reads would fill up and block the reader loop,
+                                                    // and with it every other request on the tunnel.
+                                                    channel?.cancel()
                                                 }
                                             }
                                         }
                                         is ServerMessage.HttpEnd -> {
-                                            requestBodies[msg.requestId]?.flushAndClose()
-                                            requestBodies.remove(msg.requestId)
+                                            val body = requestBodies.remove(msg.requestId)
+                                            try {
+                                                body?.flushAndClose()
+                                            } catch (e: Exception) {
+                                                if (!this@serverSession.isActive) throw e
+                                            }
                                         }
                                         is ServerMessage.WsOpen -> {
                                             launch wsRelay@{
