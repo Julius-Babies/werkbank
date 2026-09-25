@@ -787,37 +787,42 @@ class TunnelViewModel: KoinComponent {
                                                                 false
                                                             }
 
-                                                            relay@ for (frame in incoming) {
-                                                                when (frame) {
-                                                                    is Frame.Text -> {
-                                                                        updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
-                                                                        val text = frame.readText()
-                                                                        if (!awaitCredit(text.length)) break@relay
-                                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
-                                                                            requestId = msg.requestId,
-                                                                            text = text,
-                                                                        ))
+                                                            try {
+                                                                relay@ for (frame in incoming) {
+                                                                    when (frame) {
+                                                                        is Frame.Text -> {
+                                                                            updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
+                                                                            val text = frame.readText()
+                                                                            if (!awaitCredit(text.length)) break@relay
+                                                                            this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
+                                                                                requestId = msg.requestId,
+                                                                                text = text,
+                                                                            ))
+                                                                        }
+                                                                        is Frame.Binary -> {
+                                                                            updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
+                                                                            val bytes = frame.readBytes()
+                                                                            if (!awaitCredit(bytes.size)) break@relay
+                                                                            this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(
+                                                                                msg.requestId,
+                                                                                TunnelFrame.webSocketFlags(frame.fin),
+                                                                                bytes,
+                                                                            )))
+                                                                        }
+                                                                        is Frame.Close -> {
+                                                                            this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                                                requestId = msg.requestId,
+                                                                                code = frame.readReason()?.code?.toInt() ?: 1000,
+                                                                                reason = frame.readReason()?.message ?: ""
+                                                                            ))
+                                                                            break@relay
+                                                                        }
+                                                                        else -> {}
                                                                     }
-                                                                    is Frame.Binary -> {
-                                                                        updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
-                                                                        val bytes = frame.readBytes()
-                                                                        if (!awaitCredit(bytes.size)) break@relay
-                                                                        this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(
-                                                                            msg.requestId,
-                                                                            TunnelFrame.webSocketFlags(frame.fin),
-                                                                            bytes,
-                                                                        )))
-                                                                    }
-                                                                    is Frame.Close -> {
-                                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
-                                                                            requestId = msg.requestId,
-                                                                            code = frame.readReason()?.code?.toInt() ?: 1000,
-                                                                            reason = frame.readReason()?.message ?: ""
-                                                                        ))
-                                                                        break@relay
-                                                                    }
-                                                                    else -> {}
                                                                 }
+                                                            } finally {
+                                                                // Ends the relay coroutine when the service closed first; nothing is left to receive the frames.
+                                                                toService.frames.cancel()
                                                             }
                                                         }
                                                     } catch (e: Exception) {
@@ -843,7 +848,6 @@ class TunnelViewModel: KoinComponent {
                                                             },
                                                         ))
                                                     } finally {
-                                                        flow.closeStream(msg.requestId)
                                                         updateWs(msg.requestId) { it.copy(closed = true) }
                                                         wsProxyState.update { it - msg.requestId }
                                                         wsBinaryFragments.update { it - msg.requestId }
@@ -865,6 +869,9 @@ class TunnelViewModel: KoinComponent {
                                                             reason = e.message ?: "The tunnel failed to open the WebSocket",
                                                         ))
                                                     }
+                                                } finally {
+                                                    // Also when the WebSocket never opened: the server sends no close back then.
+                                                    flow.closeStream(msg.requestId)
                                                 }
                                             }
                                         }
