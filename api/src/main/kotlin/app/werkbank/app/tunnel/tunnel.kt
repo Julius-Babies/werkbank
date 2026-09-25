@@ -424,8 +424,10 @@ class ProxyRequest internal constructor(
             try {
                 body.rawChunks { connection.sendBinary(requestId, it) }
                 connection.send(ServerMessage.HttpEnd(requestId))
-            } catch (_: StreamCancelledException) {
-                // The request ended before its body was through; awaitResponse tells how.
+            } catch (e: StreamCancelledException) {
+                // The request ended before its body was through; awaitResponse tells how. Whoever still
+                // writes into the body (e.g. the proxy's tee) would otherwise wait for a reader forever.
+                body.cancel(e)
             }
         }
         _snapshot.update { it.copy(sentToTunnelAt = it.sentToTunnelAt ?: System.currentTimeMillis()) }
