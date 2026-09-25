@@ -4,6 +4,10 @@ import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.shared.tunnel.ClientMessage
 import app.werkbank.shared.tunnel.ServerMessage
+import app.werkbank.shared.tunnel.StreamCancelledException
+import app.werkbank.shared.tunnel.StreamOverflowException
+import app.werkbank.shared.tunnel.StreamQueue
+import app.werkbank.shared.tunnel.TunnelFlowControl
 import app.werkbank.shared.tunnel.TunnelCheckpoint
 import app.werkbank.shared.tunnel.TUNNEL_ALREADY_RUNNING_REASON
 import app.werkbank.shared.tunnel.TunnelFrame
@@ -20,8 +24,6 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,7 +51,10 @@ fun Route.tunnel() {
     authenticate(AUTH_USER_JWT) {
         webSocket {
             val user = call.principal<UserPrincipal>()!!
-            val connection = TunnelInstance(this)
+            val connection = TunnelInstance(
+                webSocketSession = this,
+                flowControl = call.request.headers[TunnelFlowControl.HEADER] == TunnelFlowControl.VERSION,
+            )
 
             // One tunnel per account: a second one would make it ambiguous which client a proxied
             // request belongs to. Only a live tunnel blocks; a stale one is replaced by tryRegister.
@@ -61,6 +66,13 @@ fun Route.tunnel() {
             // ktor's ping queues behind the proxied traffic and times out under load; the tunnel
             // has its own ping and judges liveness by [TunnelInstance.isAlive] instead.
             pingIntervalMillis = PINGER_DISABLED
+
+            connection.announceFlowControl()
+            launchConnectionJob(call.application, "tunnel-flow-credit") {
+                connection.flow.sendCredits { requestId, bytes ->
+                    connection.send(ServerMessage.Credit(requestId, bytes))
+                }
+            }
 
             launchConnectionJob(call.application, "tunnel-ping") {
                 while (true) {
@@ -110,6 +122,7 @@ fun Route.tunnel() {
                                     is ClientMessage.Ping ->
                                         sendSerialized<ServerMessage>(ServerMessage.Pong(message.requestId))
                                     is ClientMessage.Pong -> connection.onPongReceived(message.requestId)
+                                    is ClientMessage.Credit -> connection.flow.onCredit(message.requestId, message.bytes)
                                     else -> connection.dispatch(message)
                                 }
                             }
@@ -143,19 +156,21 @@ fun Route.tunnel() {
  * neither knows nor cares whether that sink is an HTTP [ProxyRequest] or a [WsBridge].
  */
 interface MessageSink {
-    suspend fun onClientMessage(message: ClientMessage)
+    // None of these may suspend: they run on the tunnel's single reader loop, and a sink that waits for
+    // its consumer would hold up every other request and the pongs along with it.
+    fun onClientMessage(message: ClientMessage)
 
     /**
      * Raw binary body bytes routed to this sink's request id (HTTP response body chunks). Defaulted
      * to a no-op because only [ProxyRequest] carries a binary body; a [WsBridge] never receives one.
      */
-    suspend fun onBinaryBody(bytes: ByteArray) {}
+    fun onBinaryBody(bytes: ByteArray) {}
 
     /**
      * A raw WebSocket binary frame routed to this sink's request id. Defaulted to a no-op because
      * only [WsBridge] carries WebSocket frames; a [ProxyRequest] never receives one.
      */
-    suspend fun onWsBinary(bytes: ByteArray, fin: Boolean) {}
+    fun onWsBinary(bytes: ByteArray, fin: Boolean) {}
 
     /** Invoked when the whole tunnel goes away, so the sink can release everyone waiting on it. */
     fun onClosed(cause: Throwable?)
@@ -177,8 +192,14 @@ sealed interface TrackedRequest {
  */
 class TunnelInstance(
     val webSocketSession: DefaultWebSocketServerSession,
+    flowControl: Boolean = false,
 ) {
     private val sinks = ConcurrentHashMap<RequestId, MessageSink>()
+
+    val flow = TunnelFlowControl(flowControl)
+
+    /** Holds back every send until the client learned whether flow control is on; see [announceFlowControl]. */
+    private val announced = CompletableDeferred<Unit>()
 
     private val _requests = MutableStateFlow<List<TrackedRequest>>(emptyList())
 
@@ -207,6 +228,7 @@ class TunnelInstance(
 
     /** Registers a new outgoing HTTP request and returns its live handle. Call [ProxyRequest.send] to fire it. */
     fun startRequest(record: TunnelRequestRecord, scope: CoroutineScope): ProxyRequest {
+        flow.openStream(record.requestId)
         val request = ProxyRequest(record, this, scope)
         sinks[record.requestId] = request
         _requests.update { it + request }
@@ -214,34 +236,67 @@ class TunnelInstance(
     }
 
     /** Routes an incoming client message to whatever sink owns its request id. */
-    suspend fun dispatch(message: ClientMessage) {
+    fun dispatch(message: ClientMessage) {
+        if (message is ClientMessage.WsText) flow.onReceived(message.text.length)
         sinks[message.requestId]?.onClientMessage(message)
     }
 
     /** Routes raw binary body bytes (an HTTP response body chunk) to the sink owning [requestId]. */
-    suspend fun dispatchBinary(requestId: RequestId, bytes: ByteArray) {
+    fun dispatchBinary(requestId: RequestId, bytes: ByteArray) {
+        flow.onReceived(bytes.size)
         sinks[requestId]?.onBinaryBody(bytes)
     }
 
     /** Routes a raw WebSocket binary frame to the sink owning [requestId]. */
-    suspend fun dispatchWsBinary(requestId: RequestId, bytes: ByteArray, fin: Boolean) {
+    fun dispatchWsBinary(requestId: RequestId, bytes: ByteArray, fin: Boolean) {
+        flow.onReceived(bytes.size)
         sinks[requestId]?.onWsBinary(bytes, fin)
     }
 
     internal fun unregister(requestId: RequestId) {
         sinks.remove(requestId)
+        flow.closeStream(requestId)
+    }
+
+    /**
+     * Must be the tunnel's first message: the client tells from it whether flow control is on, before
+     * it sees the first request. Every other send waits for it.
+     */
+    suspend fun announceFlowControl() {
+        try {
+            if (flow.enabled) webSocketSession.sendSerialized<ServerMessage>(ServerMessage.FlowControl)
+        } finally {
+            announced.complete(Unit)
+        }
     }
 
     suspend fun send(message: ServerMessage) {
+        announced.await()
         webSocketSession.sendSerialized<ServerMessage>(message)
     }
 
+    /** Sends a binary payload (all of which is flow-controlled), waiting for credit first. */
     suspend fun sendBinary(requestId: RequestId, bytes: ByteArray, flags: Int = 0) {
+        flow.awaitSend(requestId, bytes.size)
+        announced.await()
         webSocketSession.send(Frame.Binary(true, TunnelFrame.encode(requestId, flags, bytes)))
+    }
+
+    /** Tells the client to stop streaming the response of [requestId]. Never suspends. */
+    internal fun cancelStream(requestId: RequestId) {
+        if (!flow.enabled) return
+        webSocketSession.launch {
+            try {
+                send(ServerMessage.HttpCancel(requestId))
+            } catch (_: Exception) {
+                // The tunnel itself is gone, and with it the stream.
+            }
+        }
     }
 
     /** Registers a WebSocket proxy connection, performs the open handshake and returns its live bridge. */
     suspend fun startWsProxy(record: TunnelRequestRecord): WsBridge {
+        flow.openStream(record.requestId)
         val bridge = WsBridge(record, this)
         sinks[record.requestId] = bridge
         _requests.update { it + bridge }
@@ -291,6 +346,8 @@ class TunnelInstance(
     fun close() {
         sinks.values.forEach { it.onClosed(TunnelClosedException()) }
         sinks.clear()
+        flow.closeAll()
+        announced.complete(Unit)
     }
 
     /**
@@ -330,11 +387,13 @@ class ProxyRequest internal constructor(
     override val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
 
     // Control messages and raw body chunks share one FIFO so the response body stays ordered relative
-    // to the http.response header message and the http.end that closes the stream. Buffered so the
-    // tunnel's reader loop isn't forced into a suspend handoff with the consumer on every body chunk.
-    private val inbox = Channel<Inbound>(capacity = 64)
+    // to the http.response header message and the http.end that closes the stream. A slow browser
+    // fills only this queue; see onBinaryBody for what happens when it overflows.
+    private val inbox = StreamQueue<Inbound>(MAX_BUFFERED_RESPONSE_BYTES) { (it as? Inbound.Body)?.bytes?.size ?: 0 }
     private val responseBodyChannel = ByteChannel()
+    private val responseBodyCredit = connection.flow.streamCredit(requestId)
     private val response = CompletableDeferred<TunnelResponse>()
+    private val cancelled = AtomicBoolean(false)
 
     private sealed interface Inbound {
         data class Control(val message: ClientMessage) : Inbound
@@ -355,26 +414,42 @@ class ProxyRequest internal constructor(
             )
         )
 
+        // Consumed right away: the response may end the request while its body is still going out,
+        // which also stops the body (see finish/fail) instead of leaving it waiting for credit.
+        scope.launch { consume() }
+
         // Bodyless requests skip the http.end frame: the host only uses it to close the request-body
         // channel, which it never creates for bodyless methods — one JSON frame saved per GET.
         if (body != null) {
-            body.rawChunks { connection.sendBinary(requestId, it) }
-            connection.send(ServerMessage.HttpEnd(requestId))
+            try {
+                body.rawChunks { connection.sendBinary(requestId, it) }
+                connection.send(ServerMessage.HttpEnd(requestId))
+            } catch (e: StreamCancelledException) {
+                // The request ended before its body was through; awaitResponse tells how. Whoever still
+                // writes into the body (e.g. the proxy's tee) would otherwise wait for a reader forever.
+                body.cancel(e)
+            }
         }
-        _snapshot.update { it.copy(sentToTunnelAt = System.currentTimeMillis()) }
-
-        scope.launch { consume() }
+        _snapshot.update { it.copy(sentToTunnelAt = it.sentToTunnelAt ?: System.currentTimeMillis()) }
     }
 
     /** Suspends until response headers arrive; throws [TimeoutException]/[ServerNotRunningException]/[TunnelClosedException]. */
     suspend fun awaitResponse(): TunnelResponse = response.await()
 
-    override suspend fun onClientMessage(message: ClientMessage) {
-        inbox.send(Inbound.Control(message))
+    override fun onClientMessage(message: ClientMessage) {
+        inbox.offer(Inbound.Control(message))
     }
 
-    override suspend fun onBinaryBody(bytes: ByteArray) {
-        inbox.send(Inbound.Body(bytes))
+    override fun onBinaryBody(bytes: ByteArray) {
+        // Waiting here would stall the whole tunnel. With flow control the host never gets this far
+        // ahead; without it, it can't be asked to slow down, and giving up on this one response is
+        // the lesser evil.
+        if (!inbox.offer(Inbound.Body(bytes))) {
+            fail(StreamOverflowException(
+                "The browser did not keep up with the response; more than " +
+                    "${MAX_BUFFERED_RESPONSE_BYTES / (1024 * 1024)} MiB were waiting to be delivered"
+            ))
+        }
     }
 
     override fun onClosed(cause: Throwable?) {
@@ -395,16 +470,19 @@ class ProxyRequest internal constructor(
             )
         }
         connection.unregister(requestId)
-        inbox.close()
+        inbox.cancel()
+        // The host may still be streaming the response; a cancel for a request it's done with is ignored.
+        if (cancelled.compareAndSet(false, true)) connection.cancelStream(requestId)
     }
 
     private suspend fun consume() {
         try {
-            for (inbound in inbox) {
+            inbox.forEach { inbound ->
                 when (inbound) {
                     is Inbound.Body -> {
                         responseBodyChannel.writeFully(inbound.bytes)
                         responseBodyChannel.flush()
+                        responseBodyCredit.onConsumed(inbound.bytes.size)
                     }
 
                     is Inbound.Control -> when (val message = inbound.message) {
@@ -469,6 +547,11 @@ class ProxyRequest internal constructor(
         connection.unregister(requestId)
         inbox.close()
     }
+
+    companion object {
+        /** How far a browser may fall behind the tunnel host before its response is aborted. */
+        private const val MAX_BUFFERED_RESPONSE_BYTES = 32L * 1024 * 1024
+    }
 }
 
 /**
@@ -486,8 +569,12 @@ class WsBridge internal constructor(
     private val _snapshot = MutableStateFlow(initial)
     override val snapshot: StateFlow<TunnelRequestRecord> = _snapshot
 
-    private val _incomingFrames = Channel<Frame>(Channel.UNLIMITED)
-    val incomingFrames: ReceiveChannel<Frame> = _incomingFrames
+    /** A frame for the browser, with the flow control bytes it counted for. */
+    private class Incoming(val frame: Frame, val flowBytes: Int)
+
+    // The browser's pace only affects this queue; see TunnelFlowControl for what keeps it short.
+    private val incomingFrames = StreamQueue<Incoming>(MAX_BUFFERED_INCOMING_BYTES) { it.flowBytes }
+    private val incomingCredit = connection.flow.streamCredit(requestId)
 
     private val opened = CompletableDeferred<List<String>>()
 
@@ -509,6 +596,25 @@ class WsBridge internal constructor(
     val frameEvents: SharedFlow<WsFrameRecord> = _frameEvents
 
     fun framesSnapshot(): List<WsFrameRecord> = synchronized(frameLock) { _frames.toList() }
+
+    /** Hands the dev server's frames to [block] in order, until the connection closes. */
+    suspend fun relayIncoming(block: suspend (Frame) -> Unit) {
+        incomingFrames.forEach {
+            block(it.frame)
+            incomingCredit.onConsumed(it.flowBytes)
+        }
+    }
+
+    private fun enqueueIncoming(frame: Frame, flowBytes: Int) {
+        if (incomingFrames.offer(Incoming(frame, flowBytes))) return
+        _snapshot.update {
+            it.copy(error = it.error ?: "The browser did not keep up with the WebSocket; more than " +
+                "${MAX_BUFFERED_INCOMING_BYTES / (1024 * 1024)} MiB were waiting to be delivered")
+        }
+        // Ends the relay to the browser, which then closes the connection on both sides.
+        incomingFrames.cancel()
+        close()
+    }
 
     /** Buffer for a fragmented binary message from the dev server; see [onWsBinary]. */
     private var pendingBinary: ByteArrayOutputStream? = null
@@ -560,12 +666,20 @@ class WsBridge internal constructor(
         _frameEvents.tryEmit(frame)
     }
 
-    /** Browser → dev server. */
+    /** Browser → dev server. Frames for a connection the tunnel host already closed are dropped. */
     suspend fun send(frame: Frame) {
+        try {
+            relay(frame)
+        } catch (_: StreamCancelledException) {
+        }
+    }
+
+    private suspend fun relay(frame: Frame) {
         when (frame) {
             is Frame.Text -> {
                 val text = frame.readText()
                 record(WsFrameDirection.CLIENT_TO_SERVER, WsFrameOpcode.TEXT, text, null, text.encodeToByteArray().size)
+                connection.flow.awaitSend(requestId, text.length)
                 connection.send(ServerMessage.WsText(requestId, text))
             }
 
@@ -609,13 +723,13 @@ class WsBridge internal constructor(
     }
 
     /** Dev server → browser. */
-    override suspend fun onClientMessage(message: ClientMessage) {
+    override fun onClientMessage(message: ClientMessage) {
         when (message) {
             is ClientMessage.WsOpened -> opened.complete(message.headers)
 
             is ClientMessage.WsText -> {
                 record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.TEXT, message.text, null, message.text.encodeToByteArray().size)
-                _incomingFrames.trySend(Frame.Text(message.text))
+                enqueueIncoming(Frame.Text(message.text), message.text.length)
             }
 
             is ClientMessage.WsClose -> {
@@ -632,7 +746,7 @@ class WsBridge internal constructor(
                 // Truncated because the reason may be a whole engine error message; see
                 // toCloseReasonMessage. The full text still reaches the browser through the
                 // TunnelClosedException above when the handshake never completed.
-                _incomingFrames.trySend(Frame.Close(CloseReason(message.code.toShort(), message.reason.toCloseReasonMessage())))
+                enqueueIncoming(Frame.Close(CloseReason(message.code.toShort(), message.reason.toCloseReasonMessage())), 0)
                 close()
             }
 
@@ -649,10 +763,12 @@ class WsBridge internal constructor(
      * mid-message and fail the connection. Reassembling here also keeps the inspector timeline at one
      * record per message.
      */
-    override suspend fun onWsBinary(bytes: ByteArray, fin: Boolean) {
+    override fun onWsBinary(bytes: ByteArray, fin: Boolean) {
         // Called only from the tunnel's single reader loop, so the buffer needs no synchronization.
         if (!fin) {
             pendingBinary = (pendingBinary ?: ByteArrayOutputStream()).apply { write(bytes) }
+            // Credited right away: a message larger than the window would otherwise never complete.
+            incomingCredit.onConsumed(bytes.size)
             return
         }
         val message = pendingBinary?.let { buffer ->
@@ -663,7 +779,8 @@ class WsBridge internal constructor(
 
         // Base64 only for the stored inspector record; the frame relays to the browser as raw bytes.
         record(WsFrameDirection.SERVER_TO_CLIENT, WsFrameOpcode.BINARY, null, Base64.encode(message), message.size)
-        _incomingFrames.trySend(Frame.Binary(true, message))
+        // The earlier fragments were credited as they arrived.
+        enqueueIncoming(Frame.Binary(true, message), bytes.size)
     }
 
     override fun onClosed(cause: Throwable?) {
@@ -674,13 +791,16 @@ class WsBridge internal constructor(
     fun close() {
         if (!opened.isCompleted) opened.completeExceptionally(TunnelClosedException())
         _snapshot.update { it.copy(completedAt = it.completedAt ?: System.currentTimeMillis()) }
-        _incomingFrames.close()
+        incomingFrames.close()
         connection.unregister(requestId)
     }
 
     companion object {
         /** Safety cap on how many frames a single connection retains for the inspector. */
         private const val MAX_FRAMES = 2000
+
+        /** How far a browser may fall behind the dev server before its WebSocket is closed. */
+        private const val MAX_BUFFERED_INCOMING_BYTES = 32L * 1024 * 1024
 
         /** RFC 6455 close code for "the endpoint is going away", used when the browser aborted. */
         private const val GOING_AWAY = 1001

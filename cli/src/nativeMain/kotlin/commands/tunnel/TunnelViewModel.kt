@@ -65,6 +65,13 @@ class TunnelViewModel: KoinComponent {
          */
         private val STALE_AFTER = 30.seconds
 
+        /**
+         * How far a local service may fall behind the data the server sends for one stream (a request
+         * body or a WebSocket's frames) before that stream is aborted; see [StreamQueue]. With flow
+         * control a stream never gets anywhere near this, it is for servers without it.
+         */
+        private const val MAX_BUFFERED_STREAM_BYTES = 32L * 1024 * 1024
+
         /** How long a local service gets to accept the TCP connection behind a WebSocket request. */
         private val WS_UPSTREAM_PROBE_TIMEOUT = 5.seconds
 
@@ -166,12 +173,13 @@ class TunnelViewModel: KoinComponent {
                     message = if (failedAttempts == 0) connectMessage else "$connectMessage (attempt ${failedAttempts + 1})",
                 )
 
-                // Only ever touched by the reader loop below; request coroutines get their channel
+                // Only ever touched by the reader loop below; request coroutines get their queue
                 // handed in, so an early http.end can't leave them without a body.
-                val requestBodies = mutableMapOf<Uuid, ByteWriteChannel>()
-                // Shared between the reader loop and the WebSocket relay coroutines, which run on
-                // several threads, hence the atomic updates.
-                val wsProxyState = MutableStateFlow<Map<Uuid, DefaultClientWebSocketSession>>(emptyMap())
+                val requestBodies = mutableMapOf<Uuid, StreamQueue<ByteArray>>()
+                // Frames on their way to a local WebSocket service, drained by its relay coroutine.
+                // Shared between the reader loop and those coroutines, which run on several threads,
+                // hence the atomic updates.
+                val wsProxyState = MutableStateFlow<Map<Uuid, ToService>>(emptyMap())
                 // Partially received binary messages from the browser, keyed by request id; see the
                 // Frame.Binary branch below.
                 val wsBinaryFragments = MutableStateFlow<Map<Uuid, ByteArray>>(emptyMap())
@@ -188,8 +196,11 @@ class TunnelViewModel: KoinComponent {
                         urlString = "wss://$cloudDomain/api/tunnel",
                         request = {
                             bearerAuth(authToken)
+                            header(TunnelFlowControl.HEADER, TunnelFlowControl.VERSION)
                         }
                     ) serverSession@{
+                        // Replaced if the server confirms flow control, which it does with its first message.
+                        var flow = TunnelFlowControl(enabled = false)
                         var currentPingId: Uuid? = null
                         var lastPingStart: Instant? = null
                         var lastServerFrameAt = Clock.System.now()
@@ -232,6 +243,8 @@ class TunnelViewModel: KoinComponent {
                         everConnected = true
                         failedAttempts = 0
 
+                        // Every other request and the pongs wait while this loop does, so it only ever
+                        // hands data to a stream's StreamQueue and never waits on a stream itself.
                         for (message in incoming) {
                             lastServerFrameAt = Clock.System.now()
                             if (!owner) {
@@ -246,6 +259,7 @@ class TunnelViewModel: KoinComponent {
                                     if (bytes.size < TunnelFrame.HEADER_SIZE) continue
                                     val id = TunnelFrame.requestId(bytes)
                                     val payload = TunnelFrame.payload(bytes)
+                                    flow.onReceived(payload.size)
                                     if (TunnelFrame.isWebSocket(bytes)) {
                                         // Buffer fragments until the FIN arrives and forward the message
                                         // as one frame: ktor writes every Frame.Binary with the BINARY
@@ -254,32 +268,37 @@ class TunnelViewModel: KoinComponent {
                                         // local service would fail the connection.
                                         if (!TunnelFrame.isFin(bytes)) {
                                             wsBinaryFragments.update { it + (id to ((it[id] ?: ByteArray(0)) + payload)) }
+                                            // Credited right away: a message larger than the window
+                                            // would otherwise never complete.
+                                            wsProxyState.value[id]?.credit?.onConsumed(payload.size)
                                         } else {
                                             val buffered = wsBinaryFragments.getAndUpdate { it - id }[id]
                                             val message = buffered?.plus(payload) ?: payload
-                                            wsProxyState.value[id].relayToService("forward a binary frame") { send(Frame.Binary(true, message)) }
+                                            relayToService(wsProxyState, id, Frame.Binary(true, message), payload.size)
                                             updateWs(id) { it.copy(framesSent = it.framesSent + 1) }
                                         }
                                     } else {
+                                        // Dropped once the request coroutine gave up on the body and
+                                        // cancelled the queue.
                                         val body = requestBodies[id]
-                                        if (body != null) {
-                                            // Fails once the request coroutine gave up on the body and
-                                            // cancelled the channel; the rest of it is dropped.
-                                            try {
-                                                body.writeFully(payload)
-                                                body.flush()
-                                            } catch (e: Exception) {
-                                                if (!this@serverSession.isActive) throw e
-                                                requestBodies.remove(id)
-                                            }
+                                        if (body != null && !body.offer(payload)) {
+                                            requestBodies.remove(id)
+                                            body.cancel(StreamOverflowException(
+                                                "The service did not keep up with the request body; more than " +
+                                                    "${MAX_BUFFERED_STREAM_BYTES / (1024 * 1024)} MiB were waiting to be sent"
+                                            ))
                                         }
                                     }
                                 }
                                 is Frame.Text -> {
                                     when (val msg = json.decodeFromString<ServerMessage>(message.readText())) {
                                         is ServerMessage.HttpRequest -> {
+                                            val flow = flow
+                                            flow.openStream(msg.requestId)
+                                            val bodyCredit = flow.streamCredit(msg.requestId)
                                             val channel = if (msg.method != "GET") {
-                                                ByteChannel(autoFlush = true).also { requestBodies[msg.requestId] = it }
+                                                StreamQueue<ByteArray>(MAX_BUFFERED_STREAM_BYTES) { it.size }
+                                                    .also { requestBodies[msg.requestId] = it }
                                             } else null
 
                                             launch {
@@ -289,6 +308,8 @@ class TunnelViewModel: KoinComponent {
                                                 // browser already owns the response, so a later failure must
                                                 // just end the body stream, never trigger the error page.
                                                 var responseSent = false
+                                                // Whichever connection is still open when this ends, closed in finally.
+                                                var openLease: LocalConnectionPool.Lease? = null
                                                 try {
                                                     val target = when (val resolution = tunnelRequestResolver.getTarget(
                                                         projectKey = msg.project,
@@ -378,11 +399,10 @@ class TunnelViewModel: KoinComponent {
                                                     suspend fun sendRequest(lease: LocalConnectionPool.Lease): String? {
                                                         lease.output.writeFully(head)
                                                         lease.output.flush()
-                                                        if (channel != null) {
-                                                            channel.rawChunks { rawBytes ->
-                                                                lease.output.writeFully(rawBytes)
-                                                                lease.output.flush()
-                                                            }
+                                                        channel?.forEach { rawBytes ->
+                                                            lease.output.writeFully(rawBytes)
+                                                            lease.output.flush()
+                                                            bodyCredit.onConsumed(rawBytes.size)
                                                         }
                                                         checkpoints.mark("Request forwarded, awaiting response")
                                                         return lease.input.readLine()
@@ -405,6 +425,7 @@ class TunnelViewModel: KoinComponent {
                                                         return@launch
                                                     }
                                                     checkpoints.mark(if (lease.reused) "Reusing connection to $host:$port" else "Connected to $host:$port")
+                                                    openLease = lease
 
                                                     // A pooled connection may have been closed by the server while it sat
                                                     // idle, surfacing as a write error or an immediate EOF. Retried once on
@@ -430,6 +451,7 @@ class TunnelViewModel: KoinComponent {
                                                         lease.close()
                                                         lease = try {
                                                             connectionPool.acquire(host, port, isHttps, currentCoroutineContext(), poolable = true, forceFresh = true)
+                                                                .also { openLease = it }
                                                         } catch (e: Exception) {
                                                             checkpoints.mark("Failed to connect to $host:$port: ${e.message}")
                                                             _requests.update { list -> list.map { if (it.requestId == msg.requestId) it.copy(result = Request.Result.ServiceNotRunning(Clock.System.now())) else it } }
@@ -486,6 +508,15 @@ class TunnelViewModel: KoinComponent {
 
                                                     val bodyBuffer = ByteArray(64 * 1024)
 
+                                                    // HTTP body chunk: flags = 0. Must go through TunnelFrame so the
+                                                    // [16 id][1 flags][payload] layout matches what the API decodes
+                                                    // — a hand-rolled 16-byte header shifts the payload and makes the
+                                                    // API read the first body byte as the flags byte.
+                                                    suspend fun sendBody(length: Int) {
+                                                        flow.awaitSend(msg.requestId, length)
+                                                        this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, length)))
+                                                    }
+
                                                     // Whether the body ended exactly where its framing said it would; only
                                                     // then is the connection in a known state and safe to pool.
                                                     var framedCleanly = false
@@ -518,11 +549,7 @@ class TunnelViewModel: KoinComponent {
                                                                     input.readAvailable(bodyBuffer, 0, toRead)
                                                                 } catch (_: Exception) { break }
                                                                 if (read <= 0) break
-                                                                // HTTP body chunk: flags = 0. Must go through TunnelFrame so
-                                                                // the [16 id][1 flags][payload] layout matches what the API
-                                                                // decodes — a hand-rolled 16-byte header shifts the payload
-                                                                // and makes the API read the first body byte as the flags byte.
-                                                                this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, read)))
+                                                                sendBody(read)
                                                                 remaining -= read
                                                             }
                                                         }
@@ -534,7 +561,7 @@ class TunnelViewModel: KoinComponent {
                                                                 input.readAvailable(bodyBuffer, 0, toRead)
                                                             } catch (_: Exception) { break }
                                                             if (read <= 0) break
-                                                            this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, read)))
+                                                            sendBody(read)
                                                             remaining -= read
                                                         }
                                                         framedCleanly = remaining == 0L
@@ -546,7 +573,7 @@ class TunnelViewModel: KoinComponent {
                                                                 input.readAvailable(bodyBuffer)
                                                             } catch (_: Exception) { break }
                                                             if (read <= 0) break
-                                                            this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(msg.requestId, 0, bodyBuffer, read)))
+                                                            sendBody(read)
                                                         }
                                                     }
 
@@ -571,6 +598,7 @@ class TunnelViewModel: KoinComponent {
                                                     }
 
                                                     val upstreamClosing = rawHeaders.any { it.startsWith("Connection:", ignoreCase = true) && it.substringAfter(":").contains("close", ignoreCase = true) }
+                                                    openLease = null
                                                     if (lease.poolable && framedCleanly && !upstreamClosing) {
                                                         connectionPool.release(lease)
                                                     } else {
@@ -578,6 +606,10 @@ class TunnelViewModel: KoinComponent {
                                                     }
                                                 } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                                                     throw e
+                                                } catch (_: StreamCancelledException) {
+                                                    // The server gave up on the request (the browser is gone, or the
+                                                    // tunnel closed); nobody is waiting for the rest.
+                                                    checkpoints.mark("Cancelled by the server")
                                                 } catch (e: Exception) {
                                                     checkpoints.mark("Unexpected error: ${e.message}")
                                                     log(
@@ -602,21 +634,34 @@ class TunnelViewModel: KoinComponent {
                                                         // The tunnel itself is gone; nothing more we can send.
                                                     }
                                                 } finally {
-                                                    // A body nobody reads would fill up and block the reader loop,
-                                                    // and with it every other request on the tunnel.
+                                                    // A body nobody reads would only pile up in memory until http.end.
                                                     channel?.cancel()
+                                                    flow.closeStream(msg.requestId)
+                                                    openLease?.close()
                                                 }
                                             }
                                         }
                                         is ServerMessage.HttpEnd -> {
-                                            val body = requestBodies.remove(msg.requestId)
-                                            try {
-                                                body?.flushAndClose()
-                                            } catch (e: Exception) {
-                                                if (!this@serverSession.isActive) throw e
+                                            requestBodies.remove(msg.requestId)?.close()
+                                        }
+                                        is ServerMessage.HttpCancel -> {
+                                            val cancelled = StreamCancelledException("The server cancelled the request")
+                                            flow.closeStream(msg.requestId, cancelled)
+                                            requestBodies.remove(msg.requestId)?.cancel(cancelled)
+                                        }
+                                        is ServerMessage.FlowControl -> {
+                                            flow = TunnelFlowControl(enabled = true)
+                                            val credits = flow
+                                            launch {
+                                                credits.sendCredits { requestId, bytes ->
+                                                    sendSerialized<ClientMessage>(ClientMessage.Credit(requestId, bytes))
+                                                }
                                             }
                                         }
+                                        is ServerMessage.Credit -> flow.onCredit(msg.requestId, msg.bytes)
                                         is ServerMessage.WsOpen -> {
+                                            val flow = flow
+                                            flow.openStream(msg.requestId)
                                             launch wsRelay@{
                                                 // Nothing in here may escape into the tunnel session: an exception
                                                 // reaching it cancels the socket and takes every other request with it.
@@ -710,7 +755,22 @@ class TunnelViewModel: KoinComponent {
                                                                 }
                                                             }
                                                         ) {
-                                                            wsProxyState.update { it + (msg.requestId to this) }
+                                                            val toService = ToService(flow.streamCredit(msg.requestId))
+                                                            launch {
+                                                                try {
+                                                                    toService.frames.forEach {
+                                                                        send(it.frame)
+                                                                        toService.credit.onConsumed(it.flowBytes)
+                                                                    }
+                                                                } catch (e: Exception) {
+                                                                    if (e is kotlin.coroutines.cancellation.CancellationException && !isActive) throw e
+                                                                    log(LogLevel.DEBUG, "Could not relay a frame to WebSocket ${msg.path}: ${e.message ?: e::class.simpleName}")
+                                                                    // The service answers with a close of its own, which the loop
+                                                                    // below relays to the server.
+                                                                    runCatching { close(CloseReason(CloseReason.Codes.INTERNAL_ERROR, (e.message ?: "Relay failed").toCloseReasonMessage())) }
+                                                                }
+                                                            }
+                                                            wsProxyState.update { it + (msg.requestId to toService) }
                                                             opened = true
                                                             this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsOpened(
                                                                 requestId = msg.requestId,
@@ -719,33 +779,50 @@ class TunnelViewModel: KoinComponent {
                                                                 },
                                                             ))
 
-                                                            for (frame in incoming) {
-                                                                when (frame) {
-                                                                    is Frame.Text -> {
-                                                                        updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
-                                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
-                                                                            requestId = msg.requestId,
-                                                                            text = frame.readText()
-                                                                        ))
+                                                            /** False once the server closed the connection, so nothing more goes out. */
+                                                            suspend fun awaitCredit(bytes: Int) = try {
+                                                                flow.awaitSend(msg.requestId, bytes)
+                                                                true
+                                                            } catch (_: StreamCancelledException) {
+                                                                false
+                                                            }
+
+                                                            try {
+                                                                relay@ for (frame in incoming) {
+                                                                    when (frame) {
+                                                                        is Frame.Text -> {
+                                                                            updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
+                                                                            val text = frame.readText()
+                                                                            if (!awaitCredit(text.length)) break@relay
+                                                                            this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsText(
+                                                                                requestId = msg.requestId,
+                                                                                text = text,
+                                                                            ))
+                                                                        }
+                                                                        is Frame.Binary -> {
+                                                                            updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
+                                                                            val bytes = frame.readBytes()
+                                                                            if (!awaitCredit(bytes.size)) break@relay
+                                                                            this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(
+                                                                                msg.requestId,
+                                                                                TunnelFrame.webSocketFlags(frame.fin),
+                                                                                bytes,
+                                                                            )))
+                                                                        }
+                                                                        is Frame.Close -> {
+                                                                            this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
+                                                                                requestId = msg.requestId,
+                                                                                code = frame.readReason()?.code?.toInt() ?: 1000,
+                                                                                reason = frame.readReason()?.message ?: ""
+                                                                            ))
+                                                                            break@relay
+                                                                        }
+                                                                        else -> {}
                                                                     }
-                                                                    is Frame.Binary -> {
-                                                                        updateWs(msg.requestId) { it.copy(framesReceived = it.framesReceived + 1) }
-                                                                        this@serverSession.send(Frame.Binary(true, TunnelFrame.encode(
-                                                                            msg.requestId,
-                                                                            TunnelFrame.webSocketFlags(frame.fin),
-                                                                            frame.readBytes(),
-                                                                        )))
-                                                                    }
-                                                                    is Frame.Close -> {
-                                                                        this@serverSession.sendSerialized<ClientMessage>(ClientMessage.WsClose(
-                                                                            requestId = msg.requestId,
-                                                                            code = frame.readReason()?.code?.toInt() ?: 1000,
-                                                                            reason = frame.readReason()?.message ?: ""
-                                                                        ))
-                                                                        break
-                                                                    }
-                                                                    else -> {}
                                                                 }
+                                                            } finally {
+                                                                // Ends the relay coroutine when the service closed first; nothing is left to receive the frames.
+                                                                toService.frames.cancel()
                                                             }
                                                         }
                                                     } catch (e: Exception) {
@@ -792,21 +869,27 @@ class TunnelViewModel: KoinComponent {
                                                             reason = e.message ?: "The tunnel failed to open the WebSocket",
                                                         ))
                                                     }
+                                                } finally {
+                                                    // Also when the WebSocket never opened: the server sends no close back then.
+                                                    flow.closeStream(msg.requestId)
                                                 }
                                             }
                                         }
                                         is ServerMessage.WsText -> {
-                                            wsProxyState.value[msg.requestId].relayToService("forward a text frame") { send(Frame.Text(msg.text)) }
+                                            flow.onReceived(msg.text.length)
+                                            relayToService(wsProxyState, msg.requestId, Frame.Text(msg.text), msg.text.length)
                                             updateWs(msg.requestId) { it.copy(framesSent = it.framesSent + 1) }
                                         }
                                         is ServerMessage.WsClose -> {
                                             // The reason is truncated because a close frame carries at most 123
                                             // bytes of it and ktor throws on anything longer; see toCloseReasonMessage.
-                                            wsProxyState.value[msg.requestId].relayToService("close the WebSocket") {
-                                                close(CloseReason(msg.code.toShort(), msg.reason.toCloseReasonMessage()))
+                                            wsProxyState.getAndUpdate { it - msg.requestId }[msg.requestId]?.frames?.run {
+                                                offer(ToService.Outgoing(Frame.Close(CloseReason(msg.code.toShort(), msg.reason.toCloseReasonMessage())), 0))
+                                                close()
                                             }
+                                            // The server takes nothing more from this connection.
+                                            flow.closeStream(msg.requestId)
                                             updateWs(msg.requestId) { it.copy(closed = true) }
-                                            wsProxyState.update { it - msg.requestId }
                                             wsBinaryFragments.update { it - msg.requestId }
                                         }
                                         is ServerMessage.Ping -> {
@@ -889,25 +972,32 @@ class TunnelViewModel: KoinComponent {
         }
     }
 
+    /** The frames on their way to one local WebSocket service, and where their flow control credit goes. */
+    private class ToService(val credit: TunnelFlowControl.StreamCredit) {
+        class Outgoing(val frame: Frame, val flowBytes: Int)
+
+        val frames = StreamQueue<Outgoing>(MAX_BUFFERED_STREAM_BYTES) { it.flowBytes }
+    }
+
     /**
-     * Runs [block] on the upstream session of a proxied WebSocket, keeping its failure to itself.
+     * Hands [frame] to the relay coroutine of the proxied WebSocket [requestId], if it is still open.
      *
-     * The callers sit in the tunnel's reader loop, the one place where an exception cancels the tunnel
-     * socket and takes every other request down with it - while a frame that cannot be handed to an
-     * upstream only means that one local service is gone. The failure is often a CancellationException:
-     * that is how the engine reports a session it cancelled, and it belongs to that session rather than
-     * to this coroutine, so only an actual cancellation of the reader is passed on.
+     * Called from the tunnel's reader loop, so it never waits for the local service. A service that
+     * falls too far behind has its WebSocket closed, which its relay coroutine reports to the server.
      */
-    private suspend fun DefaultClientWebSocketSession?.relayToService(
-        what: String,
-        block: suspend DefaultClientWebSocketSession.() -> Unit,
+    private fun relayToService(
+        wsProxyState: MutableStateFlow<Map<Uuid, ToService>>,
+        requestId: Uuid,
+        frame: Frame,
+        flowBytes: Int,
     ) {
-        val session = this ?: return
-        try {
-            session.block()
-        } catch (e: Exception) {
-            if (e is kotlin.coroutines.cancellation.CancellationException && !currentCoroutineContext().isActive) throw e
-            log(LogLevel.DEBUG, "Could not $what: ${e.message ?: e::class.simpleName}")
+        val toService = wsProxyState.value[requestId] ?: return
+        if (!toService.frames.offer(ToService.Outgoing(frame, flowBytes))) {
+            wsProxyState.update { it - requestId }
+            toService.frames.cancel(StreamOverflowException(
+                "The service did not keep up with the WebSocket; more than " +
+                    "${MAX_BUFFERED_STREAM_BYTES / (1024 * 1024)} MiB were waiting to be sent"
+            ))
         }
     }
 
