@@ -301,11 +301,8 @@ class TunnelViewModel: KoinComponent {
                                                     .also { requestBodies[msg.requestId] = it }
                                             } else null
 
-                                            // Declared outside the coroutine because the catch/finally below read
-                                            // them: Kotlin/Native only restores coroutine locals it considers live
-                                            // at a suspension point and ignores uses in catch blocks, so a local
-                                            // there can be garbage when the coroutine resumes with an exception
-                                            // (e.g. the StreamCancelledException of an http.cancel).
+                                            // Outside the coroutine: Kotlin/Native doesn't restore locals only read in
+                                            // catch blocks when it resumes with an exception.
                                             val checkpoints = RequestCheckpoints()
                                             // Set once the status line has been forwarded: after that the
                                             // browser already owns the response, so a later failure must
@@ -667,8 +664,7 @@ class TunnelViewModel: KoinComponent {
                                         is ServerMessage.WsOpen -> {
                                             val flow = flow
                                             flow.openStream(msg.requestId)
-                                            // Outside the coroutine for the same reason as in the HTTP request
-                                            // above: the catch below reads them.
+                                            // Outside the coroutine, see checkpoints in HttpRequest.
                                             var serviceName = msg.service
                                             /** Whether the handshake with the local service went through. */
                                             var opened = false
