@@ -394,6 +394,10 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                                         if (read <= 0) break
                                         fileChunks.send(buffer.copyOf(read))
                                         channel.writeFully(buffer, 0, read)
+                                        // Ktor only flushes on its own once 1 MiB is buffered, which would hold
+                                        // back streamed responses (SSE). Flushing whenever the tunnel has nothing
+                                        // more queued keeps large downloads batched.
+                                        if (body.availableForRead == 0) channel.flush()
                                     }
                                     fileChunks.close()
                                     fileWriter.join()
