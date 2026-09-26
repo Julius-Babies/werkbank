@@ -95,9 +95,10 @@ private fun truncateText(
 		val needsWidthTruncation = line.length > availableWidth
 		val needsEllipsisSuffix = overflow == TextOverflow.Ellipsis && isLast && (needsWidthTruncation || hasOverflowLines)
 
+		// Every line has to fit, otherwise the parent layout is handed a wider child than it allowed.
 		val displayLine = when {
-			needsEllipsisSuffix -> line.take((availableWidth - 3).coerceAtLeast(0)) + "..."
-			overflow == TextOverflow.Clip && needsWidthTruncation -> line.take(availableWidth)
+			needsEllipsisSuffix -> (line.take((availableWidth - 3).coerceAtLeast(0)) + "...").take(availableWidth)
+			needsWidthTruncation -> line.take(availableWidth)
 			else -> line
 		}
 		result.add(displayLine)
