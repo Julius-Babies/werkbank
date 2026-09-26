@@ -301,15 +301,20 @@ class TunnelViewModel: KoinComponent {
                                                     .also { requestBodies[msg.requestId] = it }
                                             } else null
 
+                                            // Declared outside the coroutine because the catch/finally below read
+                                            // them: Kotlin/Native only restores coroutine locals it considers live
+                                            // at a suspension point and ignores uses in catch blocks, so a local
+                                            // there can be garbage when the coroutine resumes with an exception
+                                            // (e.g. the StreamCancelledException of an http.cancel).
+                                            val checkpoints = RequestCheckpoints()
+                                            // Set once the status line has been forwarded: after that the
+                                            // browser already owns the response, so a later failure must
+                                            // just end the body stream, never trigger the error page.
+                                            var responseSent = false
+                                            // Whichever connection is still open when this ends, closed in finally.
+                                            var openLease: LocalConnectionPool.Lease? = null
                                             launch {
-                                                val checkpoints = RequestCheckpoints()
                                                 checkpoints.mark("Received ${msg.method} request for ${msg.path}")
-                                                // Set once the status line has been forwarded: after that the
-                                                // browser already owns the response, so a later failure must
-                                                // just end the body stream, never trigger the error page.
-                                                var responseSent = false
-                                                // Whichever connection is still open when this ends, closed in finally.
-                                                var openLease: LocalConnectionPool.Lease? = null
                                                 try {
                                                     val target = when (val resolution = tunnelRequestResolver.getTarget(
                                                         projectKey = msg.project,
@@ -662,6 +667,11 @@ class TunnelViewModel: KoinComponent {
                                         is ServerMessage.WsOpen -> {
                                             val flow = flow
                                             flow.openStream(msg.requestId)
+                                            // Outside the coroutine for the same reason as in the HTTP request
+                                            // above: the catch below reads them.
+                                            var serviceName = msg.service
+                                            /** Whether the handshake with the local service went through. */
+                                            var opened = false
                                             launch wsRelay@{
                                                 // Nothing in here may escape into the tunnel session: an exception
                                                 // reaching it cancels the socket and takes every other request with it.
@@ -685,6 +695,7 @@ class TunnelViewModel: KoinComponent {
                                                         }
                                                     }
 
+                                                    serviceName = target.service.name
                                                     this@serverSession.sendSerialized<ClientMessage>(ClientMessage.RequestResolved(
                                                         requestId = msg.requestId,
                                                         service = target.service.name,
@@ -728,8 +739,6 @@ class TunnelViewModel: KoinComponent {
                                                     // Its own client per connection, so the failure of one upstream
                                                     // stays with that upstream; see upstreamWsClient.
                                                     val upstreamClient = upstreamWsClient()
-                                                    /** Whether the handshake with the local service went through. */
-                                                    var opened = false
                                                     try {
                                                         upstreamClient.webSocket(
                                                             urlString = target.url,
@@ -842,9 +851,9 @@ class TunnelViewModel: KoinComponent {
                                                             requestId = msg.requestId,
                                                             code = if (upstreamClosed) 1001 else 1011,
                                                             reason = when {
-                                                                upstreamClosed -> "The service ${target.service.name} closed the WebSocket"
-                                                                opened -> "The WebSocket to ${target.service.name} failed: ${e.message ?: e::class.simpleName}"
-                                                                else -> "The service ${target.service.name} refused the WebSocket handshake: ${e.message ?: e::class.simpleName}"
+                                                                upstreamClosed -> "The service $serviceName closed the WebSocket"
+                                                                opened -> "The WebSocket to $serviceName failed: ${e.message ?: e::class.simpleName}"
+                                                                else -> "The service $serviceName refused the WebSocket handshake: ${e.message ?: e::class.simpleName}"
                                                             },
                                                         ))
                                                     } finally {
