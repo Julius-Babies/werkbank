@@ -7,6 +7,7 @@ import app.werkbank.config.AppConfig
 import app.werkbank.database.DatabaseManager
 import app.werkbank.database.User
 import app.werkbank.database.Users
+import app.werkbank.util.ExpiringStore
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import es.jvbabi.authentikt.core.AuthentiktInstance
@@ -29,6 +30,7 @@ import org.koin.dsl.module
 import org.koin.ktor.ext.inject
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.toJavaInstant
 import kotlin.uuid.Uuid
 
@@ -45,7 +47,7 @@ private fun User.toAuthentiktUser() = object : AuthentiktUser<User>(this) {
  * destination domain. To avoid putting the token in the url (like ?token=<token>) we create a temporary code which
  * is the key and the token is the value.
  */
-val tokenMap = mutableMapOf<String, AuthRedirect>()
+val tokenMap = ExpiringStore<String, AuthRedirect>(ttl = 10.minutes, maxSize = 10_000)
 
 data class AuthRedirect(
     val token: String,
