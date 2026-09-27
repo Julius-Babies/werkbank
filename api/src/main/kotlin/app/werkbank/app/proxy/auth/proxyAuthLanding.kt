@@ -8,6 +8,7 @@ import app.werkbank.plugins.auth.AUTH_USER_JWT
 import app.werkbank.plugins.auth.UserPrincipal
 import app.werkbank.plugins.proxy.ProxyAuthSession
 import app.werkbank.plugins.proxy.proxyAuthSessions
+import app.werkbank.util.ExpiringStore
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.http.*
@@ -18,6 +19,7 @@ import org.koin.ktor.ext.inject
 import org.koin.mp.KoinPlatform.getKoin
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.toJavaInstant
 import kotlin.uuid.Uuid
 
@@ -126,7 +128,7 @@ fun Route.proxyAuthLanding() {
     }
 }
 
-val tokenMap = mutableMapOf<Uuid, String>()
+val tokenMap = ExpiringStore<Uuid, String>(ttl = 10.minutes, maxSize = 10_000)
 
 private suspend fun generateJwtForUserAndProject(user: User, project: Project): String {
     val db = getKoin().get<DatabaseManager>()

@@ -18,8 +18,8 @@ fun Route.callback() {
     val appConfig by inject<AppConfig>()
 
     get {
-        val code = call.parameters["code"]!!
-        val result = tokenMap[code]!!
+        val code = call.parameters["code"] ?: return@get call.respondText("No code provided", status = HttpStatusCode.BadRequest)
+        val result = tokenMap.remove(code) ?: return@get call.respondText("Invalid or expired code", status = HttpStatusCode.BadRequest)
 
         val jwt = JWT.decode(result.token)
         val jwtUserId = Uuid.parse(jwt.getClaim("sub").asString())

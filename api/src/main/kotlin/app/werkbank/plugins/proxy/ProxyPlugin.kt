@@ -9,6 +9,7 @@ import app.werkbank.database.Project
 import app.werkbank.database.Service
 import app.werkbank.database.User
 import app.werkbank.shared.tunnel.TunnelCheckpoint
+import app.werkbank.util.ExpiringStore
 import app.werkbank.util.isLikelyBrowser
 import app.werkbank.util.launchConnectionJob
 import io.ktor.client.*
@@ -35,6 +36,7 @@ import plugins.traceStep
 import java.io.File
 import java.util.*
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -433,7 +435,8 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
     }
 }
 
-val proxyAuthSessions = mutableMapOf<Uuid, ProxyAuthSession>()
+// Lives as long as a user may take to enter a project password on the landing page.
+val proxyAuthSessions = ExpiringStore<Uuid, ProxyAuthSession>(ttl = 30.minutes, maxSize = 10_000)
 
 data class ProxyAuthSession(
     val path: String,
