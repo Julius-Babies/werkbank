@@ -201,10 +201,13 @@ class TunnelInstance(
     /** Holds back every send until the client learned whether flow control is on; see [announceFlowControl]. */
     private val announced = CompletableDeferred<Unit>()
 
-    private val _requests = MutableStateFlow<List<TrackedRequest>>(emptyList())
+    private val live = LiveRequests<TrackedRequest>(MAX_COMPLETED_REQUESTS)
 
-    /** All requests seen on this tunnel, in arrival order. Observe each one's own [TrackedRequest.snapshot]. */
-    val requests: StateFlow<List<TrackedRequest>> = _requests
+    /**
+     * The running requests on this tunnel plus the most recently completed ones (see [LiveRequests]).
+     * Observe each one's own [TrackedRequest.snapshot].
+     */
+    val requests: StateFlow<List<TrackedRequest>> = live.items
 
     private val _pingMs = MutableStateFlow<Long?>(null)
     val pingMs: StateFlow<Long?> = _pingMs
@@ -231,7 +234,7 @@ class TunnelInstance(
         flow.openStream(record.requestId)
         val request = ProxyRequest(record, this, scope)
         sinks[record.requestId] = request
-        _requests.update { it + request }
+        live.add(record.requestId, request)
         return request
     }
 
@@ -253,9 +256,14 @@ class TunnelInstance(
         sinks[requestId]?.onWsBinary(bytes, fin)
     }
 
-    internal fun unregister(requestId: RequestId) {
+    /**
+     * The one place a request ends on this tunnel: it stops receiving messages, its flow control stream
+     * closes and it leaves the running requests. Idempotent, may be called concurrently.
+     */
+    internal fun release(requestId: RequestId) {
         sinks.remove(requestId)
         flow.closeStream(requestId)
+        live.release(requestId)
     }
 
     /**
@@ -299,7 +307,7 @@ class TunnelInstance(
         flow.openStream(record.requestId)
         val bridge = WsBridge(record, this)
         sinks[record.requestId] = bridge
-        _requests.update { it + bridge }
+        live.add(record.requestId, bridge)
 
         send(
             ServerMessage.WsOpen(
@@ -365,6 +373,9 @@ class TunnelInstance(
 
         /** No frame for this long means the client is gone, whatever the socket still claims. */
         val STALE_AFTER = 30.seconds
+
+        /** How many completed requests stay listed for dashboards that connect after they finished. */
+        private const val MAX_COMPLETED_REQUESTS = 500
     }
 }
 
@@ -469,7 +480,7 @@ class ProxyRequest internal constructor(
                 completedAt = it.completedAt ?: System.currentTimeMillis(),
             )
         }
-        connection.unregister(requestId)
+        connection.release(requestId)
         inbox.cancel()
         // The host may still be streaming the response; a cancel for a request it's done with is ignored.
         if (cancelled.compareAndSet(false, true)) connection.cancelStream(requestId)
@@ -544,7 +555,7 @@ class ProxyRequest internal constructor(
 
     private fun finish() {
         _snapshot.update { it.copy(completedAt = it.completedAt ?: System.currentTimeMillis()) }
-        connection.unregister(requestId)
+        connection.release(requestId)
         inbox.close()
     }
 
@@ -792,7 +803,7 @@ class WsBridge internal constructor(
         if (!opened.isCompleted) opened.completeExceptionally(TunnelClosedException())
         _snapshot.update { it.copy(completedAt = it.completedAt ?: System.currentTimeMillis()) }
         incomingFrames.close()
-        connection.unregister(requestId)
+        connection.release(requestId)
     }
 
     companion object {
