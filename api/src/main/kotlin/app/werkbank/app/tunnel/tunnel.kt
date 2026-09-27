@@ -486,6 +486,17 @@ class ProxyRequest internal constructor(
         if (cancelled.compareAndSet(false, true)) connection.cancelStream(requestId)
     }
 
+    /**
+     * Called once the proxied call is done with this request, however it ended. Idempotent. A request
+     * that is still streaming is cancelled like [fail]; otherwise its consume coroutine would wait for
+     * a reader forever and, as a child of the call, keep the call from completing.
+     */
+    fun release() {
+        // Only http.end closes the body without a cause; finish may just not have run yet.
+        if (responseBodyChannel.isClosedForWrite && responseBodyChannel.closedCause == null) finish()
+        else fail(Exception("The call ended before the response was delivered"))
+    }
+
     private suspend fun consume() {
         try {
             inbox.forEach { inbound ->

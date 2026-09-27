@@ -415,6 +415,7 @@ val SubdomainHandler = createApplicationPlugin(name = "SubdomainHandler") {
                         }
                     })
                 } finally {
+                    proxyRequest.release()
                     val record = proxyRequest.snapshot.value
                     tunnelSpan.finishWith(record)
                     // Hand the finished capture to the background queue and return immediately; it owns
