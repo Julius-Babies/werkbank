@@ -215,8 +215,10 @@ private fun TunnelScreen(viewModel: TunnelViewModel) {
                             )
                             Text(" ")
                             Text(
-                                value = connectionState.throwable.message ?: "Unknown error",
+                                // The status line is a single row; the full error is in the log file.
+                                value = connectionState.throwable.message?.lines()?.first() ?: "Unknown error",
                                 color = Color.Red,
+                                maxLines = 1,
                             )
                         }
                     }
