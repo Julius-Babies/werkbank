@@ -18,6 +18,7 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -87,15 +88,25 @@ fun Route.webappSocket() {
                         // Observe every request individually. A snapshot StateFlow replays its current
                         // state on subscription, so the history is sent automatically and every later
                         // phase transition (incl. WebSocket frame counters) streams as a RequestUpdate.
-                        val observed = mutableSetOf<RequestId>()
+                        // A snapshot never completes, so each collector stops after the completed record.
+                        // Ids are kept while the request is in the tunnel's list, so a request is never
+                        // observed twice, and forgotten once the tunnel drops it.
+                        val observed = HashSet<RequestId>()
                         tunnel.requests.collect { requests ->
-                            requests.filter { observed.add(it.requestId) }.forEach { request ->
+                            observed.retainAll(requests.mapTo(HashSet()) { it.requestId })
+                            requests.forEach { request ->
+                                if (!observed.add(request.requestId)) return@forEach
                                 active.launch {
-                                    request.snapshot.collect { record ->
-                                        sendSerialized<WebAppServerMessage>(
-                                            record.toRequestUpdate(projectNames(record.projectId, record.projectName))
-                                        )
-                                    }
+                                    request.snapshot
+                                        .transformWhile { record ->
+                                            emit(record)
+                                            record.completedAt == null
+                                        }
+                                        .collect { record ->
+                                            sendSerialized<WebAppServerMessage>(
+                                                record.toRequestUpdate(projectNames(record.projectId, record.projectName))
+                                            )
+                                        }
                                 }
                             }
                         }
