@@ -43,9 +43,12 @@ class SetupCommand : SuspendingCliktCommand("setup"), KoinComponent {
         val werkbankFileContent = werkbankfile.readText()
         val werkbankFile = Yaml.default.decodeFromString(Werkbankfile.serializer(), werkbankFileContent)
 
-        val projects = projectRepository.getAllProjects()
-        projects.firstOrNull { it.id == werkbankFile.project.id }?.let { existingProject ->
-            if (existingProject.path != currentDirectory.absolutePath) {
+        // Read the raw config: getAllProjects() would drop a moved project before its states could be kept
+        mainConfig.getConfig().projects.orEmpty().firstOrNull { it.id == werkbankFile.project.id }?.let { existingProject ->
+            val wasMoved = !File(existingProject.path).resolve(ProjectRepository.WERKBANKFILE_NAME).exists()
+            if (wasMoved) {
+                println(buildStyledString { gray { +"Project with id ${werkbankFile.project.id} was moved from ${existingProject.path}" } })
+            } else if (existingProject.path != currentDirectory.absolutePath) {
                 println(buildStyledString { yellow { +"Project with id ${werkbankFile.project.id} already exists in another directory" } })
                 println("By continuing, the path of the existing project will be overwritten. This can be useful if the project got moved.")
                 println(buildStyledString {

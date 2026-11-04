@@ -1,6 +1,6 @@
 package commands.project
 
-import app.config.MainConfig
+import app.repository.ProjectRepository
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import es.jvbabi.tui.table.buildTable
 import es.jvbabi.tui.table.components.BorderStyle
@@ -12,7 +12,7 @@ class ProjectCommand : SuspendingCliktCommand("project"), KoinComponent {
 
     override val invokeWithoutSubcommand: Boolean = true
 
-    private val mainConfig by inject<MainConfig>()
+    private val projectRepository by inject<ProjectRepository>()
 
     override suspend fun run() {
         if (currentContext.invokedSubcommand != null) return
@@ -26,7 +26,7 @@ class ProjectCommand : SuspendingCliktCommand("project"), KoinComponent {
                 cell { +buildStyledString { bold { +"Location" } } }
             }
 
-            mainConfig.getConfig().projects.orEmpty().forEach { project ->
+            projectRepository.getAllProjects().forEach { project ->
                 row {
                     cell { +project.id }
                     cell { +project.name }
